@@ -1,0 +1,2 @@
+date,order-id,value-recovery-type,lpn,manual-order-item-id,merchant-sku,fnsku,asin,quantity,unit-status,reason-for-unit-status,grade-and-resell-used-condition,grade-and-resell-used-merchant-sku,grade-and-resell-used-fnsku
+2024-01-13,113-1234567-1234567,Grade and Resell,LPN-ABC,,MY-MSKU,X00FN,B00ABC,1,Succeeded,,Used_Good,USED-MSKU,X00USED

@@ -1,0 +1,2 @@
+shipment-date,sku,asin,fulfillment-center-id,original-fulfillment-center-id,quantity,replacement-reason-code,replacement-amazon-order-id,original-amazon-order-id
+2024-01-14,MY-MSKU,B00ABC,ABE1,ABE1,1,Damaged_Defective,112-1234567-1234567,111-1234567-1234567

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InvenSync ERP</title>
+
+  <!-- Inter font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Lucide icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+  <!-- Design system -->
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+
+  <div id="app-root">
+    <!-- Sidebar -->
+    <aside id="app-sidebar"></aside>
+
+    <!-- Main area -->
+    <div id="app-main">
+      <header id="app-topbar"></header>
+      <main id="app-view"></main>
+    </div>
+  </div>
+
+  <!-- Components — load before app.js -->
+  <script src="/assets/components/toast.js"></script>
+  <script src="/assets/components/modal.js"></script>
+  <script src="/assets/components/sidebar.js"></script>
+  <script src="/assets/components/topbar.js"></script>
+  <script src="/assets/components/table.js"></script>
+
+  <!-- Router + app bootstrap -->
+  <script src="/assets/app.js"></script>
+
+  <div id="g-tip"></div>
+
+  <div class="drawer-overlay" id="drawer-overlay" onclick="window.closeDrawer && window.closeDrawer()"></div>
+  <div class="drawer" id="app-drawer">
+    <div class="drawer-header">
+      <div>
+        <div class="drawer-title" id="drawer-title">—</div>
+        <div class="drawer-sub"   id="drawer-sub">—</div>
+      </div>
+      <button class="drawer-close" onclick="window.closeDrawer && window.closeDrawer()">✕ Close</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+  </div>
+</body>
+</html>

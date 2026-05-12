@@ -1,0 +1,881 @@
+// =============================================================
+// FBA Inventory ERP — Prisma Schema
+// Database: PostgreSQL (fresh)
+// Generated from: InvenSync HTML audit
+// Decisions applied:
+//   - FC transfers INCLUDED in reconciliation formula
+//   - Multi-store support ON (store column kept everywhere)
+//   - RemovalReceipts ALL fields kept (full migration shape)
+//   - Soft delete (deletedAt) on all business record models
+//   - Every model has id (cuid), createdAt, updatedAt
+//   - snake_case table names via @@map
+//   - @@index on all FK and commonly filtered fields
+// =============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =============================================================
+// ENUMS
+// =============================================================
+
+enum UserRole {
+  ADMIN
+  VENDOR
+  VIEWER
+}
+
+enum CaseStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+}
+
+enum ReconType {
+  SHIPMENT
+  REMOVAL
+  RETURN
+  FC_TRANSFER
+  REIMBURSEMENT
+  FBA_BALANCE
+  GNR
+  REPLACEMENT
+  OTHER
+}
+
+enum AdjType {
+  QUANTITY
+  FINANCIAL
+  STATUS
+  OTHER
+}
+
+enum GradeResellStatus {
+  PENDING
+  GRADED
+  LISTED
+  SOLD
+  RETURNED
+  DISPOSED
+}
+
+enum WareHouseStatus {
+  PENDING
+  RECEIVED
+  PROCESSED
+  COMPLETE
+}
+
+enum RemovalReceiptStatus {
+  AWAITING
+  PARTIAL
+  COMPLETE
+  MISSING
+  DAMAGED
+  REIMBURSED
+  NOT_APPLICABLE
+}
+
+enum FinalStatus {
+  OPEN
+  RESOLVED
+  CLOSED
+}
+
+// =============================================================
+// AUTH / USERS
+// =============================================================
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(VIEWER)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+// =============================================================
+// UPLOAD TRACKING
+// =============================================================
+
+model UploadedFile {
+  id               String    @id @default(cuid())
+  reportType       String
+  filename         String
+  rowCount         Int       @default(0)
+  rowsSkipped      Int       @default(0)
+  isLocked         Boolean   @default(false)
+  store            String?
+  dataTargetTable  String?   @map("data_target_table") @db.VarChar(64)
+  reportLatestDate DateTime? @map("report_latest_date") @db.Date
+  uploadedAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([reportType])
+  @@index([uploadedAt])
+  @@index([store])
+  @@map("uploaded_files")
+}
+
+// =============================================================
+// CORE UPLOADED FACT TABLES
+// =============================================================
+
+model ShippedToFba {
+  id         String    @id @default(cuid())
+  msku       String
+  title      String?
+  asin       String?
+  fnsku      String?
+  shipDate   DateTime?
+  quantity   Int       @default(0)
+  shipmentId String?
+  store      String?
+
+  publisherName             String?   @map("publisher_name")
+  supplierName              String?   @map("supplier_name")
+  deliveryLocation          String?   @map("delivery_location")
+  purchaseId                String?   @map("purchase_id")
+  finalNetPriceUsd          Decimal?  @map("final_net_price_usd") @db.Decimal(12, 4)
+  commissionUsd             Decimal?  @map("commission_usd") @db.Decimal(12, 4)
+  supplierShippingUsd       Decimal?  @map("supplier_shipping_usd") @db.Decimal(12, 4)
+  warehousePrepUsd          Decimal?  @map("warehouse_prep_usd") @db.Decimal(12, 4)
+  inventoryPlaceInboundUsd  Decimal?  @map("inventory_place_inbound_usd") @db.Decimal(12, 4)
+  expertChargesUsd          Decimal?  @map("expert_charges_usd") @db.Decimal(12, 4)
+  otherChargesUsd           Decimal?  @map("other_charges_usd") @db.Decimal(12, 4)
+  perBookCostUsd            Decimal?  @map("per_book_cost_usd") @db.Decimal(12, 4)
+  finalTotalPurchaseCostUsd Decimal?  @map("final_total_purchase_cost_usd") @db.Decimal(12, 4)
+  costUpdatedAt             DateTime? @map("cost_updated_at")
+
+  uploadedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  @@unique([shipmentId, msku, fnsku])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([asin])
+  @@index([shipmentId])
+  @@index([store])
+  @@index([shipDate])
+  @@map("shipped_to_fba")
+}
+
+model SalesData {
+  id             String    @id @default(cuid())
+  msku           String?
+  fnsku          String?
+  asin           String?
+  quantity       Int       @default(0)
+  saleDate       DateTime?
+  orderId        String?
+  currency       String?
+  productAmount  Decimal?  @db.Decimal(12, 2)
+  shippingAmount Decimal?  @db.Decimal(12, 2)
+  giftAmount     Decimal?  @db.Decimal(12, 2)
+  fc             String?
+  shipCity       String?
+  shipState      String?
+  shipPostalCode String?
+  store          String?
+  uploadedAt     DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([orderId, saleDate])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([asin])
+  @@index([orderId])
+  @@index([saleDate])
+  @@index([store])
+  @@map("sales_data")
+}
+
+model FbaReceipt {
+  id                String    @id @default(cuid())
+  msku              String?
+  title             String?
+  asin              String?
+  fnsku             String?
+  quantity          Int       @default(0)
+  receiptDate       DateTime?
+  shipmentId        String?
+  eventType         String?
+  fulfillmentCenter String?
+  disposition       String?
+  reason            String?
+  country           String?
+  reconciledQty     Int       @default(0)
+  unreconciledQty   Int       @default(0)
+  receiptDatetime   DateTime?
+  store             String?
+  uploadedAt        DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@unique([fnsku, receiptDate, shipmentId])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([shipmentId])
+  @@index([store])
+  @@index([receiptDate])
+  @@map("fba_receipts")
+}
+
+model CustomerReturn {
+  id                  String    @id @default(cuid())
+  msku                String?
+  asin                String?
+  fnsku               String?
+  title               String?
+  quantity            Int       @default(0)
+  disposition         String?
+  detailedDisposition String?
+  reason              String?
+  status              String?
+  returnDate          DateTime?
+  orderId             String?
+  fulfillmentCenter   String?
+  licensePlateNumber  String?
+  customerComments    String?
+  store               String?
+  uploadedAt          DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  @@unique([orderId, fnsku, returnDate])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([asin])
+  @@index([orderId])
+  @@index([returnDate])
+  @@index([store])
+  @@map("customer_returns")
+}
+
+model Reimbursement {
+  id                String    @id @default(cuid())
+  msku              String?
+  fnsku             String?
+  asin              String?
+  title             String?
+  reason            String?
+  quantity          Int       @default(0)
+  amount            Decimal?  @db.Decimal(12, 2)
+  reimbursementId   String?
+  approvalDate      DateTime?
+  caseId            String?
+  amazonOrderId     String?
+  conditionVal      String?
+  currency          String?
+  amountPerUnit     Decimal?  @db.Decimal(12, 2)
+  qtyCash           Int       @default(0)
+  qtyInventory      Int       @default(0)
+  originalReimbId   String?
+  originalReimbType String?
+  store             String?
+  uploadedAt        DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@unique([reimbursementId, msku, fnsku])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([asin])
+  @@index([amazonOrderId])
+  @@index([reason])
+  @@index([store])
+  @@index([approvalDate])
+  @@map("reimbursements")
+}
+
+model FbaRemoval {
+  id           String    @id @default(cuid())
+  msku         String?
+  fnsku        String?
+  quantity     Int       @default(0)
+  disposition  String?
+  orderStatus  String?
+  orderId      String?
+  requestDate  DateTime?
+  orderSource  String?
+  orderType    String?
+  lastUpdated  DateTime?
+  cancelledQty Int       @default(0)
+  disposedQty  Int       @default(0)
+  inProcessQty Int       @default(0)
+  removalFee   Decimal?  @db.Decimal(12, 2)
+  currency     String?
+  store        String?
+  uploadedAt   DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([orderId, fnsku, requestDate])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([orderId])
+  @@index([store])
+  @@index([requestDate])
+  @@map("fba_removals")
+}
+
+model FcTransfer {
+  id                String    @id @default(cuid())
+  msku              String?
+  fnsku             String?
+  asin              String?
+  title             String?
+  quantity          Int       @default(0)
+  transferDate      DateTime?
+  eventType         String?
+  referenceId       String?
+  fulfillmentCenter String?
+  disposition       String?
+  reason            String?
+  country           String?
+  reconciledQty     Int       @default(0)
+  unreconciledQty   Int       @default(0)
+  transferDatetime  DateTime?
+  store             String?
+  uploadedAt        DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@unique([fnsku, transferDate, referenceId])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([referenceId])
+  @@index([store])
+  @@index([transferDate])
+  @@map("fc_transfers")
+}
+
+model ShipmentStatus {
+  id            String    @id @default(cuid())
+  shipmentName  String?
+  shipmentId    String?
+  createdDate   DateTime?
+  lastUpdated   DateTime?
+  shipTo        String?
+  totalSkus     Int       @default(0)
+  unitsExpected Int       @default(0)
+  unitsLocated  Int       @default(0)
+  status        String?
+  store         String?
+  uploadedAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@unique([shipmentId])
+  @@index([shipmentId])
+  @@index([status])
+  @@index([store])
+  @@map("shipment_status")
+}
+
+model FbaSummary {
+  id                String    @id @default(cuid())
+  msku              String?
+  fnsku             String?
+  asin              String?
+  title             String?
+  disposition       String?
+  endingBalance     Int       @default(0)
+  startingBalance   Int       @default(0)
+  inTransit         Int       @default(0)
+  receipts          Int       @default(0)
+  customerShipments Int       @default(0)
+  customerReturns   Int       @default(0)
+  vendorReturns     Int       @default(0)
+  warehouseTransfer Int       @default(0)
+  found             Int       @default(0)
+  lost              Int       @default(0)
+  damaged           Int       @default(0)
+  disposedQty       Int       @default(0)
+  otherEvents       Int       @default(0)
+  unknownEvents     Int       @default(0)
+  location          String?
+  store             String?
+  summaryDate       DateTime?
+  uploadedAt        DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@unique([msku, fnsku, disposition, summaryDate, store])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([asin])
+  @@index([store])
+  @@index([summaryDate])
+  @@map("fba_summary")
+}
+
+model Replacement {
+  id                          String    @id @default(cuid())
+  msku                        String?
+  asin                        String?
+  orderId                     String?
+  quantity                    Int       @default(0)
+  shipmentDate                DateTime?
+  fulfillmentCenterId         String?
+  originalFulfillmentCenterId String?
+  replacementReasonCode       String?
+  replacementOrderId          String?
+  originalOrderId             String?
+  store                       String?
+  uploadedAt                  DateTime  @default(now())
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  deletedAt                   DateTime?
+
+  // Nullable replacementOrderId: PostgreSQL UNIQUE allows multiple NULLs;
+  // for a strict partial unique (WHERE NOT NULL), add SQL in migration.
+  @@unique([orderId, msku, replacementOrderId])
+  @@index([msku])
+  @@index([asin])
+  @@index([orderId])
+  @@index([originalOrderId])
+  @@index([store])
+  @@map("replacements")
+}
+
+model Adjustment {
+  id         String    @id @default(cuid())
+  msku       String
+  flag       String?
+  quantity   Int       @default(0)
+  store      String?
+  uploadedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  @@unique([msku])
+  @@index([msku])
+  @@index([store])
+  @@map("adjustments")
+}
+
+// =============================================================
+// REMOVAL OPERATIONS
+// =============================================================
+
+model RemovalShipment {
+  id               String    @id @default(cuid())
+  orderId          String?
+  requestDate      DateTime?
+  shipmentDate     DateTime?
+  msku             String?
+  fnsku            String?
+  disposition      String?
+  shippedQty       Int       @default(0)
+  carrier          String?
+  trackingNumber   String?
+  removalOrderType String?
+  store            String?
+  uploadedAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@unique([orderId, fnsku, trackingNumber])
+  @@index([orderId])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([store])
+  @@map("removal_shipments")
+}
+
+model RemovalReceipt {
+  id                String               @id @default(cuid())
+  // Core receipt fields
+  orderId           String?
+  fnsku             String?
+  msku              String?
+  trackingNumber    String?
+  carrier           String?
+  expectedQty       Int                  @default(0)
+  receivedDate      DateTime?
+  receivedQty       Int                  @default(0)
+  sellableQty       Int                  @default(0)
+  unsellableQty     Int                  @default(0)
+  conditionReceived String?
+  missingQty        Int                  @default(0) // computed: expectedQty - receivedQty
+  notes             String?
+  receivedBy        String?
+  status            RemovalReceiptStatus @default(AWAITING)
+  warehouseComment  String?
+  transferTo        String?
+  whStatus          WareHouseStatus      @default(PENDING)
+  // Extended seller / billing fields
+  sellerStatus      String?
+  sellerComments    String?
+  warehouseBilled   Boolean              @default(false)
+  billedDate        DateTime?
+  billedAmount      Decimal?             @db.Decimal(12, 2)
+  wrongItemReceived Boolean              @default(false)
+  wrongItemNotes    String?
+  reimbQty          Int                  @default(0)
+  reimbAmount       Decimal?             @db.Decimal(12, 2)
+  postAction        String?
+  actionRemarks     String?
+  actionDate        DateTime?
+  finalStatus       FinalStatus          @default(OPEN)
+  // Case linkage
+  caseId            String?
+  caseType          String?
+  caseRaisedAt      DateTime?
+  caseTrackerId     String?
+  store             String?
+  // Extended fields (Task L)
+  invoiceNumber     String?              @map("invoice_number")
+  reshippedQty      Int                  @default(0) @map("reshipped_qty")
+  itemTitle         String?              @map("item_title")
+  binLocation       String?              @map("bin_location")
+  attachmentUrls    Json?                @map("attachment_urls")
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  deletedAt         DateTime?
+
+  @@index([orderId])
+  @@index([fnsku])
+  @@index([msku])
+  @@index([trackingNumber])
+  @@index([status])
+  @@index([store])
+  @@map("removal_receipts")
+}
+
+// =============================================================
+// GNR / GRADE & RESELL
+// =============================================================
+
+model GnrReport {
+  id                  String    @id @default(cuid())
+  reportDate          DateTime?
+  orderId             String?
+  valueRecoveryType   String?
+  lpn                 String?
+  manualOrderItemId   String?
+  msku                String?
+  fnsku               String?
+  asin                String?
+  quantity            Int       @default(0)
+  unitStatus          String?
+  reasonForUnitStatus String?
+  usedCondition       String?
+  usedMsku            String?
+  usedFnsku           String?
+  store               String?
+  uploadedAt          DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
+
+  @@unique([orderId, fnsku, reportDate, lpn])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([usedMsku])
+  @@index([usedFnsku])
+  @@index([orderId])
+  @@index([store])
+  @@map("gnr_report")
+}
+
+model GradeResellItem {
+  id            String            @id @default(cuid())
+  source        String?
+  sourceRef     String?
+  msku          String
+  fnsku         String?
+  asin          String?
+  title         String?
+  quantity      Int               @default(0)
+  grade         String?
+  resellPrice   Decimal?          @db.Decimal(12, 2)
+  channel       String?
+  status        GradeResellStatus @default(PENDING)
+  notes         String?
+  gradedBy      String?
+  gradedDate    DateTime?
+  soldDate      DateTime?
+  soldPrice     Decimal?          @db.Decimal(12, 2)
+  // GNR extended fields
+  orderId       String?
+  lpn           String?
+  usedMsku      String?
+  usedFnsku     String?
+  usedCondition String?
+  unitStatus    String?
+  store         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+
+  @@unique([usedMsku, usedFnsku])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([status])
+  @@index([store])
+  @@map("grade_resell_items")
+}
+
+// =============================================================
+// PAYMENT / SETTLEMENT
+// =============================================================
+
+model FullReconRemark {
+  fnsku     String   @id
+  remarks   String?
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("full_recon_remarks")
+}
+
+model GnrReconRemark {
+  usedMsku  String   @map("used_msku")
+  usedFnsku String   @map("used_fnsku")
+  remarks   String?
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@id([usedMsku, usedFnsku])
+  @@map("gnr_recon_remarks")
+}
+
+model SettlementReport {
+  id                       String    @id @default(cuid())
+  settlementId             String?   @map("settlement_id")
+  settlementStartDate      String?   @map("settlement_start_date")
+  settlementEndDate        String?   @map("settlement_end_date")
+  depositDate              String?   @map("deposit_date")
+  totalAmount              Decimal?  @map("total_amount") @db.Decimal(14, 4)
+  currency                 String?
+  transactionType          String?   @map("transaction_type")
+  orderId                  String?   @map("order_id")
+  merchantOrderId          String?   @map("merchant_order_id")
+  adjustmentId             String?   @map("adjustment_id")
+  shipmentId               String?   @map("shipment_id")
+  marketplaceName          String?   @map("marketplace_name")
+  amountType               String?   @map("amount_type")
+  amountDescription        String?   @map("amount_description")
+  amount                   Decimal?  @db.Decimal(14, 4)
+  fulfillmentId            String?   @map("fulfillment_id")
+  postedDate               String?   @map("posted_date")
+  postedDateTime           String?   @map("posted_date_time")
+  orderItemCode            String?   @map("order_item_code")
+  merchantOrderItemId      String?   @map("merchant_order_item_id")
+  merchantAdjustmentItemId String?   @map("merchant_adjustment_item_id")
+  sku                      String?
+  quantityPurchased        Int?      @map("quantity_purchased")
+  promotionId              String?   @map("promotion_id")
+  store                    String?
+  uploadedAt               DateTime  @default(now()) @map("uploaded_at")
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  deletedAt                DateTime?
+
+  @@index([settlementId])
+  @@index([transactionType])
+  @@index([orderId])
+  @@index([sku])
+  @@index([postedDate])
+  @@index([store])
+  @@map("settlement_report")
+}
+
+model PaymentRepository {
+  id                         String    @id @default(cuid())
+  postedDatetime             String?
+  settlementId               String?
+  lineType                   String?
+  orderId                    String?
+  sku                        String?
+  description                String?
+  quantity                   Int       @default(0)
+  marketplace                String?
+  accountType                String?
+  fulfillmentId              String?
+  taxCollectionModel         String?
+  productSales               Decimal?  @db.Decimal(12, 2)
+  productSalesTax            Decimal?  @db.Decimal(12, 2)
+  shippingCredits            Decimal?  @db.Decimal(12, 2)
+  shippingCreditsTax         Decimal?  @db.Decimal(12, 2)
+  giftWrapCredits            Decimal?  @db.Decimal(12, 2)
+  giftWrapCreditsTax         Decimal?  @db.Decimal(12, 2)
+  promotionalRebates         Decimal?  @db.Decimal(12, 2)
+  promotionalRebatesTax      Decimal?  @db.Decimal(12, 2)
+  marketplaceWithheldTax     Decimal?  @db.Decimal(12, 2)
+  sellingFees                Decimal?  @db.Decimal(12, 2)
+  fbaFees                    Decimal?  @db.Decimal(12, 2)
+  otherTransactionFees       Decimal?  @db.Decimal(12, 2)
+  other                      Decimal?  @db.Decimal(12, 2)
+  total                      Decimal?  @db.Decimal(12, 2)
+  transactionStatus          String?
+  transactionReleaseDatetime String?
+  store                      String?
+  uploadedAt                 DateTime  @default(now())
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+  deletedAt                  DateTime?
+
+  @@unique([settlementId, orderId, sku, lineType, postedDatetime])
+  @@index([orderId])
+  @@index([sku])
+  @@index([settlementId])
+  @@index([store])
+  @@map("payment_repository")
+}
+
+// =============================================================
+// OPERATIONAL — CASES & ADJUSTMENTS
+// =============================================================
+
+model CaseTracker {
+  id             String     @id @default(cuid())
+  // Identity
+  msku           String?
+  asin           String?
+  fnsku          String?
+  title          String?
+  // Recon type and references
+  reconType      ReconType
+  shipmentId     String?
+  orderId        String?
+  referenceId    String?
+  // Case details
+  caseReason     String?
+  unitsClaimed   Int        @default(0)
+  unitsApproved  Int        @default(0)
+  amountClaimed  Decimal?   @db.Decimal(12, 2)
+  amountApproved Decimal?   @db.Decimal(12, 2)
+  currency       String?    @default("USD")
+  // Workflow
+  status         CaseStatus @default(OPEN)
+  issueDate      DateTime?
+  raisedDate     DateTime?
+  resolvedDate   DateTime?
+  notes          String?
+  store          String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deletedAt      DateTime?
+
+  manualAdjustments ManualAdjustment[]
+
+  @@index([msku])
+  @@index([fnsku])
+  @@index([asin])
+  @@index([reconType])
+  @@index([status])
+  @@index([shipmentId])
+  @@index([orderId])
+  @@index([store])
+  @@map("case_tracker")
+}
+
+model ManualAdjustment {
+  id          String       @id @default(cuid())
+  // Identity
+  msku        String?
+  asin        String?
+  fnsku       String?
+  title       String?
+  // Recon type and references
+  reconType   ReconType
+  shipmentId  String?
+  orderId     String?
+  referenceId String?
+  // Adjustment details
+  adjType     AdjType      @default(QUANTITY)
+  qtyBefore   Int          @default(0)
+  qtyAdjusted Int          @default(0)
+  qtyAfter    Int          @default(0)
+  reason      String?
+  verifiedBy  String?
+  sourceDoc   String?
+  notes       String?
+  adjDate     DateTime?
+  store       String?
+  // Optional case link
+  caseId      String?
+  case        CaseTracker? @relation(fields: [caseId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  @@index([msku])
+  @@index([fnsku])
+  @@index([reconType])
+  @@index([caseId])
+  @@index([store])
+  @@map("manual_adjustments")
+}
+
+// =============================================================
+// RECONCILIATION SUMMARY VIEW (materialised as a table)
+// The original is a SQL VIEW — we replicate as a refresh-able
+// snapshot table so Next.js can query it via Prisma easily.
+// FC transfers are INCLUDED per your decision.
+// =============================================================
+
+model ReconciliationSummary {
+  id               String   @id @default(cuid())
+  msku             String
+  fnsku            String?
+  asin             String?
+  title            String?
+  store            String?
+  // Quantity components
+  shippedQty       Int      @default(0)
+  receivedQty      Int      @default(0)
+  soldQty          Int      @default(0)
+  returnQty        Int      @default(0)
+  reimbQty         Int      @default(0)
+  removalQty       Int      @default(0)
+  fcTransferQty    Int      @default(0) // ← INCLUDED (your decision)
+  fbaEndingBalance Int      @default(0)
+  // Computed
+  expectedQty      Int      @default(0) // shipped + received + returns + reimb + fcTransfer − sold − removals
+  actualQty        Int      @default(0)
+  variance         Int      @default(0) // expectedQty − actualQty
+  // Status
+  status           String   @default("pending") // matched / pending / mismatch
+  lastRefreshedAt  DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([msku, store])
+  @@index([msku])
+  @@index([fnsku])
+  @@index([status])
+  @@index([store])
+  @@map("reconciliation_summary")
+}

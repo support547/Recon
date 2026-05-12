@@ -1,0 +1,2 @@
+Date,FNSKU,ASIN,MSKU,Product Name,Disposition,Starting Warehouse Balance,In transit between warehouses,Receipts,Customer Shipments,Customer Returns,Vendor Returns,Warehouse transfer events,Found,Lost,Damaged,Disposed,Other events,Unknown Events,Ending Warehouse Balance,Location,Store
+2024-01-31,X00FN,B00ABC,MY-MSKU,Widget,SELLABLE,100,0,20,15,2,0,0,0,0,0,0,0,0,105,US,

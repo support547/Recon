@@ -1,0 +1,2 @@
+approval-date,reimbursement-id,case-id,amazon-order-id,reason,sku,fnsku,asin,product-name,condition,currency-unit,amount-per-unit,amount-total,qty-cash,qty-inventory,qty-total,original-reimbursement-id,original-reimbursement-type
+2024-01-08,RMB123,12345,111-1234567-1234567,Lost_Warehouse,MY-MSKU,X00FN,B00ABC,Widget,New,USD,8.50,8.50,0,1,1,,

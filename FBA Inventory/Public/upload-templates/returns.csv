@@ -1,0 +1,2 @@
+return-date,order-id,sku,asin,fnsku,product-name,quantity,fulfillment-center-id,detailed-disposition,reason,status,license-plate-number,customer-comments
+2024-01-12,111-1234567-1234567,MY-MSKU,B00ABC,X00FN,Widget,1,ABE1,SELLABLE,CUSTOMER_RETURN,Reimbursed,LPN123,

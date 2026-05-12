@@ -1,0 +1,2 @@
+Date,FNSKU,ASIN,MSKU,Title,Event Type,Reference ID,Quantity,Fulfillment Center,Disposition,Reason,Country,Reconciled Qty,Unreconciled Qty,Date and Time,Store
+2024-01-10,X00FN123,B00ABC,MY-MSKU,Widget,Receipts,FBA15ABCDEF,24,ABE1,SELLABLE,,US,0,0,2024-01-10 12:00,

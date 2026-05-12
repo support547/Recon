@@ -1,0 +1,2 @@
+request-date,order-id,shipment-date,sku,fnsku,disposition,shipped-quantity,carrier,tracking-number,removal-order-type
+2024-01-09,11-12345-67890,2024-01-12,MY-MSKU,X00FN,Sellable,8,UPS,1Z999AA10123456784,Return

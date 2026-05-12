@@ -1,0 +1,2 @@
+Date,FNSKU,ASIN,MSKU,Title,Event Type,Reference ID,Quantity,Fulfillment Center,Disposition,Reason,Country,Reconciled Qty,Unreconciled Qty,Date and Time,Store
+2024-01-11,X00FN123,B00ABC,MY-MSKU,Widget,WhseTransfers,TR.REF456,-3,ABE1,SELLABLE,,US,0,0,2024-01-11 08:00,

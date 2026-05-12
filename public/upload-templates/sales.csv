@@ -1,0 +1,2 @@
+Customer Shipment Date,Merchant SKU,FNSKU,ASIN,FC,Quantity,Amazon Order Id,Currency,Product Amount,Shipping Amount,Gift Amount,Shipment To City,Shipment To State,Shipment To Postal Code
+2024-01-15,MY-MSKU,X00FN,B00ASIN,ABE1,2,111-1234567-1234567,USD,29.99,0,0,Austin,TX,78701
