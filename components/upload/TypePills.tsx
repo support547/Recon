@@ -62,7 +62,7 @@ export function TypePills({ selectedType, onChange, disabled }: TypePillsProps) 
               disabled={disabled}
               onClick={() => onChange(t.value)}
               className={cn(
-                "whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+                "cursor-pointer whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
                 active
                   ? "border-primary bg-primary text-primary-foreground"
                   : "border-border bg-muted/50 text-muted-foreground hover:border-primary hover:bg-primary/10 hover:text-primary",

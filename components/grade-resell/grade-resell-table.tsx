@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -348,12 +347,15 @@ export function GradeResellTable({
       </div>
 
       <div className="rounded-xl border border-border bg-card">
-        <Table>
-          <TableHeader>
+        <table className="w-full caption-bottom text-sm">
+          <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead
+                    key={header.id}
+                    className="h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0 px-3"
+                  >
                     {header.isPlaceholder ? null : (
                       <button
                         type="button"
@@ -406,7 +408,7 @@ export function GradeResellTable({
               ))
             )}
           </TableBody>
-        </Table>
+        </table>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">

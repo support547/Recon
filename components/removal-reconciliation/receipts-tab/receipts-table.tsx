@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Badge } from "@/components/ui/badge";
 import { WrongItemBadge } from "@/components/removal-reconciliation/shared/status-badge";
 import { cn } from "@/lib/utils";
+import { Pagination } from "@/components/shared/Pagination";
 import type { RemovalReceiptRow } from "@/lib/removal-reconciliation/types";
 
 export function ReceiptsTable({
@@ -23,13 +24,21 @@ export function ReceiptsTable({
   onReimb,
   onUnlock,
   onDelete,
+  visibility,
 }: {
   rows: RemovalReceiptRow[];
   onPostAction: (row: RemovalReceiptRow) => void;
   onReimb: (row: RemovalReceiptRow) => void;
   onUnlock: (row: RemovalReceiptRow) => void;
   onDelete: (row: RemovalReceiptRow) => void;
+  visibility?: Record<string, boolean>;
 }) {
+  const show = (id: string) => visibility?.[id] !== false;
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
@@ -40,15 +49,16 @@ export function ReceiptsTable({
     );
   }
   return (
-    <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            {HEADERS.map((h) => (
+            {RECEIPTS_TABLE_COLUMNS.filter((h) => show(h.id)).map((h) => (
               <TableHead
                 key={h.id}
                 className={cn(
-                  "whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                  "whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
                   h.align === "right" && "text-right",
                   h.align === "center" && "text-center",
                 )}
@@ -59,7 +69,7 @@ export function ReceiptsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => (
+          {pagedRows.map((r) => (
             <TableRow
               key={r.id}
               className={cn(
@@ -67,90 +77,126 @@ export function ReceiptsTable({
                 r.wrongItemReceived && "bg-amber-50/40",
               )}
             >
-              <TableCell className="font-mono text-[10px]">{r.orderId || "—"}</TableCell>
-              <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>
-              <TableCell className="max-w-[120px] truncate font-mono text-[10px]" title={r.msku}>
-                {r.msku || "—"}
-              </TableCell>
-              <TableCell className="max-w-[100px] truncate font-mono text-[10px]" title={r.trackingNumber}>
-                {r.trackingNumber || "—"}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">{r.expectedQty}</TableCell>
-              <TableCell className="font-mono text-[11px]">{r.receivedDate || "—"}</TableCell>
-              <TableCell className="text-right">
-                <RcvdCell row={r} />
-              </TableCell>
-              <TableCell>
-                <CondBadge value={r.conditionReceived} />
-              </TableCell>
-              <TableCell className="text-center">
-                <WrongItemTooltip row={r} />
-              </TableCell>
-              <TableCell className="max-w-[140px] truncate text-[11px] text-muted-foreground" title={r.warehouseComment}>
-                {r.warehouseComment || "—"}
-              </TableCell>
-              <TableCell>
-                <WhStatusBadge value={r.whStatus} />
-              </TableCell>
-              <TableCell>
-                <Badge variant="outline" className="rounded-full font-mono text-[10px]">
-                  {r.transferTo || "—"}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <PostActionBadge value={r.postAction} />
-              </TableCell>
-              <TableCell className="text-[11px]">
-                <Badge variant="outline" className="rounded-full font-mono text-[10px]">
-                  {r.sellerStatus || r.finalStatus || "Pending"}
-                </Badge>
-              </TableCell>
-              <TableCell className="max-w-[130px] truncate text-[11px] text-muted-foreground" title={r.sellerComments}>
-                {r.sellerComments || "—"}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {r.reimbQty > 0 ? <b className="text-emerald-700">{r.reimbQty}</b> : "—"}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {r.reimbAmount > 0 ? <b className="text-emerald-700">${r.reimbAmount.toFixed(2)}</b> : "—"}
-              </TableCell>
-              <TableCell className="text-center">
-                {r.warehouseBilled ? (
-                  <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                    ✓ YES
-                  </span>
-                ) : (
-                  <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500">
-                    NO
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="font-mono text-[11px] text-muted-foreground">{r.billedDate || "—"}</TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {r.billedAmount > 0 ? <b className="text-amber-700">${r.billedAmount.toFixed(2)}</b> : "—"}
-              </TableCell>
-              <TableCell className="max-w-[130px] truncate text-[11px]" title={r.actionRemarks}>
-                {r.actionRemarks || "—"}
-              </TableCell>
-              <TableCell className="text-[11px]">{r.receivedBy || "—"}</TableCell>
-              <TableCell>
-                <ReceiptActions
-                  row={r}
-                  onPostAction={onPostAction}
-                  onReimb={onReimb}
-                  onUnlock={onUnlock}
-                  onDelete={onDelete}
-                />
-              </TableCell>
+              {show("order_id") && <TableCell className="font-mono text-[10px]">{r.orderId || "—"}</TableCell>}
+              {show("fnsku") && <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>}
+              {show("msku") && (
+                <TableCell className="max-w-[120px] truncate font-mono text-[10px]" title={r.msku}>
+                  {r.msku || "—"}
+                </TableCell>
+              )}
+              {show("tracking") && (
+                <TableCell className="max-w-[100px] truncate font-mono text-[10px]" title={r.trackingNumber}>
+                  {r.trackingNumber || "—"}
+                </TableCell>
+              )}
+              {show("exp") && <TableCell className="text-right font-mono text-xs">{r.expectedQty}</TableCell>}
+              {show("rcvd_date") && <TableCell className="font-mono text-[11px]">{r.receivedDate || "—"}</TableCell>}
+              {show("rcvd_qty") && (
+                <TableCell className="text-right">
+                  <RcvdCell row={r} />
+                </TableCell>
+              )}
+              {show("condition") && (
+                <TableCell>
+                  <CondBadge value={r.conditionReceived} />
+                </TableCell>
+              )}
+              {show("wrong") && (
+                <TableCell className="text-center">
+                  <WrongItemTooltip row={r} />
+                </TableCell>
+              )}
+              {show("wh_comment") && (
+                <TableCell className="max-w-[140px] truncate text-[11px] text-muted-foreground" title={r.warehouseComment}>
+                  {r.warehouseComment || "—"}
+                </TableCell>
+              )}
+              {show("wh_status") && (
+                <TableCell>
+                  <WhStatusBadge value={r.whStatus} />
+                </TableCell>
+              )}
+              {show("transfer") && (
+                <TableCell>
+                  <Badge variant="outline" className="rounded-full font-mono text-[10px]">
+                    {r.transferTo || "—"}
+                  </Badge>
+                </TableCell>
+              )}
+              {show("post_action") && (
+                <TableCell>
+                  <PostActionBadge value={r.postAction} />
+                </TableCell>
+              )}
+              {show("seller_status") && (
+                <TableCell className="text-[11px]">
+                  <Badge variant="outline" className="rounded-full font-mono text-[10px]">
+                    {r.sellerStatus || r.finalStatus || "Pending"}
+                  </Badge>
+                </TableCell>
+              )}
+              {show("seller_comments") && (
+                <TableCell className="max-w-[130px] truncate text-[11px] text-muted-foreground" title={r.sellerComments}>
+                  {r.sellerComments || "—"}
+                </TableCell>
+              )}
+              {show("reimb_qty") && (
+                <TableCell className="text-right font-mono text-xs">
+                  {r.reimbQty > 0 ? <b className="text-emerald-700">{r.reimbQty}</b> : "—"}
+                </TableCell>
+              )}
+              {show("reimb_amt") && (
+                <TableCell className="text-right font-mono text-xs">
+                  {r.reimbAmount > 0 ? <b className="text-emerald-700">${r.reimbAmount.toFixed(2)}</b> : "—"}
+                </TableCell>
+              )}
+              {show("billed") && (
+                <TableCell className="text-center">
+                  {r.warehouseBilled ? (
+                    <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                      ✓ YES
+                    </span>
+                  ) : (
+                    <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500">
+                      NO
+                    </span>
+                  )}
+                </TableCell>
+              )}
+              {show("billed_date") && <TableCell className="font-mono text-[11px] text-muted-foreground">{r.billedDate || "—"}</TableCell>}
+              {show("billed_amt") && (
+                <TableCell className="text-right font-mono text-xs">
+                  {r.billedAmount > 0 ? <b className="text-amber-700">${r.billedAmount.toFixed(2)}</b> : "—"}
+                </TableCell>
+              )}
+              {show("remarks") && (
+                <TableCell className="max-w-[130px] truncate text-[11px]" title={r.actionRemarks}>
+                  {r.actionRemarks || "—"}
+                </TableCell>
+              )}
+              {show("by") && <TableCell className="text-[11px]">{r.receivedBy || "—"}</TableCell>}
+              {show("actions") && (
+                <TableCell>
+                  <ReceiptActions
+                    row={r}
+                    onPostAction={onPostAction}
+                    onReimb={onReimb}
+                    onUnlock={onUnlock}
+                    onDelete={onDelete}
+                  />
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
 
-const HEADERS = [
+export const RECEIPTS_TABLE_COLUMNS = [
   { id: "order_id", label: "Order ID", align: "left" as const },
   { id: "fnsku", label: "FNSKU", align: "left" as const },
   { id: "msku", label: "MSKU", align: "left" as const },

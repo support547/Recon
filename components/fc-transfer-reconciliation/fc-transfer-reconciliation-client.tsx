@@ -7,15 +7,29 @@ import {
   getFcTransferReconData,
   type FcTransferReconPayload,
 } from "@/actions/fc-transfer-reconciliation";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { SummaryTable } from "@/components/fc-transfer-reconciliation/summary-tab/summary-table";
-import { AnalysisTable } from "@/components/fc-transfer-reconciliation/analysis-tab/analysis-table";
-import { LogTable } from "@/components/fc-transfer-reconciliation/log-tab/log-table";
+import {
+  SummaryTable,
+  FC_SUMMARY_COLUMNS,
+} from "@/components/fc-transfer-reconciliation/summary-tab/summary-table";
+import {
+  AnalysisTable,
+  FC_ANALYSIS_COLUMNS,
+} from "@/components/fc-transfer-reconciliation/analysis-tab/analysis-table";
+import {
+  LogTable,
+  FC_LOG_COLUMNS,
+} from "@/components/fc-transfer-reconciliation/log-tab/log-table";
+import {
+  ColumnsMenu,
+  useColumnVisibility,
+} from "@/components/shared/columns-menu";
 import { RaiseCaseModal } from "@/components/fc-transfer-reconciliation/modals/raise-case-modal";
 import { AdjustModal } from "@/components/fc-transfer-reconciliation/modals/adjust-modal";
 import type {
@@ -40,6 +54,18 @@ export function FcTransferReconciliationClient({
   initialPayload: FcTransferReconPayload;
 }) {
   const [tab, setTab] = React.useState<"summary" | "analysis" | "log">("analysis");
+  const [analysisVis, setAnalysisVis] = useColumnVisibility(
+    "fcTransferRecon.analysisCols",
+    FC_ANALYSIS_COLUMNS,
+  );
+  const [summaryVis, setSummaryVis] = useColumnVisibility(
+    "fcTransferRecon.summaryCols",
+    FC_SUMMARY_COLUMNS,
+  );
+  const [logVis, setLogVis] = useColumnVisibility(
+    "fcTransferRecon.logCols",
+    FC_LOG_COLUMNS,
+  );
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
   const [fc, setFc] = React.useState("");
@@ -151,16 +177,29 @@ export function FcTransferReconciliationClient({
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
-        <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">FC Transfer Reconciliation</h1>
-            <p className="text-xs text-muted-foreground">InvenSync › FC Transfer Recon</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
-            <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
-          </div>
-        </div>
+        <HeaderActions>
+          {tab === "analysis" ? (
+            <ColumnsMenu
+              columns={FC_ANALYSIS_COLUMNS}
+              visibility={analysisVis}
+              onChange={setAnalysisVis}
+            />
+          ) : tab === "summary" ? (
+            <ColumnsMenu
+              columns={FC_SUMMARY_COLUMNS}
+              visibility={summaryVis}
+              onChange={setSummaryVis}
+            />
+          ) : (
+            <ColumnsMenu
+              columns={FC_LOG_COLUMNS}
+              visibility={logVis}
+              onChange={setLogVis}
+            />
+          )}
+          <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
+        </HeaderActions>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="gap-4">
           <TabsList className="h-9 w-full justify-start sm:w-auto">
@@ -195,6 +234,7 @@ export function FcTransferReconciliationClient({
               <Skeleton className="h-64 w-full" />
             ) : (
               <AnalysisTable
+                visibility={analysisVis}
                 rows={filteredAnalysis}
                 onRaiseCase={(r) => { setCaseRow(r); setCaseOpen(true); }}
                 onAdjust={(r) => { setAdjRow(r); setAdjOpen(true); }}
@@ -220,7 +260,7 @@ export function FcTransferReconciliationClient({
               <KpiCard label="Total Events" border="blue" primary={stats.totalEvents} secondary={stats.totalSkus} secLabel="SKUs" />
             </div>
 
-            {loading ? <Skeleton className="h-64 w-full" /> : <SummaryTable rows={payload.summary} />}
+            {loading ? <Skeleton className="h-64 w-full" /> : <SummaryTable visibility={summaryVis} rows={payload.summary} />}
           </TabsContent>
 
           <TabsContent value="log" className="mt-0 space-y-4">
@@ -233,7 +273,7 @@ export function FcTransferReconciliationClient({
                 setFrom(""); setTo(""); setFc(""); setSearch("");
               }}
             />
-            {loading ? <Skeleton className="h-64 w-full" /> : <LogTable rows={payload.logRows} />}
+            {loading ? <Skeleton className="h-64 w-full" /> : <LogTable visibility={logVis} rows={payload.logRows} />}
           </TabsContent>
         </Tabs>
 

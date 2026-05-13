@@ -6,6 +6,7 @@ import { LogOut, Menu, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { signOutAction } from "@/actions/auth";
+import { useHeaderActionsSlot } from "@/components/layout/header-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,6 +74,7 @@ export function Header({ onMenuClick, user }: HeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const title = React.useMemo(() => titleFromPath(pathname), [pathname]);
+  const actions = useHeaderActionsSlot();
   const [signingOut, startTransition] = React.useTransition();
 
   async function handleSignOut() {
@@ -90,7 +92,7 @@ export function Header({ onMenuClick, user }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-white px-4 lg:px-6">
+    <header className="fixed inset-x-0 top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-white px-4 lg:left-[240px] lg:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <Button
           type="button"
@@ -113,6 +115,9 @@ export function Header({ onMenuClick, user }: HeaderProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-3">
+        {actions ? (
+          <div className="flex flex-wrap items-center gap-2">{actions}</div>
+        ) : null}
         {user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

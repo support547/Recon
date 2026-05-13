@@ -3,6 +3,7 @@
 import * as React from "react";
 
 import { Header } from "@/components/layout/Header";
+import { HeaderActionsProvider } from "@/components/layout/header-actions";
 import { Sidebar } from "@/components/layout/Sidebar";
 
 type SessionUser = {
@@ -22,12 +23,14 @@ export function DashboardShell({
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
   return (
-    <div className="min-h-screen bg-white">
-      <Sidebar mobileOpen={mobileOpen} onMobileOpenChange={setMobileOpen} />
-      <div className="flex min-h-screen flex-col lg:pl-[240px]">
-        <Header onMenuClick={() => setMobileOpen(true)} user={user} />
-        <div className="flex flex-1 flex-col bg-slate-50/90">{children}</div>
+    <HeaderActionsProvider>
+      <div className="min-h-screen bg-white">
+        <Sidebar mobileOpen={mobileOpen} onMobileOpenChange={setMobileOpen} />
+        <div className="flex min-h-screen flex-col lg:pl-[240px]">
+          <Header onMenuClick={() => setMobileOpen(true)} user={user} />
+          <div className="flex flex-1 flex-col bg-slate-50/90 pt-14">{children}</div>
+        </div>
       </div>
-    </div>
+    </HeaderActionsProvider>
   );
 }

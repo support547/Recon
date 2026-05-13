@@ -4,7 +4,6 @@ import * as React from "react";
 import { Eye, Lock, Package, Receipt, ScrollText, Unlock, DollarSign } from "lucide-react";
 
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -21,6 +20,7 @@ import {
   WrongItemBadge,
 } from "@/components/removal-reconciliation/shared/status-badge";
 import { cn } from "@/lib/utils";
+import { Pagination } from "@/components/shared/Pagination";
 import type { RemovalReconRow } from "@/lib/removal-reconciliation/types";
 
 export type RemovalColTotalKey =
@@ -39,6 +39,7 @@ export function OrdersTable({
   onUnlock,
   colTotalFilter,
   onToggleColTotal,
+  visibility,
 }: {
   rows: RemovalReconRow[];
   onReceive: (row: RemovalReconRow) => void;
@@ -47,7 +48,9 @@ export function OrdersTable({
   onUnlock: (row: RemovalReconRow) => void;
   colTotalFilter?: RemovalColTotalKey | null;
   onToggleColTotal?: (k: RemovalColTotalKey) => void;
+  visibility?: Record<string, boolean>;
 }) {
+  const show = (id: string) => visibility?.[id] !== false;
   const totals = React.useMemo(() => {
     let requestedQty = 0;
     let actualShipped = 0;
@@ -100,6 +103,11 @@ export function OrdersTable({
     );
   }
 
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
+
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
@@ -110,11 +118,12 @@ export function OrdersTable({
     );
   }
   return (
-    <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            {COLUMNS.map((c) => {
+            {ORDERS_TABLE_COLUMNS.filter((c) => show(c.id)).map((c) => {
               const hasTotal = c.id in totalsMap;
               const alignItems =
                 c.align === "right"
@@ -126,7 +135,7 @@ export function OrdersTable({
                 <TableHead
                   key={c.id}
                   className={cn(
-                    "whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                    "whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
                     c.align === "right" && "text-right",
                     c.align === "center" && "text-center",
                   )}
@@ -145,68 +154,94 @@ export function OrdersTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => (
+          {pagedRows.map((r) => (
             <TableRow key={r.removalId} className="hover:bg-slate-50">
-              <TableCell className="font-mono text-[11px] text-muted-foreground">{r.requestDate}</TableCell>
-              <TableCell className="font-mono text-[11px]">{r.orderId}</TableCell>
-              <TableCell className="max-w-[150px] truncate font-mono text-[11px]" title={r.msku}>
-                {r.msku}
-              </TableCell>
-              <TableCell className="font-mono text-[11px]">{r.fnsku}</TableCell>
-              <TableCell className="text-[11px]">{r.orderType}</TableCell>
-              <TableCell>
-                <OrderStatusChip status={r.orderStatus} />
-              </TableCell>
-              <TableCell className="text-[11px]">
-                <Badge variant="outline" className="rounded-full font-mono text-[10px]">
-                  {r.disposition}
-                </Badge>
-              </TableCell>
-              <TableCell className="text-[11px]">{r.carriers || "—"}</TableCell>
-              <TableCell className="font-mono text-[10px]">
-                <TrackingCell row={r} />
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">{r.requestedQty}</TableCell>
-              <TableCell className="text-right font-mono text-xs">{r.expectedShipped}</TableCell>
-              <TableCell className="text-right font-mono text-xs font-bold text-emerald-700">
-                {r.actualShipped > 0 ? r.actualShipped : "—"}
-              </TableCell>
-              <TableCell className="text-right">
-                <ReceivedCell row={r} />
-              </TableCell>
-              <TableCell className="text-center">
-                <WrongItemBadge count={r.wrongItemCount} />
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                <ReimbQtyCell row={r} />
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                <ReimbAmtCell row={r} />
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {r.removalFee > 0 ? `$${r.removalFee.toFixed(2)}` : "—"}
-              </TableCell>
-              <TableCell className="text-center">
-                <RemovalStatusBadge status={r.receiptStatus} />
-              </TableCell>
-              <TableCell>
-                <ActionButtons
-                  row={r}
-                  onReceive={onReceive}
-                  onCase={onCase}
-                  onReimb={onReimb}
-                  onUnlock={onUnlock}
-                />
-              </TableCell>
+              {show("request_date") && <TableCell className="font-mono text-[11px] text-muted-foreground">{r.requestDate}</TableCell>}
+              {show("order_id") && <TableCell className="font-mono text-[11px]">{r.orderId}</TableCell>}
+              {show("msku") && (
+                <TableCell className="max-w-[150px] truncate font-mono text-[11px]" title={r.msku}>
+                  {r.msku}
+                </TableCell>
+              )}
+              {show("fnsku") && <TableCell className="font-mono text-[11px]">{r.fnsku}</TableCell>}
+              {show("type") && <TableCell className="text-[11px]">{r.orderType}</TableCell>}
+              {show("order_status") && (
+                <TableCell>
+                  <OrderStatusChip status={r.orderStatus} />
+                </TableCell>
+              )}
+              {show("disposition") && (
+                <TableCell className="text-[11px]">
+                  <Badge variant="outline" className="rounded-full font-mono text-[10px]">
+                    {r.disposition}
+                  </Badge>
+                </TableCell>
+              )}
+              {show("carrier") && <TableCell className="text-[11px]">{r.carriers || "—"}</TableCell>}
+              {show("tracking") && (
+                <TableCell className="font-mono text-[10px]">
+                  <TrackingCell row={r} />
+                </TableCell>
+              )}
+              {show("requestedQty") && <TableCell className="text-right font-mono text-xs">{r.requestedQty}</TableCell>}
+              {show("expected") && <TableCell className="text-right font-mono text-xs">{r.expectedShipped}</TableCell>}
+              {show("actualShipped") && (
+                <TableCell className="text-right font-mono text-xs font-bold text-emerald-700">
+                  {r.actualShipped > 0 ? r.actualShipped : "—"}
+                </TableCell>
+              )}
+              {show("receivedQty") && (
+                <TableCell className="text-right">
+                  <ReceivedCell row={r} />
+                </TableCell>
+              )}
+              {show("wrong") && (
+                <TableCell className="text-center">
+                  <WrongItemBadge count={r.wrongItemCount} />
+                </TableCell>
+              )}
+              {show("reimbQty") && (
+                <TableCell className="text-right font-mono text-xs">
+                  <ReimbQtyCell row={r} />
+                </TableCell>
+              )}
+              {show("reimbAmount") && (
+                <TableCell className="text-right font-mono text-xs">
+                  <ReimbAmtCell row={r} />
+                </TableCell>
+              )}
+              {show("removalFee") && (
+                <TableCell className="text-right font-mono text-xs">
+                  {r.removalFee > 0 ? `$${r.removalFee.toFixed(2)}` : "—"}
+                </TableCell>
+              )}
+              {show("status") && (
+                <TableCell className="text-center">
+                  <RemovalStatusBadge status={r.receiptStatus} />
+                </TableCell>
+              )}
+              {show("actions") && (
+                <TableCell>
+                  <ActionButtons
+                    row={r}
+                    onReceive={onReceive}
+                    onCase={onCase}
+                    onReimb={onReimb}
+                    onUnlock={onUnlock}
+                  />
+                </TableCell>
+              )}
             </TableRow>
           ))}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
 
-const COLUMNS = [
+export const ORDERS_TABLE_COLUMNS = [
   { id: "request_date", label: "Request Date", align: "left" as const },
   { id: "order_id", label: "Order ID", align: "left" as const },
   { id: "msku", label: "MSKU", align: "left" as const },

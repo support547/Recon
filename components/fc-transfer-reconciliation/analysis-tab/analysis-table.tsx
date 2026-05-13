@@ -1,15 +1,16 @@
 "use client";
 
+import * as React from "react";
 import { ScrollText, Wrench } from "lucide-react";
 
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Pagination } from "@/components/shared/Pagination";
 import { cn } from "@/lib/utils";
 import {
   ActionStatusBadge,
@@ -21,11 +22,18 @@ export function AnalysisTable({
   rows,
   onRaiseCase,
   onAdjust,
+  visibility,
 }: {
   rows: FcAnalysisRow[];
   onRaiseCase: (row: FcAnalysisRow) => void;
   onAdjust: (row: FcAnalysisRow) => void;
+  visibility?: Record<string, boolean>;
 }) {
+  const show = (id: string) => visibility?.[id] !== false;
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
@@ -36,15 +44,16 @@ export function AnalysisTable({
     );
   }
   return (
-    <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            {COLUMNS.map((c) => (
+            {FC_ANALYSIS_COLUMNS.filter((c) => show(c.id)).map((c) => (
               <TableHead
                 key={c.id}
                 className={cn(
-                  "whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                  "whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
                   c.align === "right" && "text-right",
                 )}
               >
@@ -54,7 +63,7 @@ export function AnalysisTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => {
+          {pagedRows.map((r) => {
             const rowBg =
               r.actionStatus === "take-action"
                 ? "bg-red-50/40"
@@ -70,37 +79,52 @@ export function AnalysisTable({
               "text-emerald-700 font-semibold";
             return (
               <TableRow key={`${r.msku}|${r.fnsku}`} className={cn("hover:bg-slate-50", rowBg)}>
-                <TableCell className="font-mono text-[11px] font-semibold">{r.msku || "—"}</TableCell>
-                <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>
-                <TableCell className="font-mono text-[10px] text-muted-foreground">{r.asin || "—"}</TableCell>
-                <TableCell className="max-w-[150px] truncate text-[10px]" title={r.title}>
-                  {r.title || "—"}
-                </TableCell>
-                <TableCell className={cn("text-right font-mono text-xs font-bold", netCls)}>{netStr}</TableCell>
-                <TableCell className="text-right font-mono text-xs font-semibold text-emerald-700">
-                  +{r.qtyIn}
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs font-semibold text-red-600">
-                  -{r.qtyOut}
-                </TableCell>
-                <TableCell className="text-right text-[11px] text-muted-foreground">{r.eventDays}</TableCell>
-                <TableCell className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-                  {r.earliestDate || "—"}
-                </TableCell>
-                <TableCell className="whitespace-nowrap font-mono text-[10px] font-semibold">
-                  {r.imbalanceStart || "—"}
-                </TableCell>
-                <TableCell className={cn("text-right text-[11px]", daysCls)}>{r.daysPending}d</TableCell>
-                <TableCell>
-                  <ActionStatusBadge status={r.actionStatus} />
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs">
-                  {r.effectiveReimbQty > 0 ? (
-                    <b className="text-emerald-700">{r.effectiveReimbQty}</b>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </TableCell>
+                {show("msku") && <TableCell className="font-mono text-[11px] font-semibold">{r.msku || "—"}</TableCell>}
+                {show("fnsku") && <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>}
+                {show("asin") && <TableCell className="font-mono text-[10px] text-muted-foreground">{r.asin || "—"}</TableCell>}
+                {show("title") && (
+                  <TableCell className="max-w-[150px] truncate text-[10px]" title={r.title}>
+                    {r.title || "—"}
+                  </TableCell>
+                )}
+                {show("net") && <TableCell className={cn("text-right font-mono text-xs font-bold", netCls)}>{netStr}</TableCell>}
+                {show("in") && (
+                  <TableCell className="text-right font-mono text-xs font-semibold text-emerald-700">
+                    +{r.qtyIn}
+                  </TableCell>
+                )}
+                {show("out") && (
+                  <TableCell className="text-right font-mono text-xs font-semibold text-red-600">
+                    -{r.qtyOut}
+                  </TableCell>
+                )}
+                {show("events") && <TableCell className="text-right text-[11px] text-muted-foreground">{r.eventDays}</TableCell>}
+                {show("first") && (
+                  <TableCell className="whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                    {r.earliestDate || "—"}
+                  </TableCell>
+                )}
+                {show("imb") && (
+                  <TableCell className="whitespace-nowrap font-mono text-[10px] font-semibold">
+                    {r.imbalanceStart || "—"}
+                  </TableCell>
+                )}
+                {show("days") && <TableCell className={cn("text-right text-[11px]", daysCls)}>{r.daysPending}d</TableCell>}
+                {show("status") && (
+                  <TableCell>
+                    <ActionStatusBadge status={r.actionStatus} />
+                  </TableCell>
+                )}
+                {show("rimbqty") && (
+                  <TableCell className="text-right font-mono text-xs">
+                    {r.effectiveReimbQty > 0 ? (
+                      <b className="text-emerald-700">{r.effectiveReimbQty}</b>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                )}
+                {show("rimbamt") && (
                 <TableCell className="text-right font-mono text-xs">
                   {r.caseApprovedAmount > 0 ? (
                     <CellHoverPopover
@@ -140,19 +164,24 @@ export function AnalysisTable({
                     <span className="text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell>
-                  <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} />
-                </TableCell>
+                )}
+                {show("action") && (
+                  <TableCell>
+                    <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} />
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
 
-const COLUMNS = [
+export const FC_ANALYSIS_COLUMNS = [
   { id: "msku", label: "MSKU", align: "left" as const },
   { id: "fnsku", label: "FNSKU", align: "left" as const },
   { id: "asin", label: "ASIN", align: "left" as const },

@@ -4,7 +4,6 @@ import * as React from "react";
 import { DollarSign, ScrollText, Wrench } from "lucide-react";
 
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -12,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Pagination } from "@/components/shared/Pagination";
 import { cn } from "@/lib/utils";
 import {
   CaseStatusBadge,
@@ -24,11 +24,18 @@ export function AnalysisTable({
   rows,
   onRaiseCase,
   onAdjust,
+  visibility,
 }: {
   rows: ReturnsReconRow[];
   onRaiseCase: (row: ReturnsReconRow) => void;
   onAdjust: (row: ReturnsReconRow) => void;
+  visibility?: Record<string, boolean>;
 }) {
+  const show = (id: string) => visibility?.[id] !== false;
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
@@ -39,15 +46,16 @@ export function AnalysisTable({
     );
   }
   return (
-    <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            {COLUMNS.map((c) => (
+            {RETURNS_ANALYSIS_COLUMNS.filter((c) => show(c.id)).map((c) => (
               <TableHead
                 key={c.id}
                 className={cn(
-                  "whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                  "whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
                   c.align === "right" && "text-right",
                 )}
               >
@@ -57,7 +65,7 @@ export function AnalysisTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => {
+          {pagedRows.map((r) => {
             const rowBg =
               r.fnskuStatus === "FNSKU_MISMATCH"
                 ? "bg-red-50/40"
@@ -66,99 +74,125 @@ export function AnalysisTable({
                   : "";
             return (
               <TableRow key={`${r.orderId}|${r.returnFnsku}`} className={cn("hover:bg-slate-50", rowBg)}>
-                <TableCell className="font-mono text-[10px] font-semibold">{r.orderId}</TableCell>
-                <TableCell className="font-mono text-[10px]">{r.returnFnsku}</TableCell>
-                <TableCell className="font-mono text-[11px] font-semibold">{r.msku}</TableCell>
-                <TableCell className="font-mono text-[10px]">{r.asin}</TableCell>
-                <TableCell className="max-w-[160px] truncate text-[11px]" title={r.title}>
-                  {r.title}
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs font-bold text-blue-700">
-                  {r.totalReturned}
-                </TableCell>
-                <TableCell className="text-right text-[11px] text-muted-foreground">
-                  {r.returnEvents}
-                </TableCell>
-                <TableCell className="max-w-[120px] truncate text-[10px]" title={r.dispositions}>
-                  {r.dispositions ? (
-                    <Badge variant="outline" className="rounded-full font-mono text-[10px]">
-                      {r.dispositions.split(",")[0]}
-                    </Badge>
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
-                <TableCell className="max-w-[140px] truncate text-[10px] text-muted-foreground" title={r.reasons}>
-                  {r.reasons || "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs">
-                  {r.effReimbQty > 0 ? (
-                    <CellHoverPopover
-                      trigger={<b className="text-emerald-700">{r.effReimbQty}</b>}
-                      title="Reimbursement breakdown"
-                      side="left"
-                      width={280}
-                    >
-                      <CellHoverRow left="Direct (RR)" right={r.reimbQty} />
-                      <CellHoverRow left="Via Case" right={r.caseReimbQty} />
-                      <CellHoverRow left="Manual Adj" right={r.adjQty} />
-                      <CellHoverRow left="Effective" right={r.effReimbQty} />
-                    </CellHoverPopover>
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs">
-                  {r.effReimbAmount > 0 ? (
-                    <CellHoverPopover
-                      trigger={<b className="text-emerald-700">${r.effReimbAmount.toFixed(2)}</b>}
-                      title="Reimbursement $"
-                      side="left"
-                      width={280}
-                    >
-                      <CellHoverRow left="Direct (RR)" right={'$' + r.reimbAmount.toFixed(2)} />
-                      <CellHoverRow left="Via Case" right={'$' + r.caseReimbAmount.toFixed(2)} />
-                      <CellHoverRow left="Effective" right={'$' + r.effReimbAmount.toFixed(2)} />
-                    </CellHoverPopover>
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
-                <TableCell className="font-mono text-[10px]">
-                  {r.salesFnsku ? (
-                    r.fnskuStatus === "FNSKU_MISMATCH" ? (
-                      <span className="font-bold text-red-600">{r.salesFnsku}</span>
+                {show("order_id") && <TableCell className="font-mono text-[10px] font-semibold">{r.orderId}</TableCell>}
+                {show("return_fnsku") && <TableCell className="font-mono text-[10px]">{r.returnFnsku}</TableCell>}
+                {show("msku") && <TableCell className="font-mono text-[11px] font-semibold">{r.msku}</TableCell>}
+                {show("asin") && <TableCell className="font-mono text-[10px]">{r.asin}</TableCell>}
+                {show("title") && (
+                  <TableCell className="max-w-[160px] truncate text-[11px]" title={r.title}>
+                    {r.title}
+                  </TableCell>
+                )}
+                {show("returned_qty") && (
+                  <TableCell className="text-right font-mono text-xs font-bold text-blue-700">
+                    {r.totalReturned}
+                  </TableCell>
+                )}
+                {show("events") && (
+                  <TableCell className="text-right text-[11px] text-muted-foreground">
+                    {r.returnEvents}
+                  </TableCell>
+                )}
+                {show("disp") && (
+                  <TableCell className="max-w-[120px] truncate text-[10px]" title={r.dispositions}>
+                    {r.dispositions ? (
+                      <Badge variant="outline" className="rounded-full font-mono text-[10px]">
+                        {r.dispositions.split(",")[0]}
+                      </Badge>
                     ) : (
-                      <span className="text-emerald-700">{r.salesFnsku}</span>
-                    )
-                  ) : (
-                    <span className="text-muted-foreground">Not in Sales</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <FnskuStatusBadge status={r.fnskuStatus} />
-                </TableCell>
-                <TableCell>
-                  <CaseStatusBadge status={r.caseStatusTop} count={r.caseCount} />
-                </TableCell>
-                <TableCell className="font-mono text-[10px] text-muted-foreground">
-                  {r.earliestReturn === r.latestReturn
-                    ? r.earliestReturn || "—"
-                    : `${r.earliestReturn} → ${r.latestReturn}`}
-                </TableCell>
-                <TableCell>
-                  <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} />
-                </TableCell>
+                      "—"
+                    )}
+                  </TableCell>
+                )}
+                {show("reasons") && (
+                  <TableCell className="max-w-[140px] truncate text-[10px] text-muted-foreground" title={r.reasons}>
+                    {r.reasons || "—"}
+                  </TableCell>
+                )}
+                {show("reimb_qty") && (
+                  <TableCell className="text-right font-mono text-xs">
+                    {r.effReimbQty > 0 ? (
+                      <CellHoverPopover
+                        trigger={<b className="text-emerald-700">{r.effReimbQty}</b>}
+                        title="Reimbursement breakdown"
+                        side="left"
+                        width={280}
+                      >
+                        <CellHoverRow left="Direct (RR)" right={r.reimbQty} />
+                        <CellHoverRow left="Via Case" right={r.caseReimbQty} />
+                        <CellHoverRow left="Manual Adj" right={r.adjQty} />
+                        <CellHoverRow left="Effective" right={r.effReimbQty} />
+                      </CellHoverPopover>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                )}
+                {show("reimb_amt") && (
+                  <TableCell className="text-right font-mono text-xs">
+                    {r.effReimbAmount > 0 ? (
+                      <CellHoverPopover
+                        trigger={<b className="text-emerald-700">${r.effReimbAmount.toFixed(2)}</b>}
+                        title="Reimbursement $"
+                        side="left"
+                        width={280}
+                      >
+                        <CellHoverRow left="Direct (RR)" right={'$' + r.reimbAmount.toFixed(2)} />
+                        <CellHoverRow left="Via Case" right={'$' + r.caseReimbAmount.toFixed(2)} />
+                        <CellHoverRow left="Effective" right={'$' + r.effReimbAmount.toFixed(2)} />
+                      </CellHoverPopover>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                )}
+                {show("sales_fnsku") && (
+                  <TableCell className="font-mono text-[10px]">
+                    {r.salesFnsku ? (
+                      r.fnskuStatus === "FNSKU_MISMATCH" ? (
+                        <span className="font-bold text-red-600">{r.salesFnsku}</span>
+                      ) : (
+                        <span className="text-emerald-700">{r.salesFnsku}</span>
+                      )
+                    ) : (
+                      <span className="text-muted-foreground">Not in Sales</span>
+                    )}
+                  </TableCell>
+                )}
+                {show("fnsku_status") && (
+                  <TableCell>
+                    <FnskuStatusBadge status={r.fnskuStatus} />
+                  </TableCell>
+                )}
+                {show("case") && (
+                  <TableCell>
+                    <CaseStatusBadge status={r.caseStatusTop} count={r.caseCount} />
+                  </TableCell>
+                )}
+                {show("date_range") && (
+                  <TableCell className="font-mono text-[10px] text-muted-foreground">
+                    {r.earliestReturn === r.latestReturn
+                      ? r.earliestReturn || "—"
+                      : `${r.earliestReturn} → ${r.latestReturn}`}
+                  </TableCell>
+                )}
+                {show("actions") && (
+                  <TableCell>
+                    <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} />
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
 
-const COLUMNS = [
+export const RETURNS_ANALYSIS_COLUMNS = [
   { id: "order_id", label: "Order ID", align: "left" as const },
   { id: "return_fnsku", label: "Return FNSKU", align: "left" as const },
   { id: "msku", label: "MSKU", align: "left" as const },

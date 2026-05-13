@@ -9,6 +9,7 @@ import {
   type SalesReconRollupResult,
   type SalesReconRollupRow,
 } from "@/actions/sales-recon";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -88,16 +89,7 @@ export function SalesReconClient({
 
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 space-y-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-4">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">
-            Sales Reconciliation
-          </h2>
-          <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
-            Settlement-level orders + refunds rolled up by normalized (order_id,
-            sku). Source: Settlement Report.
-          </p>
-        </div>
+      <HeaderActions>
         <Button
           type="button"
           variant="outline"
@@ -112,7 +104,7 @@ export function SalesReconClient({
           />
           Refresh
         </Button>
-      </header>
+      </HeaderActions>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard

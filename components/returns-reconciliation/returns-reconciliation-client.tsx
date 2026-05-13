@@ -7,6 +7,7 @@ import {
   getReturnsReconData,
   type ReturnsReconciliationPayload,
 } from "@/actions/returns-reconciliation";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,8 +21,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { AnalysisTable } from "@/components/returns-reconciliation/analysis-tab/analysis-table";
-import { LogTable } from "@/components/returns-reconciliation/log-tab/log-table";
+import {
+  AnalysisTable,
+  RETURNS_ANALYSIS_COLUMNS,
+} from "@/components/returns-reconciliation/analysis-tab/analysis-table";
+import {
+  LogTable,
+  RETURNS_LOG_COLUMNS,
+} from "@/components/returns-reconciliation/log-tab/log-table";
+import {
+  ColumnsMenu,
+  useColumnVisibility,
+} from "@/components/shared/columns-menu";
 import { RaiseCaseModal } from "@/components/returns-reconciliation/modals/raise-case-modal";
 import { AdjustModal } from "@/components/returns-reconciliation/modals/adjust-modal";
 import type { ReturnsReconRow } from "@/lib/returns-reconciliation/types";
@@ -45,6 +56,14 @@ export function ReturnsReconciliationClient({
   initialPayload: ReturnsReconciliationPayload;
 }) {
   const [tab, setTab] = React.useState<"analysis" | "log">("analysis");
+  const [analysisVis, setAnalysisVis] = useColumnVisibility(
+    "returnsRecon.analysisCols",
+    RETURNS_ANALYSIS_COLUMNS,
+  );
+  const [logVis, setLogVis] = useColumnVisibility(
+    "returnsRecon.logCols",
+    RETURNS_LOG_COLUMNS,
+  );
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
   const [disposition, setDisposition] = React.useState(ALL);
@@ -153,16 +172,23 @@ export function ReturnsReconciliationClient({
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
-        <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">Returns Reconciliation</h1>
-            <p className="text-xs text-muted-foreground">InvenSync › Returns Recon</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
-            <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
-          </div>
-        </div>
+        <HeaderActions>
+          {tab === "analysis" ? (
+            <ColumnsMenu
+              columns={RETURNS_ANALYSIS_COLUMNS}
+              visibility={analysisVis}
+              onChange={setAnalysisVis}
+            />
+          ) : (
+            <ColumnsMenu
+              columns={RETURNS_LOG_COLUMNS}
+              visibility={logVis}
+              onChange={setLogVis}
+            />
+          )}
+          <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
+        </HeaderActions>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as "analysis" | "log")} className="gap-4">
           <TabsList className="h-9 w-full justify-start sm:w-auto">
@@ -203,6 +229,7 @@ export function ReturnsReconciliationClient({
               <Skeleton className="h-64 w-full" />
             ) : (
               <AnalysisTable
+                visibility={analysisVis}
                 rows={filteredRows}
                 onRaiseCase={(r) => { setCaseRow(r); setCaseOpen(true); }}
                 onAdjust={(r) => { setAdjRow(r); setAdjOpen(true); }}
@@ -227,7 +254,7 @@ export function ReturnsReconciliationClient({
             {loading ? (
               <Skeleton className="h-64 w-full" />
             ) : (
-              <LogTable rows={logRows} />
+              <LogTable visibility={logVis} rows={logRows} />
             )}
           </TabsContent>
         </Tabs>

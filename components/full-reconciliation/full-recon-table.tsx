@@ -3,7 +3,6 @@
 import * as React from "react";
 
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -21,6 +20,7 @@ import {
   CellHoverRow,
 } from "@/components/shared/cell-hover-popover";
 import { RemarksCell } from "@/components/shared/remarks-cell";
+import { Pagination } from "@/components/shared/Pagination";
 import { cn } from "@/lib/utils";
 import { FullStatusBadge } from "@/components/full-reconciliation/shared/status-badge";
 import type { FullReconRow } from "@/lib/full-reconciliation/types";
@@ -50,6 +50,30 @@ const COLS: { key: ColKey; label: string }[] = [
   { key: "adjQty", label: "Manual Adj" },
 ];
 
+export const FULL_RECON_COLUMNS = [
+  { id: "msku", label: "MSKU / Title" },
+  { id: "asin", label: "ASIN" },
+  { id: "fnsku", label: "FNSKU" },
+  { id: "days", label: "Days" },
+  { id: "shippedQty", label: "Shipped" },
+  { id: "receiptQty", label: "Receipts" },
+  { id: "shortageQty", label: "Shortage" },
+  { id: "soldQty", label: "Sold" },
+  { id: "returnQty", label: "Returns" },
+  { id: "reimbQty", label: "Reimb." },
+  { id: "removalRcptQty", label: "Removal Rcpt" },
+  { id: "replQty", label: "Replacements" },
+  { id: "gnrQty", label: "GNR Qty" },
+  { id: "fcNetQty", label: "FC Transfer" },
+  { id: "endingBalance", label: "Ending Bal." },
+  { id: "fbaEndingBalance", label: "FBA Bal." },
+  { id: "fbaAdjTotal", label: "Adjustments" },
+  { id: "adjQty", label: "Manual Adj" },
+  { id: "status", label: "Status" },
+  { id: "remarks", label: "Remarks" },
+  { id: "actions", label: "Action" },
+] as const;
+
 export function FullReconTable({
   rows,
   colFilters,
@@ -58,6 +82,7 @@ export function FullReconTable({
   onOpenAction,
   remarks,
   onSaveRemark,
+  visibility,
 }: {
   rows: FullReconRow[];
   colFilters: Set<ColKey>;
@@ -66,7 +91,13 @@ export function FullReconTable({
   onOpenAction: (row: FullReconRow) => void;
   remarks?: Record<string, string>;
   onSaveRemark?: (fnsku: string, next: string) => Promise<RemarkSaveResult>;
+  visibility?: Record<string, boolean>;
 }) {
+  const show = (id: string) => visibility?.[id] !== false;
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
   const colTotals = React.useMemo(() => {
     const t: Record<ColKey, number> = {
       shippedQty: 0, receiptQty: 0, shortageQty: 0, soldQty: 0,
@@ -104,26 +135,35 @@ export function FullReconTable({
   }
 
   return (
-    <div className="max-h-[70vh] overflow-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            <TableHead className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              MSKU / Title
-            </TableHead>
-            <TableHead className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              ASIN
-            </TableHead>
-            <TableHead className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              FNSKU
-            </TableHead>
-            <TableHead className="whitespace-nowrap text-right text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              Days
-            </TableHead>
-            {COLS.map((c) => (
+            {show("msku") && (
+              <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                MSKU / Title
+              </TableHead>
+            )}
+            {show("asin") && (
+              <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                ASIN
+              </TableHead>
+            )}
+            {show("fnsku") && (
+              <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                FNSKU
+              </TableHead>
+            )}
+            {show("days") && (
+              <TableHead className="whitespace-nowrap text-right h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                Days
+              </TableHead>
+            )}
+            {COLS.filter((c) => show(c.key)).map((c) => (
               <TableHead
                 key={c.key}
-                className="whitespace-nowrap text-right text-[10px] font-bold uppercase tracking-wide text-muted-foreground"
+                className="whitespace-nowrap text-right h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3"
               >
                 <div className="flex flex-col items-end">
                   <span>{c.label}</span>
@@ -143,19 +183,25 @@ export function FullReconTable({
                 </div>
               </TableHead>
             ))}
-            <TableHead className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              Status
-            </TableHead>
-            <TableHead className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              Remarks
-            </TableHead>
-            <TableHead className="whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              Action
-            </TableHead>
+            {show("status") && (
+              <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                Status
+              </TableHead>
+            )}
+            {show("remarks") && (
+              <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                Remarks
+              </TableHead>
+            )}
+            {show("actions") && (
+              <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                Action
+              </TableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => (
+          {pagedRows.map((r) => (
             <RowItem
               key={r.fnsku}
               row={r}
@@ -163,10 +209,13 @@ export function FullReconTable({
               onOpenAction={onOpenAction}
               remark={remarks?.[r.fnsku] ?? ""}
               onSaveRemark={onSaveRemark}
+              visibility={visibility}
             />
           ))}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
@@ -177,113 +226,152 @@ function RowItem({
   onOpenAction,
   remark,
   onSaveRemark,
+  visibility,
 }: {
   row: FullReconRow;
   onOpenDetail: (row: FullReconRow) => void;
   onOpenAction: (row: FullReconRow) => void;
   remark: string;
   onSaveRemark?: (fnsku: string, next: string) => Promise<RemarkSaveResult>;
+  visibility?: Record<string, boolean>;
 }) {
+  const show = (id: string) => visibility?.[id] !== false;
   const shortageCls = row.shortageQty > 0 ? "text-red-600 font-bold" : row.shortageQty < 0 ? "text-amber-600 font-bold" : "text-emerald-600";
   return (
     <TableRow className="hover:bg-slate-50">
-      <TableCell>
-        <button
-          type="button"
-          onClick={() => onOpenDetail(row)}
-          className="block max-w-[200px] cursor-pointer text-left"
-        >
-          <div className="truncate font-mono text-[11px] font-semibold text-blue-600 underline-offset-2 hover:underline">
-            {row.msku || "—"}
-          </div>
-          <div className="truncate text-[10px] text-muted-foreground" title={row.title}>
-            {row.title || ""}
-          </div>
-        </button>
-      </TableCell>
-      <TableCell className="font-mono text-[10px]">{row.asin || "—"}</TableCell>
-      <TableCell className="font-mono text-[10px]">{row.fnsku || "—"}</TableCell>
-      <TableCell className="text-right">
-        {row.daysRecvToSale !== null ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="cursor-help font-mono text-[11px] font-semibold text-blue-600">
-                {row.daysRecvToSale}d
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-[11px]">
-              <div><b>Last Recv:</b> {row.latestRecvDate || "—"}</div>
-              <div><b>Last Sale:</b> {row.latestSaleDate || "—"}</div>
-            </TooltipContent>
-          </Tooltip>
-        ) : (
-          <span className="text-[10px] text-muted-foreground">—</span>
-        )}
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs font-semibold">
-        <ShippedCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs">{nz(row.receiptQty)}</TableCell>
-      <TableCell className={cn("text-right font-mono text-xs", shortageCls)}>
-        {row.shortageQty === 0 ? "0" : row.shortageQty}
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs text-red-500">
-        {row.soldQty ? `−${row.soldQty}` : <span className="text-slate-400">—</span>}
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs text-emerald-600">
-        <ReturnCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs text-red-600">
-        <ReimbCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs text-red-600">
-        <RemovalCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs">
-        <ReplCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs text-red-600">
-        <GnrCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs">
-        <FcCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs">
-        <EndingBalCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs">
-        <FbaBalCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs">
-        <FbaAdjCell row={row} />
-      </TableCell>
-      <TableCell className="text-right font-mono text-xs">
-        <ManualAdjCell row={row} />
-      </TableCell>
-      <TableCell>
-        <FullStatusBadge status={row.reconStatus} />
-      </TableCell>
-      <TableCell>
-        {onSaveRemark ? (
-          <RemarksCell
-            value={remark}
-            onSave={(next) => onSaveRemark(row.fnsku, next)}
-          />
-        ) : (
-          <span className="text-[11px] text-muted-foreground">—</span>
-        )}
-      </TableCell>
-      <TableCell>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onOpenAction(row)}
-          className="h-6 px-2 text-[10px]"
-        >
-          + Action
-        </Button>
-      </TableCell>
+      {show("msku") && (
+        <TableCell>
+          <button
+            type="button"
+            onClick={() => onOpenDetail(row)}
+            className="block max-w-[200px] cursor-pointer text-left"
+          >
+            <div className="truncate font-mono text-[11px] font-semibold text-blue-600 underline-offset-2 hover:underline">
+              {row.msku || "—"}
+            </div>
+            <div className="truncate text-[10px] text-muted-foreground" title={row.title}>
+              {row.title || ""}
+            </div>
+          </button>
+        </TableCell>
+      )}
+      {show("asin") && <TableCell className="font-mono text-[10px]">{row.asin || "—"}</TableCell>}
+      {show("fnsku") && <TableCell className="font-mono text-[10px]">{row.fnsku || "—"}</TableCell>}
+      {show("days") && (
+        <TableCell className="text-right">
+          {row.daysRecvToSale !== null ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help font-mono text-[11px] font-semibold text-blue-600">
+                  {row.daysRecvToSale}d
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-[11px]">
+                <div><b>Last Recv:</b> {row.latestRecvDate || "—"}</div>
+                <div><b>Last Sale:</b> {row.latestSaleDate || "—"}</div>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">—</span>
+          )}
+        </TableCell>
+      )}
+      {show("shippedQty") && (
+        <TableCell className="text-right font-mono text-xs font-semibold">
+          <ShippedCell row={row} />
+        </TableCell>
+      )}
+      {show("receiptQty") && <TableCell className="text-right font-mono text-xs">{nz(row.receiptQty)}</TableCell>}
+      {show("shortageQty") && (
+        <TableCell className={cn("text-right font-mono text-xs", shortageCls)}>
+          {row.shortageQty === 0 ? "0" : row.shortageQty}
+        </TableCell>
+      )}
+      {show("soldQty") && (
+        <TableCell className="text-right font-mono text-xs text-red-500">
+          {row.soldQty ? `−${row.soldQty}` : <span className="text-slate-400">—</span>}
+        </TableCell>
+      )}
+      {show("returnQty") && (
+        <TableCell className="text-right font-mono text-xs text-emerald-600">
+          <ReturnCell row={row} />
+        </TableCell>
+      )}
+      {show("reimbQty") && (
+        <TableCell className="text-right font-mono text-xs text-red-600">
+          <ReimbCell row={row} />
+        </TableCell>
+      )}
+      {show("removalRcptQty") && (
+        <TableCell className="text-right font-mono text-xs text-red-600">
+          <RemovalCell row={row} />
+        </TableCell>
+      )}
+      {show("replQty") && (
+        <TableCell className="text-right font-mono text-xs">
+          <ReplCell row={row} />
+        </TableCell>
+      )}
+      {show("gnrQty") && (
+        <TableCell className="text-right font-mono text-xs text-red-600">
+          <GnrCell row={row} />
+        </TableCell>
+      )}
+      {show("fcNetQty") && (
+        <TableCell className="text-right font-mono text-xs">
+          <FcCell row={row} />
+        </TableCell>
+      )}
+      {show("endingBalance") && (
+        <TableCell className="text-right font-mono text-xs">
+          <EndingBalCell row={row} />
+        </TableCell>
+      )}
+      {show("fbaEndingBalance") && (
+        <TableCell className="text-right font-mono text-xs">
+          <FbaBalCell row={row} />
+        </TableCell>
+      )}
+      {show("fbaAdjTotal") && (
+        <TableCell className="text-right font-mono text-xs">
+          <FbaAdjCell row={row} />
+        </TableCell>
+      )}
+      {show("adjQty") && (
+        <TableCell className="text-right font-mono text-xs">
+          <ManualAdjCell row={row} />
+        </TableCell>
+      )}
+      {show("status") && (
+        <TableCell>
+          <FullStatusBadge status={row.reconStatus} />
+        </TableCell>
+      )}
+      {show("remarks") && (
+        <TableCell>
+          {onSaveRemark ? (
+            <RemarksCell
+              value={remark}
+              onSave={(next) => onSaveRemark(row.fnsku, next)}
+            />
+          ) : (
+            <span className="text-[11px] text-muted-foreground">—</span>
+          )}
+        </TableCell>
+      )}
+      {show("actions") && (
+        <TableCell>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenAction(row)}
+            className="h-6 px-2 text-[10px]"
+          >
+            + Action
+          </Button>
+        </TableCell>
+      )}
     </TableRow>
   );
 }

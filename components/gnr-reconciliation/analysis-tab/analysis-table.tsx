@@ -4,7 +4,6 @@ import * as React from "react";
 import { ScrollText, Wrench } from "lucide-react";
 
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -24,6 +23,7 @@ import {
 } from "@/components/gnr-reconciliation/shared/status-badge";
 import { CellHoverPopover, CellHoverRow } from "@/components/shared/cell-hover-popover";
 import { RemarksCell } from "@/components/shared/remarks-cell";
+import { Pagination } from "@/components/shared/Pagination";
 import type { GnrReconRow } from "@/lib/gnr-reconciliation/types";
 
 type RemarkSaveResult = { ok: true } | { ok: false; error: string };
@@ -34,6 +34,7 @@ export function AnalysisTable({
   onAdjust,
   remarks,
   onSaveRemark,
+  visibility,
 }: {
   rows: GnrReconRow[];
   onRaiseCase: (row: GnrReconRow) => void;
@@ -44,7 +45,13 @@ export function AnalysisTable({
     usedFnsku: string,
     next: string,
   ) => Promise<RemarkSaveResult>;
+  visibility?: Record<string, boolean>;
 }) {
+  const show = (id: string) => visibility?.[id] !== false;
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
@@ -55,15 +62,16 @@ export function AnalysisTable({
     );
   }
   return (
-    <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            {COLUMNS.map((c) => (
+            {GNR_ANALYSIS_COLUMNS.filter((c) => show(c.id)).map((c) => (
               <TableHead
                 key={c.id}
                 className={cn(
-                  "whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                  "whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
                   c.align === "right" && "text-right",
                 )}
               >
@@ -73,7 +81,7 @@ export function AnalysisTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => {
+          {pagedRows.map((r) => {
             const isManual = r.usedMsku.startsWith("Manual: ");
             const displayMsku = isManual ? r.usedMsku.replace(/^Manual: /, "") : r.usedMsku;
             const rowBg =
@@ -90,24 +98,29 @@ export function AnalysisTable({
                 key={`${r.usedMsku}|${r.usedFnsku}`}
                 className={cn("hover:bg-slate-50", rowBg)}
               >
-                <TableCell className="font-mono text-[11px] font-semibold">
-                  <div className="flex items-center gap-1.5">
-                    <span className="max-w-[180px] truncate" title={r.usedMsku}>
-                      {displayMsku}
-                    </span>
-                    {isManual ? (
-                      <Badge variant="outline" className="rounded border-purple-200 bg-purple-50 px-1.5 text-[9px] font-bold text-purple-700">
-                        Manual
-                      </Badge>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell className="font-mono text-[10px] text-slate-600">{r.usedFnsku}</TableCell>
-                <TableCell className="font-mono text-[10px] text-slate-500">{r.origFnsku}</TableCell>
-                <TableCell className="font-mono text-[10px]">{r.asin}</TableCell>
-                <TableCell>
-                  <ConditionBadge value={r.usedCondition} />
-                </TableCell>
+                {show("used_msku") && (
+                  <TableCell className="font-mono text-[11px] font-semibold">
+                    <div className="flex items-center gap-1.5">
+                      <span className="max-w-[180px] truncate" title={r.usedMsku}>
+                        {displayMsku}
+                      </span>
+                      {isManual ? (
+                        <Badge variant="outline" className="rounded border-purple-200 bg-purple-50 px-1.5 text-[9px] font-bold text-purple-700">
+                          Manual
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                )}
+                {show("used_fnsku") && <TableCell className="font-mono text-[10px] text-slate-600">{r.usedFnsku}</TableCell>}
+                {show("orig_fnsku") && <TableCell className="font-mono text-[10px] text-slate-500">{r.origFnsku}</TableCell>}
+                {show("asin") && <TableCell className="font-mono text-[10px]">{r.asin}</TableCell>}
+                {show("condition") && (
+                  <TableCell>
+                    <ConditionBadge value={r.usedCondition} />
+                  </TableCell>
+                )}
+                {show("gnr_qty") && (
                 <TableCell className="text-right font-mono text-xs font-bold">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -126,15 +139,23 @@ export function AnalysisTable({
                     </TooltipContent>
                   </Tooltip>
                 </TableCell>
-                <TableCell className="text-right font-mono text-xs text-slate-600">
-                  {r.salesQty || "—"}
-                </TableCell>
-                <TableCell className={cn("text-right font-mono text-xs", r.returnQty > 0 ? "text-emerald-600 font-semibold" : "text-slate-400")}>
-                  {r.returnQty || "—"}
-                </TableCell>
-                <TableCell className={cn("text-right font-mono text-xs", r.removalQty > 0 ? "text-amber-700 font-semibold" : "text-slate-400")}>
-                  {r.removalQty || "—"}
-                </TableCell>
+                )}
+                {show("sales_qty") && (
+                  <TableCell className="text-right font-mono text-xs text-slate-600">
+                    {r.salesQty || "—"}
+                  </TableCell>
+                )}
+                {show("return_qty") && (
+                  <TableCell className={cn("text-right font-mono text-xs", r.returnQty > 0 ? "text-emerald-600 font-semibold" : "text-slate-400")}>
+                    {r.returnQty || "—"}
+                  </TableCell>
+                )}
+                {show("removal_qty") && (
+                  <TableCell className={cn("text-right font-mono text-xs", r.removalQty > 0 ? "text-amber-700 font-semibold" : "text-slate-400")}>
+                    {r.removalQty || "—"}
+                  </TableCell>
+                )}
+                {show("reimb_qty") && (
                 <TableCell className="text-right font-mono text-xs">
                   {totalReimb > 0 || r.caseApprovedAmount > 0 ? (
                     <CellHoverPopover
@@ -186,6 +207,8 @@ export function AnalysisTable({
                     <span className="text-slate-400">—</span>
                   )}
                 </TableCell>
+                )}
+                {show("ending_bal") && (
                 <TableCell className="text-right font-mono text-xs">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -205,6 +228,8 @@ export function AnalysisTable({
                     </TooltipContent>
                   </Tooltip>
                 </TableCell>
+                )}
+                {show("fba_bal") && (
                 <TableCell className="text-right font-mono text-xs">
                   {r.fbaEnding !== null ? (
                     <Tooltip>
@@ -226,34 +251,43 @@ export function AnalysisTable({
                     <span className="text-[10px] text-slate-400">No data</span>
                   )}
                 </TableCell>
-                <TableCell>
-                  <GnrStatusBadge status={r.actionStatus} />
-                </TableCell>
-                <TableCell>
-                  {onSaveRemark ? (
-                    <RemarksCell
-                      value={remarks?.[`${r.usedMsku}|${r.usedFnsku}`] ?? ""}
-                      onSave={(next) =>
-                        onSaveRemark(r.usedMsku, r.usedFnsku, next)
-                      }
-                    />
-                  ) : (
-                    <span className="text-[11px] text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} />
-                </TableCell>
+                )}
+                {show("status") && (
+                  <TableCell>
+                    <GnrStatusBadge status={r.actionStatus} />
+                  </TableCell>
+                )}
+                {show("remarks") && (
+                  <TableCell>
+                    {onSaveRemark ? (
+                      <RemarksCell
+                        value={remarks?.[`${r.usedMsku}|${r.usedFnsku}`] ?? ""}
+                        onSave={(next) =>
+                          onSaveRemark(r.usedMsku, r.usedFnsku, next)
+                        }
+                      />
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                )}
+                {show("actions") && (
+                  <TableCell>
+                    <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} />
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
 
-const COLUMNS = [
+export const GNR_ANALYSIS_COLUMNS = [
   { id: "used_msku", label: "Used MSKU", align: "left" as const },
   { id: "used_fnsku", label: "Used FNSKU", align: "left" as const },
   { id: "orig_fnsku", label: "Orig. FNSKU", align: "left" as const },

@@ -8,6 +8,7 @@ import {
   saveFullReconRemark,
   type FullReconciliationPayload,
 } from "@/actions/full-reconciliation";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,7 +21,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { FullReconTable, type ColKey } from "@/components/full-reconciliation/full-recon-table";
+import {
+  FullReconTable,
+  FULL_RECON_COLUMNS,
+  type ColKey,
+} from "@/components/full-reconciliation/full-recon-table";
+import {
+  ColumnsMenu,
+  useColumnVisibility,
+} from "@/components/shared/columns-menu";
 import { ActionModal } from "@/components/full-reconciliation/modals/action-modal";
 import { DetailDrawer } from "@/components/full-reconciliation/detail-drawer";
 import type {
@@ -58,6 +67,10 @@ export function FullReconciliationClient({
   const [statusFilter, setStatusFilter] = React.useState<string>(ALL);
   const [shortageFilter, setShortageFilter] = React.useState<string>(ALL);
   const [colFilters, setColFilters] = React.useState<Set<ColKey>>(new Set());
+  const [colVis, setColVis] = useColumnVisibility(
+    "fullRecon.cols",
+    FULL_RECON_COLUMNS,
+  );
 
   const [rows, setRows] = React.useState(initialPayload.rows);
   const [stats, setStats] = React.useState(initialPayload.stats);
@@ -165,16 +178,15 @@ export function FullReconciliationClient({
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
-        <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">Full Inventory Reconciliation</h1>
-            <p className="text-xs text-muted-foreground">InvenSync › Full Recon</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
-            <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
-          </div>
-        </div>
+        <HeaderActions>
+          <ColumnsMenu
+            columns={FULL_RECON_COLUMNS}
+            visibility={colVis}
+            onChange={setColVis}
+          />
+          <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
+          <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
+        </HeaderActions>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <KpiTotal label="Total FNSKUs" value={stats.totalFnskus} icon="🔢" border="blue" />
@@ -272,6 +284,7 @@ export function FullReconciliationClient({
           <Skeleton className="h-64 w-full" />
         ) : (
           <FullReconTable
+            visibility={colVis}
             rows={filteredRows}
             colFilters={colFilters}
             onToggleCol={toggleCol}

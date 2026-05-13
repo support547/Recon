@@ -33,10 +33,16 @@ function csvCell(v: unknown): string {
 export async function GET(req: Request) {
   try {
   const { searchParams } = new URL(req.url);
-  const shipmentId = searchParams.get("shipment_id")?.trim() || null;
+  const idsParam = searchParams.get("shipment_ids");
+  const singleParam = searchParams.get("shipment_id")?.trim() || null;
+  const shipmentIds = idsParam
+    ? idsParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : singleParam
+      ? [singleParam]
+      : [];
 
   const rows = await prisma.shippedToFba.findMany({
-    where: shipmentId ? { shipmentId } : {},
+    where: shipmentIds.length ? { shipmentId: { in: shipmentIds } } : {},
     orderBy: [{ shipmentId: "asc" }, { msku: "asc" }],
     select: {
       shipmentId: true,
@@ -96,9 +102,12 @@ export async function GET(req: Request) {
     );
   }
 
-  const filename = shipmentId
-    ? `shipped_fba_cost_${shipmentId.replace(/[^\w.-]+/g, "_")}.csv`
-    : "shipped_fba_cost_all_shipments.csv";
+  const filename =
+    shipmentIds.length === 1
+      ? `shipped_fba_cost_${shipmentIds[0].replace(/[^\w.-]+/g, "_")}.csv`
+      : shipmentIds.length > 1
+        ? `shipped_fba_cost_${shipmentIds.length}_shipments.csv`
+        : "shipped_fba_cost_all_shipments.csv";
 
   return new Response("﻿" + lines.join("\r\n"), {
     headers: {

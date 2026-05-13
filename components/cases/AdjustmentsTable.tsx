@@ -18,7 +18,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -196,13 +195,13 @@ export function AdjustmentsTable({
         </p>
       </div>
 
-      <div className="max-h-[70vh] overflow-auto rounded-xl border border-border bg-card">
-        <Table>
-          <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+      <div className="rounded-xl border border-border bg-card">
+        <table className="w-full caption-bottom text-sm">
+          <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
                 {hg.headers.map((header) => (
-                  <TableHead key={header.id}>
+                  <TableHead key={header.id} className="h-11 border-r border-slate-200 px-3 text-slate-700 last:border-r-0">
                     {header.isPlaceholder ? null : (
                       <button
                         type="button"
@@ -255,7 +254,7 @@ export function AdjustmentsTable({
               ))
             )}
           </TableBody>
-        </Table>
+        </table>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">

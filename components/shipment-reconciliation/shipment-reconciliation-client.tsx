@@ -10,6 +10,7 @@ import {
   listShipmentCaCases,
   type ShipmentReconciliationPayload,
 } from "@/actions/shipment-reconciliation";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { CaStandaloneAdjustmentDialog, CaStandaloneCaseDialog } from "@/components/shipment-reconciliation/ca-standalone-dialogs";
 import { ReconActionDialog } from "@/components/shipment-reconciliation/recon-action-dialog";
 import { ReconDetailSheet } from "@/components/shipment-reconciliation/recon-detail-sheet";
@@ -39,7 +40,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -504,95 +504,82 @@ export function ShipmentReconciliationClient({
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
-      <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">
-            {pageTab === "recon"
-              ? "Shipment Reconciliation"
-              : "Cases & Adjustments"}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            InvenSync ›{" "}
-            {pageTab === "recon" ? "Shipment Recon" : "Cases & Adjustments"}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {pageTab === "recon" ? (
-            <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
-              <button
-                type="button"
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-semibold transition",
-                  reconView === "sku"
-                    ? "bg-white text-foreground shadow-sm"
-                    : "text-muted-foreground",
-                )}
-                onClick={() => setReconView("sku")}
+      <HeaderActions>
+        {pageTab === "recon" ? (
+          <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-semibold transition",
+                reconView === "sku"
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground",
+              )}
+              onClick={() => setReconView("sku")}
+            >
+              By SKU
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-semibold transition",
+                reconView === "shipment"
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground",
+              )}
+              onClick={() => setReconView("shipment")}
+            >
+              By Shipment
+            </button>
+          </div>
+        ) : null}
+        {pageTab === "recon" && reconView === "sku" ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-xs"
+                title="Show/hide columns"
               >
-                By SKU
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "rounded-md px-3 py-1 text-xs font-semibold transition",
-                  reconView === "shipment"
-                    ? "bg-white text-foreground shadow-sm"
-                    : "text-muted-foreground",
-                )}
-                onClick={() => setReconView("shipment")}
-              >
-                By Shipment
-              </button>
-            </div>
-          ) : null}
-          {pageTab === "recon" && reconView === "sku" ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 text-xs"
-                  title="Show/hide columns"
+                <Settings2 className="size-3.5" aria-hidden />
+                Columns
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-48">
+              <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {SKU_TABLE_COLUMNS.map((c) => (
+                <DropdownMenuCheckboxItem
+                  key={c.id}
+                  checked={columnVisibility[c.id] !== false}
+                  onCheckedChange={(v) =>
+                    setColumnVisibility((prev) => ({
+                      ...prev,
+                      [c.id]: Boolean(v),
+                    }))
+                  }
+                  onSelect={(e) => e.preventDefault()}
                 >
-                  <Settings2 className="size-3.5" aria-hidden />
-                  Columns
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-48">
-                <DropdownMenuLabel>Toggle Columns</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {SKU_TABLE_COLUMNS.map((c) => (
-                  <DropdownMenuCheckboxItem
-                    key={c.id}
-                    checked={columnVisibility[c.id] !== false}
-                    onCheckedChange={(v) =>
-                      setColumnVisibility((prev) => ({
-                        ...prev,
-                        [c.id]: Boolean(v),
-                      }))
-                    }
-                    onSelect={(e) => e.preventDefault()}
-                  >
-                    {c.label}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          {pageTab === "recon" ? (
-            <Button variant="outline" size="sm" onClick={exportReconCsv}>
-              ⬇ Export CSV
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={exportCaCsv}>
-              ⬇ Export CSV
-            </Button>
-          )}
-          <Button size="sm" onClick={() => void refreshAll()}>
-            ↻ Refresh
+                  {c.label}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        {pageTab === "recon" ? (
+          <Button variant="outline" size="sm" onClick={exportReconCsv}>
+            ⬇ Export CSV
           </Button>
-        </div>
-      </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={exportCaCsv}>
+            ⬇ Export CSV
+          </Button>
+        )}
+        <Button size="sm" onClick={() => void refreshAll()}>
+          ↻ Refresh
+        </Button>
+      </HeaderActions>
 
       <Tabs
         value={pageTab}
@@ -850,58 +837,58 @@ export function ShipmentReconciliationClient({
                 </Button>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                <Table>
-                  <TableHeader>
+                <table className="w-full caption-bottom text-sm">
+                  <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
                     <TableRow className="bg-slate-50 hover:bg-slate-50">
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         MSKU / Title
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Recon Type
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Shipment / Ref
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         FNSKU
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Issue Found
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Discrepancy
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Units Claimed
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Units Approved
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         $ Claimed
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         $ Approved
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Case ID
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Case Reason
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Status
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Raised Date
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Resolved Date
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Notes
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Actions
                       </TableHead>
                     </TableRow>
@@ -1038,7 +1025,7 @@ export function ShipmentReconciliationClient({
                       })
                     )}
                   </TableBody>
-                </Table>
+                </table>
               </div>
             </div>
           ) : (
@@ -1095,49 +1082,49 @@ export function ShipmentReconciliationClient({
                 </Button>
               </div>
               <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                <Table>
-                  <TableHeader>
+                <table className="w-full caption-bottom text-sm">
+                  <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
                     <TableRow className="bg-slate-50 hover:bg-slate-50">
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         MSKU / Title
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Recon Type
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Adj Type
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Shipment / Ref
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         FNSKU
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Adj Date
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Qty Before
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Adjustment
                       </TableHead>
-                      <TableHead className="text-right text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Qty After
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Reason / Root Cause
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Verified By
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Source Doc
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Notes
                       </TableHead>
-                      <TableHead className="text-[10px] font-bold uppercase">
+                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Actions
                       </TableHead>
                     </TableRow>
@@ -1270,7 +1257,7 @@ export function ShipmentReconciliationClient({
                       })
                     )}
                   </TableBody>
-                </Table>
+                </table>
               </div>
             </div>
           )}

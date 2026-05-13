@@ -24,7 +24,6 @@ import {
 } from "@/components/shipment-reconciliation/recon-cells";
 import { Button } from "@/components/ui/button";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -352,7 +351,7 @@ export function SkuReconTable({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: 50 } },
+    initialState: { pagination: { pageSize: 15 } },
   });
 
   if (!rows.length) {
@@ -437,11 +436,11 @@ export function SkuReconTable({
 
   return (
     <div className="space-y-3">
-      <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-        <Table>
-          <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+      <div className="rounded-md border border-slate-200 bg-white">
+        <table className="w-full caption-bottom text-sm">
+          <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
             {table.getHeaderGroups().map((hg) => (
-              <TableRow key={hg.id} className="bg-slate-50 hover:bg-slate-50">
+              <TableRow key={hg.id} className="border-b-2 border-slate-300 bg-slate-100 hover:bg-slate-100">
                 {hg.headers.map((h) => {
                   const isNum = numericColIds.has(h.id);
                   const align =
@@ -463,7 +462,7 @@ export function SkuReconTable({
                     <TableHead
                       key={h.id}
                       className={cn(
-                        "whitespace-nowrap px-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                        "h-11 whitespace-nowrap px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700",
                         alignText,
                       )}
                     >
@@ -492,7 +491,7 @@ export function SkuReconTable({
             {table.getRowModel().rows.map((row) => (
               <TableRow
                 key={row.id}
-                className="cursor-pointer"
+                className="cursor-pointer border-slate-100 hover:bg-slate-50/60"
                 onClick={() => onOpenDrawer(row.original)}
               >
                 {row.getVisibleCells().map((cell) => {
@@ -518,14 +517,28 @@ export function SkuReconTable({
               </TableRow>
             ))}
           </TableBody>
-        </Table>
+        </table>
       </div>
       <div className="flex flex-col gap-3 border-t border-slate-200 pt-3 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-        <span>
-          Showing{" "}
-          {`${pageIndex * pageSize + 1}–${Math.min((pageIndex + 1) * pageSize, rows.length)}`}{" "}
-          of {rows.length.toLocaleString()}
-        </span>
+        <div className="flex items-center gap-3">
+          <span>
+            Showing{" "}
+            {`${pageIndex * pageSize + 1}–${Math.min((pageIndex + 1) * pageSize, rows.length)}`}{" "}
+            of {rows.length.toLocaleString()}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span>Rows:</span>
+            <select
+              className="h-7 rounded border border-slate-200 bg-white px-1.5 text-[11px]"
+              value={pageSize}
+              onChange={(e) => table.setPageSize(Number(e.target.value))}
+            >
+              <option value={15}>15</option>
+              <option value={30}>30</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-1">
           <Button
             type="button"

@@ -1,7 +1,7 @@
 "use client";
 
+import * as React from "react";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -9,10 +9,22 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Pagination } from "@/components/shared/Pagination";
 import { cn } from "@/lib/utils";
 import type { FcLogRow } from "@/lib/fc-transfer-reconciliation/types";
 
-export function LogTable({ rows }: { rows: FcLogRow[] }) {
+export function LogTable({
+  rows,
+  visibility,
+}: {
+  rows: FcLogRow[];
+  visibility?: Record<string, boolean>;
+}) {
+  const show = (id: string) => visibility?.[id] !== false;
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
@@ -23,15 +35,16 @@ export function LogTable({ rows }: { rows: FcLogRow[] }) {
     );
   }
   return (
-    <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            {COLUMNS.map((c) => (
+            {FC_LOG_COLUMNS.filter((c) => show(c.id)).map((c) => (
               <TableHead
                 key={c.id}
                 className={cn(
-                  "whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                  "whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
                   c.align === "right" && "text-right",
                 )}
               >
@@ -41,41 +54,47 @@ export function LogTable({ rows }: { rows: FcLogRow[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => {
+          {pagedRows.map((r) => {
             const qtyCls = r.quantity > 0 ? "text-emerald-700" : r.quantity < 0 ? "text-red-600" : "";
             const qtyStr = (r.quantity > 0 ? "+" : "") + r.quantity;
             return (
               <TableRow key={r.id} className="hover:bg-slate-50">
-                <TableCell className="font-mono text-[11px]">{r.transferDate || "—"}</TableCell>
-                <TableCell className="font-mono text-[11px] font-semibold">{r.msku || "—"}</TableCell>
-                <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>
-                <TableCell className="font-mono text-[10px] text-muted-foreground">{r.asin || "—"}</TableCell>
-                <TableCell className="max-w-[160px] truncate text-[11px]" title={r.title}>
-                  {r.title || "—"}
-                </TableCell>
-                <TableCell className={cn("text-right font-mono text-xs font-bold", qtyCls)}>{qtyStr}</TableCell>
-                <TableCell>
-                  {r.eventType ? (
-                    <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 font-mono text-[10px] text-blue-700">
-                      {r.eventType}
-                    </Badge>
-                  ) : (
-                    <span className="text-[11px] text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-                <TableCell className="text-[10px] text-muted-foreground">{r.fulfillmentCenter || "—"}</TableCell>
-                <TableCell className="text-[10px] text-muted-foreground">{r.disposition || "—"}</TableCell>
-                <TableCell className="text-[10px] text-muted-foreground">{r.reason || "—"}</TableCell>
+                {show("date") && <TableCell className="font-mono text-[11px]">{r.transferDate || "—"}</TableCell>}
+                {show("msku") && <TableCell className="font-mono text-[11px] font-semibold">{r.msku || "—"}</TableCell>}
+                {show("fnsku") && <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>}
+                {show("asin") && <TableCell className="font-mono text-[10px] text-muted-foreground">{r.asin || "—"}</TableCell>}
+                {show("title") && (
+                  <TableCell className="max-w-[160px] truncate text-[11px]" title={r.title}>
+                    {r.title || "—"}
+                  </TableCell>
+                )}
+                {show("qty") && <TableCell className={cn("text-right font-mono text-xs font-bold", qtyCls)}>{qtyStr}</TableCell>}
+                {show("event") && (
+                  <TableCell>
+                    {r.eventType ? (
+                      <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 font-mono text-[10px] text-blue-700">
+                        {r.eventType}
+                      </Badge>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                )}
+                {show("fc") && <TableCell className="text-[10px] text-muted-foreground">{r.fulfillmentCenter || "—"}</TableCell>}
+                {show("disp") && <TableCell className="text-[10px] text-muted-foreground">{r.disposition || "—"}</TableCell>}
+                {show("reason") && <TableCell className="text-[10px] text-muted-foreground">{r.reason || "—"}</TableCell>}
               </TableRow>
             );
           })}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
 
-const COLUMNS = [
+export const FC_LOG_COLUMNS = [
   { id: "date", label: "Date", align: "left" as const },
   { id: "msku", label: "MSKU", align: "left" as const },
   { id: "fnsku", label: "FNSKU", align: "left" as const },

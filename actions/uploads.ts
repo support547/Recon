@@ -274,7 +274,7 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
           await (async () => {
             switch (reportType as ReportTypeValue) {
               case "shipped_to_fba":
-                return processShipped(tx, rows, batchAt);
+                return processShipped(tx, rows, batchAt, file.name);
               case "sales_data":
                 return processSales(tx, rows, batchAt);
               case "fba_receipts":
@@ -468,75 +468,148 @@ async function processShipped(
   tx: Tx,
   allRows: string[][],
   batchAt: Date,
+  filename: string,
 ): Promise<ProcessOutcome> {
-  const shipmentId = String(allRows[0]?.[1] ?? "").trim();
-  const nameVal = String(allRows[1]?.[1] ?? "").trim();
-  let shipDate: Date | null = null;
-  const dateMatch = nameVal.match(/\((\d{1,2}\/\d{1,2}\/\d{4})/);
-  if (dateMatch) {
-    const parts = dateMatch[1].split("/");
-    shipDate = new Date(
-      `${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}T00:00:00.000Z`,
-    );
-  }
+  const lower = filename.toLowerCase();
+  const isTsv = lower.endsWith(".tsv") || lower.endsWith(".txt");
 
-  let headerIdx = -1;
-  for (let i = 0; i < allRows.length; i++) {
-    const c0 = String(allRows[i]?.[0] ?? "");
-    if (c0.includes("Merchant SKU") || c0.includes("merchant-sku")) {
-      headerIdx = i;
-      break;
+  type Entry = {
+    msku: string;
+    title: string;
+    asin: string;
+    fnsku: string;
+    qty: number;
+    shipDate: Date | null;
+    shipmentId: string;
+  };
+
+  const map = new Map<string, Entry>();
+  const shipmentsTouched = new Set<string>();
+  let nullShipmentTouched = false;
+
+  if (isTsv) {
+    const shipmentId = String(allRows[0]?.[1] ?? "").trim();
+    const nameVal = String(allRows[1]?.[1] ?? "").trim();
+    let shipDate: Date | null = null;
+    const dateMatch = nameVal.match(/\((\d{1,2}\/\d{1,2}\/\d{4})/);
+    if (dateMatch) {
+      const parts = dateMatch[1].split("/");
+      shipDate = new Date(
+        `${parts[2]}-${parts[0].padStart(2, "0")}-${parts[1].padStart(2, "0")}T00:00:00.000Z`,
+      );
+    }
+
+    let headerIdx = -1;
+    for (let i = 0; i < allRows.length; i++) {
+      const c0 = String(allRows[i]?.[0] ?? "");
+      if (c0.includes("Merchant SKU") || c0.includes("merchant-sku")) {
+        headerIdx = i;
+        break;
+      }
+    }
+    if (headerIdx === -1) {
+      throw new Error(
+        'Not a valid Shipped to FBA report — missing "Merchant SKU" column.',
+      );
+    }
+
+    const dataRows = allRows
+      .slice(headerIdx + 1)
+      .filter((r) => r[0] && String(r[0]).trim());
+
+    for (const row of dataRows) {
+      const msku = String(row[0] ?? "").trim();
+      const title = String(row[1] ?? "").trim();
+      const asin = String(row[2] ?? "").trim();
+      const fnsku = String(row[3] ?? "").trim();
+      const qty = toNum(row[9]);
+      if (!msku) continue;
+      const key = `${shipmentId}|${msku}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.qty += qty;
+      } else {
+        map.set(key, { msku, title, asin, fnsku, qty, shipDate, shipmentId });
+      }
+    }
+
+    if (shipmentId) shipmentsTouched.add(shipmentId);
+    else nullShipmentTouched = true;
+  } else {
+    const header = (allRows[0] ?? []).map((c) =>
+      String(c ?? "").toLowerCase().trim(),
+    );
+    const findCol = (...names: string[]) =>
+      header.findIndex((h) => names.some((n) => h === n));
+    const idx = {
+      date: findCol("date"),
+      shipmentId: findCol("shipment id", "shipment-id", "shipmentid"),
+      msku: findCol("merchant sku", "merchant-sku", "msku"),
+      title: findCol("title"),
+      asin: findCol("asin"),
+      fnsku: findCol("fnsku"),
+      shipped: findCol("shipped", "quantity", "qty", "shipped quantity"),
+    };
+    if (idx.msku === -1 || idx.shipped === -1) {
+      throw new Error(
+        'Not a valid Shipped to FBA report — need "Merchant SKU" and "Shipped" columns.',
+      );
+    }
+
+    for (const row of allRows.slice(1)) {
+      const msku = String(row[idx.msku] ?? "").trim();
+      if (!msku) continue;
+      const title = idx.title >= 0 ? String(row[idx.title] ?? "").trim() : "";
+      const asin = idx.asin >= 0 ? String(row[idx.asin] ?? "").trim() : "";
+      const fnsku = idx.fnsku >= 0 ? String(row[idx.fnsku] ?? "").trim() : "";
+      const shipmentId =
+        idx.shipmentId >= 0
+          ? String(row[idx.shipmentId] ?? "").trim()
+          : "";
+      const shipDate = idx.date >= 0 ? toDate(row[idx.date]) : null;
+      const qty = toNum(row[idx.shipped]);
+
+      const key = `${shipmentId}|${msku}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.qty += qty;
+        if (!existing.shipDate && shipDate) existing.shipDate = shipDate;
+      } else {
+        map.set(key, { msku, title, asin, fnsku, qty, shipDate, shipmentId });
+      }
+
+      if (shipmentId) shipmentsTouched.add(shipmentId);
+      else nullShipmentTouched = true;
     }
   }
-  if (headerIdx === -1) {
-    throw new Error(
-      'Not a valid Shipped to FBA report — missing "Merchant SKU" column.',
-    );
-  }
 
-  const dataRows = allRows
-    .slice(headerIdx + 1)
-    .filter((r) => r[0] && String(r[0]).trim());
+  const entries = Array.from(map.values()).filter((e) => e.msku && e.qty > 0);
 
-  const map: Record<
-    string,
-    { msku: string; title: string; asin: string; fnsku: string; qty: number }
-  > = {};
-  for (const row of dataRows) {
-    const msku = String(row[0] ?? "").trim();
-    const title = String(row[1] ?? "").trim();
-    const asin = String(row[2] ?? "").trim();
-    const fnsku = String(row[3] ?? "").trim();
-    const qty = toNum(row[9]);
-    if (!msku) continue;
-    if (!map[msku]) map[msku] = { msku, title, asin, fnsku, qty: 0 };
-    map[msku].qty += qty;
-  }
+  const whereOr: Prisma.ShippedToFbaWhereInput[] = [];
+  if (shipmentsTouched.size)
+    whereOr.push({ shipmentId: { in: Array.from(shipmentsTouched) } });
+  if (nullShipmentTouched) whereOr.push({ shipmentId: null });
 
-  const entries = Object.values(map).filter((e) => e.msku && e.qty > 0);
-
-  const priorRows = await tx.shippedToFba.findMany({
-    where: shipmentId
-      ? { shipmentId }
-      : { shipmentId: null },
-    select: { uploadedAt: true },
-  });
-  const priorTimes = Array.from(
-    new Set(priorRows.map((r) => r.uploadedAt.getTime())),
-  ).map((t) => new Date(t));
-
-  await tx.shippedToFba.deleteMany({
-    where: shipmentId ? { shipmentId } : { shipmentId: null },
-  });
-
-  if (priorTimes.length) {
-    await tx.uploadedFile.deleteMany({
-      where: {
-        reportType: "shipped_to_fba",
-        uploadedAt: { in: priorTimes },
-        isLocked: false,
-      },
+  if (whereOr.length) {
+    const priorRows = await tx.shippedToFba.findMany({
+      where: { OR: whereOr },
+      select: { uploadedAt: true },
     });
+    const priorTimes = Array.from(
+      new Set(priorRows.map((r) => r.uploadedAt.getTime())),
+    ).map((t) => new Date(t));
+
+    await tx.shippedToFba.deleteMany({ where: { OR: whereOr } });
+
+    if (priorTimes.length) {
+      await tx.uploadedFile.deleteMany({
+        where: {
+          reportType: "shipped_to_fba",
+          uploadedAt: { in: priorTimes },
+          isLocked: false,
+        },
+      });
+    }
   }
 
   if (entries.length) {
@@ -546,9 +619,9 @@ async function processShipped(
         title: e.title || null,
         asin: e.asin || null,
         fnsku: e.fnsku || null,
-        shipDate,
+        shipDate: e.shipDate,
         quantity: e.qty,
-        shipmentId: shipmentId || null,
+        shipmentId: e.shipmentId || null,
         uploadedAt: batchAt,
       })),
     });

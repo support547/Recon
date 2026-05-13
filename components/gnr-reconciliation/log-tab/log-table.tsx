@@ -1,7 +1,7 @@
 "use client";
 
+import * as React from "react";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -11,9 +11,21 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ConditionBadge } from "@/components/gnr-reconciliation/shared/status-badge";
+import { Pagination } from "@/components/shared/Pagination";
 import type { GnrLogRow } from "@/lib/gnr-reconciliation/types";
 
-export function LogTable({ rows }: { rows: GnrLogRow[] }) {
+export function LogTable({
+  rows,
+  visibility,
+}: {
+  rows: GnrLogRow[];
+  visibility?: Record<string, boolean>;
+}) {
+  const show = (id: string) => visibility?.[id] !== false;
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(15);
+  React.useEffect(() => { setPage(1); }, [rows]);
+  const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
@@ -24,15 +36,16 @@ export function LogTable({ rows }: { rows: GnrLogRow[] }) {
     );
   }
   return (
-    <div className="max-h-[70vh] overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-slate-50 shadow-[0_1px_0_rgba(0,0,0,0.05)]">
+    <div className="space-y-3">
+    <div className="rounded-md border border-slate-200 bg-white">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
-            {COLUMNS.map((c) => (
+            {GNR_LOG_COLUMNS.filter((c) => show(c.id)).map((c) => (
               <TableHead
                 key={c.id}
                 className={cn(
-                  "whitespace-nowrap text-[10px] font-bold uppercase tracking-wide text-muted-foreground",
+                  "whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
                   c.align === "right" && "text-right",
                 )}
               >
@@ -42,51 +55,65 @@ export function LogTable({ rows }: { rows: GnrLogRow[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((r) => (
+          {pagedRows.map((r) => (
             <TableRow key={r.id} className="hover:bg-slate-50">
-              <TableCell>
-                {r.entrySource === "manual" ? (
-                  <Badge variant="outline" className="rounded border-purple-200 bg-purple-50 px-1.5 text-[9px] font-bold text-purple-700">
-                    Manual
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="rounded border-sky-200 bg-sky-50 px-1.5 text-[9px] font-bold text-sky-700">
-                    Report
-                  </Badge>
-                )}
-              </TableCell>
-              <TableCell className="font-mono text-[11px]">{r.reportDate || "—"}</TableCell>
-              <TableCell className="font-mono text-[10px]">{r.orderId || "—"}</TableCell>
-              <TableCell className="font-mono text-[10px]">{r.lpn || "—"}</TableCell>
-              <TableCell className="text-[10px] text-slate-600">{r.valueRecoveryType || "—"}</TableCell>
-              <TableCell className="max-w-[140px] truncate font-mono text-[10px]" title={r.msku}>
-                {r.msku || "—"}
-              </TableCell>
-              <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>
-              <TableCell className="font-mono text-[10px]">{r.asin || "—"}</TableCell>
-              <TableCell className="text-right font-mono text-xs font-bold">{r.quantity}</TableCell>
-              <TableCell>
-                <UnitStatus value={r.unitStatus} />
-              </TableCell>
-              <TableCell className="max-w-[160px] truncate text-[10px] text-muted-foreground" title={r.reasonForUnitStatus}>
-                {r.reasonForUnitStatus || "—"}
-              </TableCell>
-              <TableCell>
-                <ConditionBadge value={r.usedCondition} />
-              </TableCell>
-              <TableCell className="max-w-[140px] truncate font-mono text-[10px]" title={r.usedMsku}>
-                {r.usedMsku || "—"}
-              </TableCell>
-              <TableCell className="font-mono text-[10px]">{r.usedFnsku || "—"}</TableCell>
+              {show("source") && (
+                <TableCell>
+                  {r.entrySource === "manual" ? (
+                    <Badge variant="outline" className="rounded border-purple-200 bg-purple-50 px-1.5 text-[9px] font-bold text-purple-700">
+                      Manual
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="rounded border-sky-200 bg-sky-50 px-1.5 text-[9px] font-bold text-sky-700">
+                      Report
+                    </Badge>
+                  )}
+                </TableCell>
+              )}
+              {show("date") && <TableCell className="font-mono text-[11px]">{r.reportDate || "—"}</TableCell>}
+              {show("order_id") && <TableCell className="font-mono text-[10px]">{r.orderId || "—"}</TableCell>}
+              {show("lpn") && <TableCell className="font-mono text-[10px]">{r.lpn || "—"}</TableCell>}
+              {show("recovery") && <TableCell className="text-[10px] text-slate-600">{r.valueRecoveryType || "—"}</TableCell>}
+              {show("msku") && (
+                <TableCell className="max-w-[140px] truncate font-mono text-[10px]" title={r.msku}>
+                  {r.msku || "—"}
+                </TableCell>
+              )}
+              {show("fnsku") && <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>}
+              {show("asin") && <TableCell className="font-mono text-[10px]">{r.asin || "—"}</TableCell>}
+              {show("qty") && <TableCell className="text-right font-mono text-xs font-bold">{r.quantity}</TableCell>}
+              {show("unit_status") && (
+                <TableCell>
+                  <UnitStatus value={r.unitStatus} />
+                </TableCell>
+              )}
+              {show("reason") && (
+                <TableCell className="max-w-[160px] truncate text-[10px] text-muted-foreground" title={r.reasonForUnitStatus}>
+                  {r.reasonForUnitStatus || "—"}
+                </TableCell>
+              )}
+              {show("condition") && (
+                <TableCell>
+                  <ConditionBadge value={r.usedCondition} />
+                </TableCell>
+              )}
+              {show("used_msku") && (
+                <TableCell className="max-w-[140px] truncate font-mono text-[10px]" title={r.usedMsku}>
+                  {r.usedMsku || "—"}
+                </TableCell>
+              )}
+              {show("used_fnsku") && <TableCell className="font-mono text-[10px]">{r.usedFnsku || "—"}</TableCell>}
             </TableRow>
           ))}
         </TableBody>
-      </Table>
+      </table>
+    </div>
+    <Pagination page={page} pageSize={pageSize} totalRows={rows.length} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
     </div>
   );
 }
 
-const COLUMNS = [
+export const GNR_LOG_COLUMNS = [
   { id: "source", label: "Src", align: "left" as const },
   { id: "date", label: "Date", align: "left" as const },
   { id: "order_id", label: "Order ID", align: "left" as const },

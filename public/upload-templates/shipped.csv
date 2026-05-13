@@ -1,6 +1,3 @@
-,FBA000000000001
-,FBA Inbound (01/15/2024 09:30:00)-LBE1
-,,,,,,,,
-,,,,,,,,
-Merchant SKU,Title,ASIN,FNSKU,,,,,,Shipped
-EXAMPLE-MSKU,Example product title,B00EXAMPLE,X00EXAMPLE1,,,,,,24
+Date,Shipment ID,Merchant SKU,Title,ASIN,FNSKU,external-id,Condition,Who will prep?,Prep Type,Who will label?,Shipped
+1/10/2026,FBA1960RW4P0,9781433568565-US-FBA-NEW_202,ESV Illuminated Scripture Journal: Old Testament Set,143356856X,X004YMC0Y5,ISBN: 143356856X,New,Merchant,No prep required,Merchant,30
+1/10/2026,FBA1960RW4P0,9798874900052-US-FBA-NEW_202,ESV Scripture Journal: Old and New Testament Sets,B0D5BHPW4X,X004MC38N,EAN: 9798874900052,New,Merchant,No prep required,Merchant,20

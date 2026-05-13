@@ -10,6 +10,8 @@ export type PaginationProps = {
   pageSize: number;
   totalRows: number;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
+  pageSizeOptions?: number[];
   /** Max page buttons to show (including current). Default 7. */
   siblingCount?: number;
   className?: string;
@@ -42,6 +44,8 @@ export function Pagination({
   pageSize,
   totalRows,
   onPageChange,
+  onPageSizeChange,
+  pageSizeOptions = [15, 30, 50],
   siblingCount = 1,
   className,
 }: PaginationProps) {
@@ -59,11 +63,29 @@ export function Pagination({
         className,
       )}
     >
-      <span className="tabular-nums">
-        {totalRows === 0
-          ? "No rows"
-          : `Showing ${from.toLocaleString()}–${to.toLocaleString()} of ${totalRows.toLocaleString()}`}
-      </span>
+      <div className="flex items-center gap-3">
+        <span className="tabular-nums">
+          {totalRows === 0
+            ? "No rows"
+            : `Showing ${from.toLocaleString()}–${to.toLocaleString()} of ${totalRows.toLocaleString()}`}
+        </span>
+        {onPageSizeChange ? (
+          <div className="flex items-center gap-1.5">
+            <span>Rows:</span>
+            <select
+              className="h-7 rounded border border-slate-200 bg-white px-1.5 text-[11px]"
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            >
+              {pageSizeOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+      </div>
       <div className="flex flex-wrap items-center gap-1">
         <button
           type="button"

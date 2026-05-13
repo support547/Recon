@@ -332,7 +332,10 @@ function formatShipDate(s: string | null): string {
 
 function CostWorksheet({ onUploaded }: CostWorksheetProps) {
   const [shipments, setShipments] = React.useState<ShipmentRow[]>([]);
-  const [selectedShipment, setSelectedShipment] = React.useState<string>("");
+  const [selectedShipments, setSelectedShipments] = React.useState<Set<string>>(
+    () => new Set<string>(),
+  );
+  const lastClickedRef = React.useRef<string | null>(null);
   const [activeTab, setActiveTab] = React.useState<"pending" | "complete">(
     "pending",
   );
@@ -393,22 +396,74 @@ function CostWorksheet({ onUploaded }: CostWorksheetProps) {
   const visibleList = activeTab === "pending" ? pendingList : completeList;
 
   React.useEffect(() => {
-    if (
-      selectedShipment &&
-      !visibleList.some((s) => s.shipment_id === selectedShipment)
-    ) {
-      setSelectedShipment("");
-    }
-  }, [activeTab, visibleList, selectedShipment]);
+    setSelectedShipments((prev) => {
+      const visibleIds = new Set(visibleList.map((s) => s.shipment_id));
+      const next = new Set<string>();
+      for (const id of prev) if (visibleIds.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+    lastClickedRef.current = null;
+  }, [activeTab, visibleList]);
+
+  const toggleShipment = React.useCallback(
+    (id: string, e: React.MouseEvent) => {
+      setSelectedShipments((prev) => {
+        const next = new Set(prev);
+        if (e.shiftKey && lastClickedRef.current) {
+          const ids = visibleList.map((s) => s.shipment_id);
+          const a = ids.indexOf(lastClickedRef.current);
+          const b = ids.indexOf(id);
+          if (a !== -1 && b !== -1) {
+            const [lo, hi] = a < b ? [a, b] : [b, a];
+            const shouldSelect = !prev.has(id);
+            for (let i = lo; i <= hi; i++) {
+              if (shouldSelect) next.add(ids[i]);
+              else next.delete(ids[i]);
+            }
+            lastClickedRef.current = id;
+            return next;
+          }
+        }
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        lastClickedRef.current = id;
+        return next;
+      });
+    },
+    [visibleList],
+  );
+
+  const allVisibleSelected =
+    visibleList.length > 0 &&
+    visibleList.every((s) => selectedShipments.has(s.shipment_id));
+
+  const toggleSelectAllVisible = React.useCallback(() => {
+    setSelectedShipments((prev) => {
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        for (const s of visibleList) next.delete(s.shipment_id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const s of visibleList) next.add(s.shipment_id);
+      return next;
+    });
+  }, [allVisibleSelected, visibleList]);
+
+  const clearSelection = React.useCallback(() => {
+    setSelectedShipments(new Set());
+    lastClickedRef.current = null;
+  }, []);
 
   const handleGetSheet = () => {
-    if (!selectedShipment) {
+    if (selectedShipments.size === 0) {
       toast.error("Pick a shipment", {
-        description: "Select a shipment ID first.",
+        description: "Select one or more shipment IDs first.",
       });
       return;
     }
-    const url = `/api/shipped-to-fba/cost-export?shipment_id=${encodeURIComponent(selectedShipment)}`;
+    const ids = Array.from(selectedShipments);
+    const url = `/api/shipped-to-fba/cost-export?shipment_ids=${encodeURIComponent(ids.join(","))}`;
     const a = document.createElement("a");
     a.href = url;
     a.rel = "noopener";
@@ -518,12 +573,45 @@ function CostWorksheet({ onUploaded }: CostWorksheetProps) {
         </TabButton>
       </div>
 
+      {visibleList.length > 0 ? (
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px]">
+          <button
+            type="button"
+            onClick={toggleSelectAllVisible}
+            className="rounded border border-border bg-card px-2 py-1 font-semibold text-muted-foreground hover:border-primary hover:text-primary"
+          >
+            {allVisibleSelected ? "Deselect all" : "Select all"}
+          </button>
+          {selectedShipments.size > 0 ? (
+            <>
+              <span className="text-muted-foreground">
+                <span className="font-bold text-foreground">
+                  {selectedShipments.size}
+                </span>{" "}
+                selected
+              </span>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-muted-foreground underline hover:text-foreground"
+              >
+                Clear
+              </button>
+            </>
+          ) : (
+            <span className="text-muted-foreground">
+              Click rows to select · Shift-click for range
+            </span>
+          )}
+        </div>
+      ) : null}
+
       <ShipmentList
         loading={loadingIds}
         rows={visibleList}
         activeTab={activeTab}
-        selectedShipment={selectedShipment}
-        onSelect={setSelectedShipment}
+        selectedShipments={selectedShipments}
+        onToggle={toggleShipment}
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -531,19 +619,12 @@ function CostWorksheet({ onUploaded }: CostWorksheetProps) {
           type="button"
           variant="outline"
           onClick={handleGetSheet}
-          disabled={!selectedShipment}
+          disabled={selectedShipments.size === 0}
         >
           <Download className="mr-1.5 size-3.5" aria-hidden />
           Get Sheet
+          {selectedShipments.size > 1 ? ` (${selectedShipments.size})` : ""}
         </Button>
-        {selectedShipment ? (
-          <span className="text-[11px] text-muted-foreground">
-            Selected:{" "}
-            <span className="font-mono font-bold text-foreground">
-              {selectedShipment}
-            </span>
-          </span>
-        ) : null}
       </div>
 
       <input
@@ -684,7 +765,7 @@ function TabButton({ active, onClick, tone, count, children }: TabButtonProps) {
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+        "inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
         active
           ? "border-primary bg-primary text-primary-foreground"
           : "border-border bg-card text-muted-foreground hover:border-primary hover:text-primary",
@@ -711,16 +792,16 @@ type ShipmentListProps = {
   loading: boolean;
   rows: ShipmentRow[];
   activeTab: "pending" | "complete";
-  selectedShipment: string;
-  onSelect: (id: string) => void;
+  selectedShipments: Set<string>;
+  onToggle: (id: string, e: React.MouseEvent) => void;
 };
 
 function ShipmentList({
   loading,
   rows,
   activeTab,
-  selectedShipment,
-  onSelect,
+  selectedShipments,
+  onToggle,
 }: ShipmentListProps) {
   if (loading) {
     return (
@@ -743,7 +824,8 @@ function ShipmentList({
 
   return (
     <div className="rounded-lg border border-border bg-card">
-      <div className="grid grid-cols-[1fr_70px_70px_90px_28px] gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+      <div className="grid grid-cols-[24px_1fr_70px_70px_90px_28px] gap-2 border-b border-border bg-muted/50 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+        <div />
         <div>Shipment ID</div>
         <div className="text-right">SKUs</div>
         <div className="text-right">Qty</div>
@@ -752,7 +834,7 @@ function ShipmentList({
       </div>
       <div className="max-h-[280px] overflow-y-auto">
         {rows.map((r) => {
-          const isSelected = r.shipment_id === selectedShipment;
+          const isSelected = selectedShipments.has(r.shipment_id);
           const accent =
             r.cost_status === "complete"
               ? "border-l-emerald-500"
@@ -763,15 +845,27 @@ function ShipmentList({
             <button
               key={r.shipment_id}
               type="button"
-              onClick={() => onSelect(r.shipment_id)}
+              onClick={(e) => onToggle(r.shipment_id, e)}
+              aria-pressed={isSelected}
               className={cn(
-                "grid w-full grid-cols-[1fr_70px_70px_90px_28px] items-center gap-2 border-l-[3px] border-b border-border px-3 py-2 text-left text-xs transition-colors last:border-b-0",
+                "grid w-full grid-cols-[24px_1fr_70px_70px_90px_28px] items-center gap-2 border-l-[3px] border-b border-border px-3 py-2 text-left text-xs transition-colors last:border-b-0",
                 accent,
                 isSelected
                   ? "bg-primary/10 ring-1 ring-inset ring-primary"
                   : "hover:bg-primary/5",
               )}
             >
+              <span
+                aria-hidden
+                className={cn(
+                  "flex size-4 items-center justify-center rounded border text-[10px] font-bold transition-colors",
+                  isSelected
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-muted-foreground/40 bg-card",
+                )}
+              >
+                {isSelected ? "✓" : ""}
+              </span>
               <span className="truncate font-mono text-[11px] font-bold text-foreground">
                 {r.shipment_id}
               </span>
