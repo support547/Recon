@@ -30,7 +30,7 @@ export const DATA_EXPLORER_TABS: {
   { id: "reimbursements", label: "Reimbursements" },
   { id: "fba_removals", label: "FBA Removals" },
   { id: "fc_transfers", label: "FC Transfers" },
-  { id: "shipment_status", label: "Shipment Status" },
+  { id: "shipment_status", label: "Shipping Queue" },
   { id: "fba_summary", label: "FBA Summary" },
   { id: "replacements", label: "Replacements" },
   { id: "adjustments", label: "Adjustments" },

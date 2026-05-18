@@ -97,3 +97,17 @@ export const postActionSchema = z.object({
 });
 
 export type PostActionInputZ = z.infer<typeof postActionSchema>;
+
+/** Stand-alone removal recon case (no receipt row required). Shows in Cases & Adjustments. */
+export const removalCaseRaiseSchema = z.object({
+  orderId: z.string().min(1),
+  fnsku: z.string().min(1),
+  msku: optStr,
+  caseReason: z.string().min(1),
+  unitsClaimed: intLike.refine((n) => n > 0, "Units claimed must be at least 1"),
+  amountClaimed: numLike,
+  caseNotes: optStr,
+  issueDate: optDate,
+});
+
+export type RemovalCaseRaiseInputZ = z.infer<typeof removalCaseRaiseSchema>;

@@ -1538,15 +1538,25 @@ async function processShipmentStatus(
       .replace(/['"]/g, "")
       .replace(/\ufeff/g, ""),
   );
-  const ok =
-    hdr.some(
-      (c) =>
-        c.includes("shipment id") ||
-        c.includes("shipment-id") ||
-        c.includes("shipmentid"),
-    ) &&
-    hdr.some((c) => c.includes("expected") || c.includes("units expected"));
-  if (!ok) {
+  const findCol = (...terms: string[]) => {
+    for (const t of terms) {
+      const i = hdr.findIndex((h) => h.includes(t));
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+  const idx = {
+    shipmentName: findCol("shipment name", "name"),
+    shipmentId: findCol("shipment id", "shipment-id", "shipmentid"),
+    createdDate: findCol("created", "create date"),
+    lastUpdated: findCol("last updated", "updated"),
+    shipTo: findCol("ship to", "destination", "fc"),
+    totalSkus: findCol("total skus", "skus", "msku"),
+    unitsExpected: findCol("units expected", "expected"),
+    unitsLocated: findCol("units located", "located", "received"),
+    status: findCol("status"),
+  };
+  if (idx.shipmentId < 0 || idx.unitsExpected < 0) {
     throw new Error(
       "Not Shipment Receiving / Status — need Shipment ID and Units expected columns.",
     );
@@ -1564,21 +1574,28 @@ async function processShipmentStatus(
     status: string | null;
   };
 
-  const dataRows = allRows.slice(1).filter((r) => r[1] && String(r[1]).trim());
+  const get = (row: string[], i: number) => (i >= 0 ? row[i] : undefined);
+
+  const dataRows = allRows
+    .slice(1)
+    .filter((r) => {
+      const v = get(r, idx.shipmentId);
+      return v && String(v).trim();
+    });
   const rows = dataRows
     .map((row) => {
-      const shipmentId = String(row[1] ?? "").trim();
+      const shipmentId = String(get(row, idx.shipmentId) ?? "").trim();
       if (!shipmentId) return null;
       return {
-        shipmentName: String(row[0] ?? "").trim() || null,
+        shipmentName: String(get(row, idx.shipmentName) ?? "").trim() || null,
         shipmentId,
-        createdDate: toDate(row[2]),
-        lastUpdated: toDate(row[3]),
-        shipTo: String(row[4] ?? "").trim() || null,
-        totalSkus: toNum(row[5]),
-        unitsExpected: toNum(row[6]),
-        unitsLocated: toNum(row[7]),
-        status: String(row[8] ?? "").trim() || null,
+        createdDate: toDate(get(row, idx.createdDate)),
+        lastUpdated: toDate(get(row, idx.lastUpdated)),
+        shipTo: String(get(row, idx.shipTo) ?? "").trim() || null,
+        totalSkus: toNum(get(row, idx.totalSkus)),
+        unitsExpected: toNum(get(row, idx.unitsExpected)),
+        unitsLocated: toNum(get(row, idx.unitsLocated)),
+        status: String(get(row, idx.status) ?? "").trim() || null,
       };
     })
     .filter(Boolean) as SRow[];

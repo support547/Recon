@@ -1005,6 +1005,9 @@ export function DataExplorerView({
           pageSize={pageSize}
           total={total}
           emptyMessage={emptyCopy}
+          exportTab={tab}
+          exportFilters={{ ...filters, salesView, fbaSummaryView: fbaView }}
+          exportFileName={`data-explorer-${tab}`}
           onPageChange={(nextPage) =>
             navigate({
               page: nextPage,

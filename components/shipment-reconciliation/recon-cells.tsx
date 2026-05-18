@@ -81,6 +81,13 @@ export function ReconStatusBadge({
       </Badge>
     );
   }
+  if (k === "waiting_closed") {
+    return (
+      <Badge className="rounded-full border border-amber-200 bg-amber-50 font-mono text-[10px] text-amber-800">
+        🚚 In Transit
+      </Badge>
+    );
+  }
   return (
     <Badge className="rounded-full border border-red-200 bg-red-50 font-mono text-[10px] text-red-800">
       ⚠ Take Action

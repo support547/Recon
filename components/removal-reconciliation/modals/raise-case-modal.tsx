@@ -1,0 +1,175 @@
+"use client";
+
+import * as React from "react";
+import { toast } from "sonner";
+
+import { saveRemovalCaseRaise } from "@/actions/removal-reconciliation";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { CaseTypeButtonGrid } from "@/components/removal-reconciliation/shared/condition-button-grid";
+import type { RemovalReconRow } from "@/lib/removal-reconciliation/types";
+
+function todayIso() {
+  return new Date().toISOString().split("T")[0];
+}
+
+export function RaiseCaseModal({
+  row,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  row: RemovalReconRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
+}) {
+  const [caseReason, setCaseReason] = React.useState("Removal_Not_Received");
+  const [unitsClaimed, setUnitsClaimed] = React.useState(1);
+  const [amountClaimed, setAmountClaimed] = React.useState("");
+  const [caseNotes, setCaseNotes] = React.useState("");
+  const [issueDate, setIssueDate] = React.useState(todayIso());
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open || !row) return;
+    const short = Math.max(0, row.expectedShipped - row.receivedQty);
+    const defUnits = Math.max(
+      1,
+      short > 0 ? short : row.expectedShipped || row.actualShipped || 1,
+    );
+    setCaseReason(row.receivedQty <= 0 ? "Removal_Not_Received" : "Removal_Short_Received");
+    setUnitsClaimed(defUnits);
+    setAmountClaimed("");
+    setCaseNotes("");
+    setIssueDate(todayIso());
+  }, [open, row]);
+
+  if (!row) return null;
+
+  const r = row;
+
+  async function onSubmit() {
+    const amt =
+      typeof amountClaimed === "string"
+        ? Number.parseFloat(amountClaimed.replace(/,/g, "") || "0")
+        : Number(amountClaimed);
+    const safeAmt = Number.isFinite(amt) ? amt : 0;
+
+    setBusy(true);
+    try {
+      const res = await saveRemovalCaseRaise({
+        orderId: r.orderId,
+        fnsku: r.fnsku,
+        msku: r.msku !== "—" ? r.msku : null,
+        caseReason,
+        unitsClaimed,
+        amountClaimed: safeAmt,
+        caseNotes: caseNotes.trim() ? caseNotes.trim() : null,
+        issueDate,
+      });
+      if (!res.ok) {
+        toast.error("Could not raise case", { description: res.error });
+        return;
+      }
+      toast.success("Case raised — visible under Cases & Adjustments.");
+      onOpenChange(false);
+      onSaved?.();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-lg overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Raise removal case</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2 text-sm">
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-[11px] leading-relaxed text-slate-700">
+            <div>
+              <span className="text-muted-foreground">Order</span> {r.orderId}
+            </div>
+            <div>
+              <span className="text-muted-foreground">MSKU</span> {r.msku}{" "}
+              <span className="text-muted-foreground">· FNSKU</span> {r.fnsku}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Shipped</span>{" "}
+              {r.actualShipped} · <span className="text-muted-foreground">Expected</span>{" "}
+              {r.expectedShipped}
+            </div>
+          </div>
+
+          <Field label="Case type">
+            <CaseTypeButtonGrid value={caseReason} onChange={setCaseReason} />
+          </Field>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Units claimed">
+              <Input
+                type="number"
+                min={1}
+                className="font-mono"
+                value={unitsClaimed}
+                onChange={(e) =>
+                  setUnitsClaimed(Math.max(1, Number.parseInt(e.target.value, 10) || 1))
+                }
+              />
+            </Field>
+            <Field label="Amount claimed ($) optional">
+              <Input
+                type="text"
+                inputMode="decimal"
+                placeholder="0.00"
+                className="font-mono"
+                value={amountClaimed}
+                onChange={(e) => setAmountClaimed(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <Field label="Issue date">
+            <Input type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
+          </Field>
+
+          <Field label="Notes">
+            <Textarea
+              rows={3}
+              placeholder="Optional details for the case…"
+              value={caseNotes}
+              onChange={(e) => setCaseNotes(e.target.value)}
+            />
+          </Field>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={busy} onClick={() => void onSubmit()}>
+            Raise case
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+      {children}
+    </div>
+  );
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Eye, Lock, Package, Receipt, ScrollText, Unlock, DollarSign } from "lucide-react";
+import { Lock, Package, ScrollText, Unlock } from "lucide-react";
 
 import {
   TableBody,
@@ -34,8 +34,7 @@ export type RemovalColTotalKey =
 export function OrdersTable({
   rows,
   onReceive,
-  onCase,
-  onReimb,
+  onRaiseCase,
   onUnlock,
   colTotalFilter,
   onToggleColTotal,
@@ -43,8 +42,8 @@ export function OrdersTable({
 }: {
   rows: RemovalReconRow[];
   onReceive: (row: RemovalReconRow) => void;
-  onCase: (row: RemovalReconRow) => void;
-  onReimb: (row: RemovalReconRow) => void;
+  /** Creates CaseTracker REMOVAL row (Cases & Adjustments). */
+  onRaiseCase: (row: RemovalReconRow) => void;
   onUnlock: (row: RemovalReconRow) => void;
   colTotalFilter?: RemovalColTotalKey | null;
   onToggleColTotal?: (k: RemovalColTotalKey) => void;
@@ -155,15 +154,26 @@ export function OrdersTable({
         </TableHeader>
         <TableBody>
           {pagedRows.map((r) => (
-            <TableRow key={r.removalId} className="hover:bg-slate-50">
+            <TableRow
+              key={r.removalId}
+              className="cursor-default hover:bg-slate-50/40"
+            >
               {show("request_date") && <TableCell className="font-mono text-[11px] text-muted-foreground">{r.requestDate}</TableCell>}
-              {show("order_id") && <TableCell className="font-mono text-[11px]">{r.orderId}</TableCell>}
-              {show("msku") && (
-                <TableCell className="max-w-[150px] truncate font-mono text-[11px]" title={r.msku}>
-                  {r.msku}
+              {show("order_id") && (
+                <TableCell className="font-mono text-[11px]">
+                  <OrderIdCell row={r} />
                 </TableCell>
               )}
-              {show("fnsku") && <TableCell className="font-mono text-[11px]">{r.fnsku}</TableCell>}
+              {show("msku") && (
+                <TableCell className="max-w-[160px] overflow-hidden whitespace-nowrap font-mono text-[11px]">
+                  <MskuCell row={r} />
+                </TableCell>
+              )}
+              {show("fnsku") && (
+                <TableCell className="font-mono text-[11px]">
+                  <FnskuCell row={r} />
+                </TableCell>
+              )}
               {show("type") && <TableCell className="text-[11px]">{r.orderType}</TableCell>}
               {show("order_status") && (
                 <TableCell>
@@ -221,12 +231,11 @@ export function OrdersTable({
                 </TableCell>
               )}
               {show("actions") && (
-                <TableCell>
+                <TableCell className="whitespace-nowrap align-middle">
                   <ActionButtons
                     row={r}
                     onReceive={onReceive}
-                    onCase={onCase}
-                    onReimb={onReimb}
+                    onRaiseCase={onRaiseCase}
                     onUnlock={onUnlock}
                   />
                 </TableCell>
@@ -315,6 +324,17 @@ function ReceivedCell({ row }: { row: RemovalReconRow }) {
   );
 }
 
+function carrierTrackingUrl(carrier: string, tracking: string): string | null {
+  const c = (carrier || "").toLowerCase();
+  const t = encodeURIComponent(tracking);
+  if (c.includes("ups")) return `https://www.ups.com/track?tracknum=${t}`;
+  if (c.includes("usps") || c.includes("ats")) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${t}`;
+  if (c.includes("fedex")) return `https://www.fedex.com/fedextrack/?trknbr=${t}`;
+  if (c.includes("dhl")) return `https://www.dhl.com/en/express/tracking.html?AWB=${t}`;
+  if (c.includes("amzn") || c.includes("amazon")) return `https://track.amazon.com/tracking/${t}`;
+  return `https://www.google.com/search?q=${t}+tracking`;
+}
+
 function TrackingCell({ row }: { row: RemovalReconRow }) {
   const raw = (row.trackingNumbers || "").trim();
   if (!raw) return <span className="text-muted-foreground">—</span>;
@@ -323,8 +343,21 @@ function TrackingCell({ row }: { row: RemovalReconRow }) {
     .map((s) => s.trim())
     .filter(Boolean);
   const first = list[0] ?? raw;
+  const carrier = (row.carriers || "").split(/[,\n]/)[0]?.trim() ?? "";
+  const firstUrl = carrierTrackingUrl(carrier, first);
   if (list.length <= 1) {
-    return (
+    return firstUrl ? (
+      <a
+        href={firstUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block max-w-[140px] truncate text-blue-600 underline-offset-2 hover:underline"
+        title={`${first} — open ${carrier || "tracking"}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {first}
+      </a>
+    ) : (
       <span className="block max-w-[140px] truncate" title={first}>
         {first}
       </span>
@@ -345,12 +378,111 @@ function TrackingCell({ row }: { row: RemovalReconRow }) {
       side="bottom"
       width={320}
     >
-      {list.map((t, i) => (
-        <div key={i} className="border-b border-border/60 px-2 py-1 last:border-b-0">
-          <span className="font-mono">{t}</span>
-        </div>
-      ))}
+      {list.map((t, i) => {
+        const url = carrierTrackingUrl(carrier, t);
+        return (
+          <div key={i} className="border-b border-border/60 px-2 py-1 last:border-b-0">
+            {url ? (
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-mono text-blue-600 hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {t}
+              </a>
+            ) : (
+              <span className="font-mono">{t}</span>
+            )}
+          </div>
+        );
+      })}
     </CellHoverPopover>
+  );
+}
+
+function OrderIdCell({ row }: { row: RemovalReconRow }) {
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    void navigator.clipboard.writeText(row.orderId).catch(() => {});
+  };
+  return (
+    <CellHoverPopover
+      trigger={
+        <span className="text-blue-700 underline-offset-2 hover:underline">
+          {row.orderId}
+        </span>
+      }
+      title="Order detail"
+      side="right"
+      width={340}
+    >
+      <CellHoverRow left="Order ID" right={row.orderId} />
+      <CellHoverRow left="Removal ID" right={row.removalId} />
+      <CellHoverRow left="Type" right={row.orderType} />
+      <CellHoverRow left="Status" right={row.orderStatus} />
+      <CellHoverRow left="Disposition" right={row.disposition} />
+      <CellHoverRow left="Request Date" right={row.requestDate} />
+      <CellHoverRow left="Last Updated" right={row.lastUpdated || "—"} />
+      <CellHoverRow left="Requested" right={row.requestedQty} />
+      <CellHoverRow left="Expected" right={row.expectedShipped} />
+      <CellHoverRow left="Shipped" right={row.actualShipped} />
+      <CellHoverRow left="Received" right={row.receivedQty} />
+      <CellHoverRow left="Missing" right={row.missingQty} />
+      <CellHoverRow left="Fee" right={`$${row.removalFee.toFixed(2)}`} />
+      {row.caseIds ? (
+        <CellHoverRow left="Case IDs" right={row.caseIds} />
+      ) : null}
+      <button
+        type="button"
+        onClick={copy}
+        className="mt-1 block w-full rounded-md border border-border/60 px-2 py-1 text-[10px] hover:bg-slate-50"
+      >
+        📋 Copy Order ID
+      </button>
+    </CellHoverPopover>
+  );
+}
+
+function MskuCell({ row }: { row: RemovalReconRow }) {
+  return (
+    <CellHoverPopover
+      triggerClassName="block w-full max-w-[140px] truncate"
+      trigger={<span className="block truncate text-foreground">{row.msku}</span>}
+      title="SKU detail"
+      side="right"
+      width={340}
+    >
+      <CellHoverRow left="MSKU" right={row.msku} />
+      <CellHoverRow left="FNSKU" right={row.fnsku} />
+      <CellHoverRow left="Disposition" right={row.disposition} />
+      <CellHoverRow left="Requested" right={row.requestedQty} />
+      <CellHoverRow left="Received" right={row.receivedQty} />
+      <CellHoverRow
+        left="Sellable / Unsellable"
+        right={`${row.sellableQty} / ${row.unsellableQty}`}
+      />
+      <CellHoverRow left="Missing" right={row.missingQty} />
+      <CellHoverRow left="Wrong items" right={row.wrongItemCount} />
+    </CellHoverPopover>
+  );
+}
+
+function FnskuCell({ row }: { row: RemovalReconRow }) {
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    void navigator.clipboard.writeText(row.fnsku).catch(() => {});
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title="Click to copy FNSKU"
+      className="cursor-pointer rounded px-1 hover:bg-slate-100"
+    >
+      {row.fnsku}
+    </button>
   );
 }
 
@@ -433,14 +565,12 @@ function ReimbAmtCell({ row }: { row: RemovalReconRow }) {
 function ActionButtons({
   row,
   onReceive,
-  onCase,
-  onReimb,
+  onRaiseCase,
   onUnlock,
 }: {
   row: RemovalReconRow;
   onReceive: (row: RemovalReconRow) => void;
-  onCase: (row: RemovalReconRow) => void;
-  onReimb: (row: RemovalReconRow) => void;
+  onRaiseCase: (row: RemovalReconRow) => void;
   onUnlock: (row: RemovalReconRow) => void;
 }) {
   const isCompleted = row.orderStatus === "Completed" && row.actualShipped > 0;
@@ -477,36 +607,27 @@ function ActionButtons({
       </div>
     );
   }
-  const hasIssue = row.missingQty > 0 || row.unsellableQty > 0;
   const hasCase = row.caseCount > 0;
   return (
-    <div className="flex gap-1">
+    <div className="inline-flex flex-nowrap items-center gap-1">
       <button
         type="button"
         onClick={() => onReceive(row)}
-        className="flex h-6 items-center gap-1 rounded bg-blue-600 px-2 text-[10px] font-bold text-white hover:bg-blue-700"
+        className="flex h-6 shrink-0 items-center gap-1 rounded bg-blue-600 px-2 text-[10px] font-bold text-white hover:bg-blue-700"
         title="Mark Received"
       >
-        <Package className="size-3" aria-hidden /> Receive
+        <Package className="size-3 shrink-0" aria-hidden /> Receive
       </button>
-      {!hasCase && hasIssue ? (
+      {!hasCase ? (
         <button
           type="button"
-          onClick={() => onCase(row)}
-          className="flex h-6 items-center gap-1 rounded bg-amber-500 px-2 text-[10px] font-bold text-white hover:bg-amber-600"
-          title="Raise Case"
+          onClick={() => onRaiseCase(row)}
+          className="flex h-6 shrink-0 items-center gap-1 rounded bg-emerald-600 px-2 text-[10px] font-bold text-white hover:bg-emerald-700"
+          title="Raise case — saved to Cases & Adjustments"
         >
-          <ScrollText className="size-3" aria-hidden /> Case
+          <ScrollText className="size-3 shrink-0" aria-hidden /> Case Raised
         </button>
       ) : null}
-      <button
-        type="button"
-        onClick={() => onReimb(row)}
-        className="flex size-6 items-center justify-center rounded bg-emerald-600 text-white hover:bg-emerald-700"
-        title="Enter Reimbursement"
-      >
-        <DollarSign className="size-3" aria-hidden />
-      </button>
     </div>
   );
 }

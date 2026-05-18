@@ -22,6 +22,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -38,6 +46,7 @@ import {
   useColumnVisibility,
 } from "@/components/shared/columns-menu";
 import { ReceiveModal } from "@/components/removal-reconciliation/modals/receive-modal";
+import { RaiseCaseModal } from "@/components/removal-reconciliation/modals/raise-case-modal";
 import {
   ReimbursementModal,
   type ReimbModalTarget,
@@ -59,6 +68,28 @@ function useDebounced<T>(value: T, ms: number): T {
 
 type CardKey = "all" | "received" | "awaiting" | "issue" | "reimbursed" | "case";
 
+type OrderAggregate = {
+  orderId: string;
+  requestDate: string;
+  orderStatus: string;
+  orderType: string;
+  disposition: string;
+  skus: number;
+  requestedQty: number;
+  expectedShipped: number;
+  actualShipped: number;
+  receivedQty: number;
+  sellableQty: number;
+  unsellableQty: number;
+  missingQty: number;
+  reimbQty: number;
+  reimbAmount: number;
+  removalFee: number;
+  caseCount: number;
+  carriers: string;
+  trackingNumbers: string;
+};
+
 const ALL_DISP = "__all__";
 
 export function RemovalReconciliationClient({
@@ -67,6 +98,7 @@ export function RemovalReconciliationClient({
   initialPayload: RemovalReconciliationPayload;
 }) {
   const [tab, setTab] = React.useState<"orders" | "receipts">("orders");
+  const [ordersView, setOrdersView] = React.useState<"sku" | "order">("sku");
   const [ordersVis, setOrdersVis] = useColumnVisibility(
     "removalRecon.ordersCols",
     ORDERS_TABLE_COLUMNS,
@@ -94,7 +126,8 @@ export function RemovalReconciliationClient({
 
   const [receiveOpen, setReceiveOpen] = React.useState(false);
   const [receiveRow, setReceiveRow] = React.useState<RemovalReconRow | null>(null);
-  const [receivePreCase, setReceivePreCase] = React.useState(false);
+  const [raiseCaseOpen, setRaiseCaseOpen] = React.useState(false);
+  const [raiseCaseRow, setRaiseCaseRow] = React.useState<RemovalReconRow | null>(null);
   const [reimbOpen, setReimbOpen] = React.useState(false);
   const [reimbTarget, setReimbTarget] = React.useState<ReimbModalTarget | null>(null);
   const [postOpen, setPostOpen] = React.useState(false);
@@ -129,6 +162,64 @@ export function RemovalReconciliationClient({
       }
     });
   }, [rows, colTotalFilter]);
+
+  const orderAggregates = React.useMemo<OrderAggregate[]>(() => {
+    const g: Record<string, OrderAggregate> = {};
+    const carrierSets: Record<string, Set<string>> = {};
+    const trackingSets: Record<string, Set<string>> = {};
+    for (const r of filteredRows) {
+      const oid = r.orderId || "—";
+      if (!g[oid]) {
+        g[oid] = {
+          orderId: oid,
+          requestDate: r.requestDate,
+          orderStatus: r.orderStatus,
+          orderType: r.orderType,
+          disposition: r.disposition,
+          skus: 0,
+          requestedQty: 0,
+          expectedShipped: 0,
+          actualShipped: 0,
+          receivedQty: 0,
+          sellableQty: 0,
+          unsellableQty: 0,
+          missingQty: 0,
+          reimbQty: 0,
+          reimbAmount: 0,
+          removalFee: 0,
+          caseCount: 0,
+          carriers: "",
+          trackingNumbers: "",
+        };
+        carrierSets[oid] = new Set();
+        trackingSets[oid] = new Set();
+      }
+      const x = g[oid];
+      x.skus += 1;
+      x.requestedQty += r.requestedQty;
+      x.expectedShipped += r.expectedShipped;
+      x.actualShipped += r.actualShipped;
+      x.receivedQty += r.receivedQty;
+      x.sellableQty += r.sellableQty;
+      x.unsellableQty += r.unsellableQty;
+      x.missingQty += r.missingQty;
+      x.reimbQty += r.reimbQty;
+      x.reimbAmount += r.reimbAmount;
+      x.removalFee += r.removalFee;
+      x.caseCount += r.caseCount;
+      for (const c of (r.carriers || "").split(/[,;|]/).map((s) => s.trim()).filter(Boolean)) {
+        carrierSets[oid].add(c);
+      }
+      for (const t of (r.trackingNumbers || "").split(/[,;|]/).map((s) => s.trim()).filter(Boolean)) {
+        trackingSets[oid].add(t);
+      }
+    }
+    for (const oid of Object.keys(g)) {
+      g[oid].carriers = Array.from(carrierSets[oid]).join(", ");
+      g[oid].trackingNumbers = Array.from(trackingSets[oid]).join(", ");
+    }
+    return Object.values(g);
+  }, [filteredRows]);
 
   function exportCsv() {
     const headers = [
@@ -235,18 +326,46 @@ export function RemovalReconciliationClient({
       <div className="flex flex-col gap-4 p-4 md:p-6">
         <HeaderActions>
           {tab === "orders" ? (
+            <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-semibold transition",
+                  ordersView === "sku"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setOrdersView("sku")}
+              >
+                By SKU
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-semibold transition",
+                  ordersView === "order"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setOrdersView("order")}
+              >
+                By Removal ID
+              </button>
+            </div>
+          ) : null}
+          {tab === "orders" && ordersView === "sku" ? (
             <ColumnsMenu
               columns={ORDERS_TABLE_COLUMNS}
               visibility={ordersVis}
               onChange={setOrdersVis}
             />
-          ) : (
+          ) : tab === "receipts" ? (
             <ColumnsMenu
               columns={RECEIPTS_TABLE_COLUMNS}
               visibility={receiptsVis}
               onChange={setReceiptsVis}
             />
-          )}
+          ) : null}
           <Button variant="outline" size="sm" onClick={exportCsv}>
             ⬇ Export CSV
           </Button>
@@ -262,10 +381,10 @@ export function RemovalReconciliationClient({
           </TabsList>
 
           <TabsContent value="orders" className="mt-0 space-y-4">
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-              <span className="text-[11px] font-semibold text-muted-foreground">Order Status</span>
+            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">Order Status</span>
               <Select value={orderStatus} onValueChange={setOrderStatus}>
-                <SelectTrigger className="h-8 w-[140px] text-xs">
+                <SelectTrigger className="h-8 w-[140px] shrink-0 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -276,53 +395,30 @@ export function RemovalReconciliationClient({
                   <SelectItem value="Cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
-              <span className="text-[11px] font-semibold text-muted-foreground">Disposition</span>
-              <Select value={disposition} onValueChange={setDisposition}>
-                <SelectTrigger className="h-8 w-[140px] text-xs">
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_DISP}>All</SelectItem>
-                  {dispositionOptions.map((d) => (
-                    <SelectItem key={d} value={d}>{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <span className="text-[11px] font-semibold text-muted-foreground">Type</span>
-              <Select value={orderType} onValueChange={setOrderType}>
-                <SelectTrigger className="h-8 w-[120px] text-xs">
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_DISP}>All</SelectItem>
-                  <SelectItem value="Return">Return</SelectItem>
-                  <SelectItem value="Disposal">Disposal</SelectItem>
-                </SelectContent>
-              </Select>
               <Input
                 type="date"
                 value={from}
                 onChange={(e) => setFrom(e.target.value)}
-                className="h-8 w-[140px] text-xs"
+                className="h-8 w-[140px] shrink-0 text-xs"
                 placeholder="From"
               />
               <Input
                 type="date"
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
-                className="h-8 w-[140px] text-xs"
+                className="h-8 w-[140px] shrink-0 text-xs"
                 placeholder="To"
               />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="🔍 MSKU / FNSKU / Order ID"
-                className="h-8 max-w-[240px] text-xs"
+                className="h-8 w-[240px] shrink-0 text-xs"
               />
               <Button
                 variant="outline"
                 size="sm"
-                className="ml-auto text-xs"
+                className="ml-auto shrink-0 text-xs"
                 onClick={() => {
                   setOrderStatus("all");
                   setDisposition(ALL_DISP);
@@ -336,7 +432,7 @@ export function RemovalReconciliationClient({
               >
                 Clear
               </Button>
-              <span className="text-[11px] font-bold text-amber-700">
+              <span className="shrink-0 text-[11px] font-bold text-amber-700">
                 Total Fee: ${stats.totalFee.toFixed(2)}
               </span>
             </div>
@@ -400,28 +496,31 @@ export function RemovalReconciliationClient({
 
             {loading ? (
               <Skeleton className="h-64 w-full" />
-            ) : (
+            ) : ordersView === "sku" ? (
               <OrdersTable
                 visibility={ordersVis}
                 rows={filteredRows}
                 onReceive={(r) => {
                   setReceiveRow(r);
-                  setReceivePreCase(false);
                   setReceiveOpen(true);
                 }}
-                onCase={(r) => {
-                  setReceiveRow(r);
-                  setReceivePreCase(true);
-                  setReceiveOpen(true);
+                onRaiseCase={(r) => {
+                  setRaiseCaseRow(r);
+                  setRaiseCaseOpen(true);
                 }}
-                onReimb={(r) =>
-                  openReimbOrder(r, setReimbTarget, setReimbOpen)
-                }
                 onUnlock={(r) => void onUnlockOrder(r)}
                 colTotalFilter={colTotalFilter}
                 onToggleColTotal={(k) =>
                   setColTotalFilter((cur) => (cur === k ? null : k))
                 }
+              />
+            ) : (
+              <OrderAggregateTable
+                rows={orderAggregates}
+                onDrillDown={(oid) => {
+                  setSearch(oid);
+                  setOrdersView("sku");
+                }}
               />
             )}
           </TabsContent>
@@ -458,7 +557,16 @@ export function RemovalReconciliationClient({
           row={receiveRow}
           open={receiveOpen}
           onOpenChange={setReceiveOpen}
-          preselectCase={receivePreCase}
+          preselectCase={false}
+          onSaved={() => {
+            void reload();
+            void refreshReceipts();
+          }}
+        />
+        <RaiseCaseModal
+          row={raiseCaseRow}
+          open={raiseCaseOpen}
+          onOpenChange={setRaiseCaseOpen}
           onSaved={() => {
             void reload();
             void refreshReceipts();
@@ -502,21 +610,6 @@ function cardToFilter(card: CardKey): string {
     default:
       return "";
   }
-}
-
-function openReimbOrder(
-  r: RemovalReconRow,
-  setTarget: (t: ReimbModalTarget) => void,
-  setOpen: (v: boolean) => void,
-) {
-  setTarget({
-    kind: "order",
-    orderId: r.orderId,
-    fnsku: r.fnsku,
-    msku: r.msku,
-    missingQty: r.missingQty || Math.max(0, r.expectedShipped - r.receivedQty),
-  });
-  setOpen(true);
 }
 
 function KpiCard({
@@ -589,5 +682,196 @@ function KpiCard({
         </div>
       </div>
     </button>
+  );
+}
+
+function OrderAggregateTable({
+  rows,
+  onDrillDown,
+}: {
+  rows: OrderAggregate[];
+  onDrillDown?: (orderId: string) => void;
+}) {
+  const totals = React.useMemo(() => {
+    let requestedQty = 0;
+    let actualShipped = 0;
+    let receivedQty = 0;
+    let missingQty = 0;
+    let reimbQty = 0;
+    let reimbAmount = 0;
+    let removalFee = 0;
+    for (const r of rows) {
+      requestedQty += r.requestedQty;
+      actualShipped += r.actualShipped;
+      receivedQty += r.receivedQty;
+      missingQty += r.missingQty;
+      reimbQty += r.reimbQty;
+      reimbAmount += r.reimbAmount;
+      removalFee += r.removalFee;
+    }
+    return {
+      requestedQty,
+      actualShipped,
+      receivedQty,
+      missingQty,
+      reimbQty,
+      reimbAmount,
+      removalFee,
+    };
+  }, [rows]);
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+      <Table>
+        <TableHeader>
+          <TableRow className="bg-slate-50">
+            <TableHead className="text-[11px]">Order ID</TableHead>
+            <TableHead className="text-[11px]">Request Date</TableHead>
+            <TableHead className="text-[11px]">Type</TableHead>
+            <TableHead className="text-[11px]">Order Status</TableHead>
+            <TableHead className="text-[11px]">Disposition</TableHead>
+            <TableHead className="text-[11px]">Carriers</TableHead>
+            <TableHead className="text-right text-[11px]">SKUs</TableHead>
+            <TableHead className="text-right text-[11px]">
+              Requested
+              <div className="text-[10px] font-normal text-muted-foreground">
+                {totals.requestedQty.toLocaleString()}
+              </div>
+            </TableHead>
+            <TableHead className="text-right text-[11px]">
+              Shipped
+              <div className="text-[10px] font-normal text-muted-foreground">
+                {totals.actualShipped.toLocaleString()}
+              </div>
+            </TableHead>
+            <TableHead className="text-right text-[11px]">
+              Received
+              <div className="text-[10px] font-normal text-muted-foreground">
+                {totals.receivedQty.toLocaleString()}
+              </div>
+            </TableHead>
+            <TableHead className="text-right text-[11px]">
+              Missing
+              <div className="text-[10px] font-normal text-muted-foreground">
+                {totals.missingQty.toLocaleString()}
+              </div>
+            </TableHead>
+            <TableHead className="text-right text-[11px]">
+              Reimb.
+              <div className="text-[10px] font-normal text-muted-foreground">
+                {totals.reimbQty.toLocaleString()}
+              </div>
+            </TableHead>
+            <TableHead className="text-right text-[11px]">
+              Reimb $
+              <div className="text-[10px] font-normal text-muted-foreground">
+                ${totals.reimbAmount.toFixed(2)}
+              </div>
+            </TableHead>
+            <TableHead className="text-right text-[11px]">
+              Fee
+              <div className="text-[10px] font-normal text-muted-foreground">
+                ${totals.removalFee.toFixed(2)}
+              </div>
+            </TableHead>
+            <TableHead className="text-right text-[11px]">Cases</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.length === 0 ? (
+            <TableRow>
+              <TableCell
+                colSpan={14}
+                className="py-10 text-center text-xs text-muted-foreground"
+              >
+                No orders
+              </TableCell>
+            </TableRow>
+          ) : (
+            rows.map((r) => {
+              const pct =
+                r.actualShipped > 0
+                  ? Math.round((r.receivedQty / r.actualShipped) * 100)
+                  : r.requestedQty > 0
+                    ? Math.round((r.receivedQty / r.requestedQty) * 100)
+                    : 100;
+              const pColor =
+                pct >= 100
+                  ? "text-emerald-600"
+                  : pct >= 85
+                    ? "text-amber-600"
+                    : "text-red-600";
+              return (
+                <TableRow
+                  key={r.orderId}
+                  className={cn(
+                    "text-xs",
+                    onDrillDown ? "cursor-pointer hover:bg-blue-50" : undefined,
+                  )}
+                  onClick={() => onDrillDown?.(r.orderId)}
+                  title={onDrillDown ? "Click to view SKUs in this order" : undefined}
+                >
+                  <TableCell className="font-mono font-semibold text-blue-700 underline-offset-2 hover:underline">
+                    {r.orderId}
+                  </TableCell>
+                  <TableCell className="font-mono text-muted-foreground">
+                    {r.requestDate}
+                  </TableCell>
+                  <TableCell>{r.orderType}</TableCell>
+                  <TableCell>
+                    <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                      {r.orderStatus}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-700">
+                      {r.disposition}
+                    </span>
+                  </TableCell>
+                  <TableCell className="max-w-[140px] truncate text-[10px] text-muted-foreground">
+                    {r.carriers}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {r.skus}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {r.requestedQty}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {r.actualShipped}
+                  </TableCell>
+                  <TableCell className={cn("text-right font-mono", pColor)}>
+                    {r.receivedQty}
+                    <div className="text-[9px] text-muted-foreground">
+                      {pct}%
+                    </div>
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right font-mono",
+                      r.missingQty > 0 ? "font-bold text-red-600" : "text-emerald-600",
+                    )}
+                  >
+                    {r.missingQty || 0}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-emerald-700">
+                    {r.reimbQty || "—"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-emerald-700">
+                    {r.reimbAmount > 0 ? `$${r.reimbAmount.toFixed(2)}` : "—"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-amber-700">
+                    ${r.removalFee.toFixed(2)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {r.caseCount || "—"}
+                  </TableCell>
+                </TableRow>
+              );
+            })
+          )}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

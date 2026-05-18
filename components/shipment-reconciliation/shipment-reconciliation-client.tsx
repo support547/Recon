@@ -60,6 +60,7 @@ import type {
 import {
   aggregateShipments,
   summaryStats,
+  tableRowDerived,
   trimCl,
 } from "@/lib/shipment-reconciliation-logic";
 import { cn } from "@/lib/utils";
@@ -242,8 +243,35 @@ export function ShipmentReconciliationClient({
 
   const filteredRows = React.useMemo(() => {
     const fQ = debouncedSearch.toLowerCase();
+    const EMPTY_CA: ActionCacheEntry = {
+      case_raised: 0,
+      case_approved: 0,
+      case_amount: 0,
+      adj_qty: 0,
+      case_status: null,
+      case_count: 0,
+      case_ids: [],
+    };
     return rows.filter((r) => {
-      if (reconStatus !== "all" && r.status !== reconStatus) return false;
+      if (reconStatus !== "all") {
+        const fk = (r.fnsku || "").trim().replace(/['"]/g, "");
+        const kind = tableRowDerived(r, overlay[fk] ?? EMPTY_CA).statusBadgeKind;
+        if (reconStatus === "case_needed") {
+          if (kind !== "take_action") return false;
+        } else if (reconStatus === "in_transit") {
+          if (kind !== "waiting_closed") return false;
+        } else if (reconStatus === "matched") {
+          if (kind !== "matched" && kind !== "excess") return false;
+        } else if (reconStatus === "excess") {
+          if (kind !== "excess") return false;
+        } else if (reconStatus === "partial") {
+          if (kind !== "partial_reimb") return false;
+        } else if (reconStatus === "shortage") {
+          if (r.shortage <= 0) return false;
+        } else if (r.status !== reconStatus) {
+          return false;
+        }
+      }
       if (
         fQ &&
         !r.msku.toLowerCase().includes(fQ) &&
@@ -586,11 +614,11 @@ export function ShipmentReconciliationClient({
         onValueChange={(v) => setPageTab(v as "recon" | "ca")}
         className="gap-4"
       >
-        <TabsList className="h-9 w-full justify-start sm:w-auto">
-          <TabsTrigger value="recon" className="text-xs">
+        <TabsList className="h-9 w-auto justify-start">
+          <TabsTrigger value="recon" className="px-3 text-xs">
             Shipment Recon
           </TabsTrigger>
-          <TabsTrigger value="ca" className="text-xs">
+          <TabsTrigger value="ca" className="px-3 text-xs">
             Cases & Adjustments
           </TabsTrigger>
         </TabsList>
@@ -643,6 +671,7 @@ export function ShipmentReconciliationClient({
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="matched">✓ Matched</SelectItem>
                 <SelectItem value="case_needed">🔴 Case Needed</SelectItem>
+                <SelectItem value="in_transit">🚚 In Transit</SelectItem>
                 <SelectItem value="partial">◑ Partial</SelectItem>
                 <SelectItem value="shortage">⚠ Shortage</SelectItem>
                 <SelectItem value="excess">↑ Excess</SelectItem>
@@ -655,9 +684,23 @@ export function ShipmentReconciliationClient({
               onChange={(e) => setSearch(e.target.value)}
             />
             <Button
-              variant="destructive"
+              variant="outline"
               size="sm"
               className="ml-auto text-xs"
+              onClick={() => {
+                setShipmentStatus("all");
+                setShipmentId("all");
+                setReconStatus("all");
+                setSearch("");
+                setColTotalFilter(null);
+              }}
+            >
+              ✕ Clear
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="text-xs"
               onClick={filterCaseNeeded}
             >
               🔴 Cases Needed

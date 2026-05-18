@@ -10,7 +10,12 @@ import {
 import { format, isValid, parseISO } from "date-fns";
 import { Download } from "lucide-react";
 
+import {
+  fetchAllDataExplorerTab,
+  type DataExplorerFilters,
+} from "@/actions/data-explorer";
 import { Button } from "@/components/ui/button";
+import { type DataExplorerTabId } from "@/lib/data-explorer-constants";
 import {
   dispositionChipVariant,
   statusChipVariant,
@@ -365,6 +370,9 @@ export type DataTableProps = {
   onPageChange: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   emptyMessage?: string;
+  exportTab?: DataExplorerTabId;
+  exportFilters?: DataExplorerFilters;
+  exportFileName?: string;
 };
 
 const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
@@ -378,7 +386,11 @@ export function DataTable({
   onPageChange,
   onPageSizeChange,
   emptyMessage = "No rows match the current filters yet.",
+  exportTab,
+  exportFilters,
+  exportFileName,
 }: DataTableProps) {
+  const [exporting, setExporting] = React.useState(false);
   const columns = React.useMemo(
     () => buildColumns(columnSpecs),
     [columnSpecs],
@@ -409,24 +421,33 @@ export function DataTable({
     return buttons;
   }, [page, pageCount]);
 
-  const exportCsv = React.useCallback(() => {
-    const headers = columnSpecs.map((c) => c.header);
-    const lines = [
-      headers.map(csvEscape).join(","),
-      ...sortedRows.map((r) =>
-        columnSpecs.map((spec) => csvEscape(csvCell(spec, r.original))).join(","),
-      ),
-    ];
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `data-explorer-export-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [columnSpecs, sortedRows]);
+  const exportCsv = React.useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const exportRows: Record<string, unknown>[] = exportTab
+        ? await fetchAllDataExplorerTab(exportTab, exportFilters)
+        : sortedRows.map((r) => r.original);
+      const headers = columnSpecs.map((c) => c.header);
+      const lines = [
+        headers.map(csvEscape).join(","),
+        ...exportRows.map((row) =>
+          columnSpecs.map((spec) => csvEscape(csvCell(spec, row))).join(","),
+        ),
+      ];
+      const blob = new Blob([lines.join("\n")], {
+        type: "text/csv;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${exportFileName ?? "data-explorer-export"}-${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }, [columnSpecs, sortedRows, exportTab, exportFilters, exportFileName, exporting]);
 
   if (total <= 0) {
     return (
@@ -454,9 +475,10 @@ export function DataTable({
             size="sm"
             className="h-8 border-[#c8cdd8] text-xs font-semibold"
             onClick={exportCsv}
+            disabled={exporting}
           >
             <Download className="size-3.5" aria-hidden />
-            Export CSV
+            {exporting ? "Exporting…" : "Export CSV"}
           </Button>
         </div>
       </div>

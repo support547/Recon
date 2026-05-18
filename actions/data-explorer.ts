@@ -3273,3 +3273,21 @@ export async function fetchDataExplorerTab(
       return { data: [], total: 0, page: 1, pageSize: DEFAULT_PAGE_SIZE };
   }
 }
+
+export async function fetchAllDataExplorerTab(
+  tabId: DataExplorerTabId,
+  filters: DataExplorerFilters | undefined,
+): Promise<Record<string, unknown>[]> {
+  const all: Record<string, unknown>[] = [];
+  const batchSize = MAX_PAGE_SIZE;
+  let page = 1;
+  const hardCap = 500_000;
+  while (all.length < hardCap) {
+    const result = await fetchDataExplorerTab(tabId, filters, page, batchSize);
+    if (!result.data.length) break;
+    all.push(...result.data);
+    if (all.length >= result.total) break;
+    page += 1;
+  }
+  return all;
+}

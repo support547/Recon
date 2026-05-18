@@ -17,6 +17,7 @@ import {
   postActionSchema,
   receiveActionSchema,
   reimbursementSchema,
+  removalCaseRaiseSchema,
 } from "@/lib/validations/removal-reconciliation";
 
 export type MutationResult<T = void> =
@@ -370,6 +371,49 @@ export async function saveReceiveAction(raw: unknown): Promise<MutationResult<{ 
 
     revalidateAll();
     return { ok: true, data: { id: result.id } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
+/** Raise a REMOVAL case without creating a receipt (appears under Cases & Adjustments). */
+export async function saveRemovalCaseRaise(
+  raw: unknown,
+): Promise<MutationResult<{ id: string }>> {
+  try {
+    await requireAuth();
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+  }
+  const parsed = removalCaseRaiseSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const v = parsed.data;
+  try {
+    const today = new Date();
+    const issueDate = v.issueDate ? new Date(v.issueDate) : today;
+    const row = await prisma.caseTracker.create({
+      data: {
+        msku: v.msku,
+        fnsku: v.fnsku,
+        reconType: ReconType.REMOVAL,
+        orderId: v.orderId,
+        caseReason: v.caseReason,
+        unitsClaimed: v.unitsClaimed,
+        unitsApproved: 0,
+        amountClaimed: new Prisma.Decimal(v.amountClaimed),
+        amountApproved: new Prisma.Decimal(0),
+        currency: "USD",
+        status: CaseStatus.IN_PROGRESS,
+        issueDate,
+        raisedDate: today,
+        notes: v.caseNotes,
+      },
+    });
+    revalidateAll();
+    return { ok: true, data: { id: row.id } };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };

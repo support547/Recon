@@ -287,7 +287,11 @@ export function tableRowDerived(r: ShipmentReconRow, ca: ActionCacheEntry) {
     | "case_raised"
     | "in_progress"
     | "partial_reimb"
+    | "waiting_closed"
     | "take_action";
+
+  const shipmentClosed =
+    String(r.shipment_status ?? "").trim().toLowerCase() === "closed";
 
   if (r.status === "matched" || r.status === "excess") {
     statusBadgeKind = r.status === "excess" ? "excess" : "matched";
@@ -301,6 +305,8 @@ export function tableRowDerived(r: ShipmentReconRow, ca: ActionCacheEntry) {
     statusBadgeKind = "case_raised";
   } else if (totalActioned > 0) {
     statusBadgeKind = "in_progress";
+  } else if (!shipmentClosed) {
+    statusBadgeKind = "waiting_closed";
   } else if (r.status === "partial") {
     statusBadgeKind = "partial_reimb";
   } else {

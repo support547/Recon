@@ -23,7 +23,7 @@ export const REPORT_TYPE_META: readonly ReportTypeMeta[] = [
   { value: "gnr_report",        label: "Grade & Resell",    sub: "Automated Grade and Resell report",    templateFile: "gnr.csv" },
   { value: "fba_removals",      label: "Removals",          sub: "FBA removal order report",             templateFile: "removals.csv" },
   { value: "removal_shipments", label: "Removal Shipments", sub: "Removal shipment detail report",       templateFile: "removal-shipments.csv" },
-  { value: "shipment_status",   label: "Shipment Receiving",sub: "FBA inbound shipment status",          templateFile: "shipment-receiving.csv" },
+  { value: "shipment_status",   label: "Shipping Queue",    sub: "FBA inbound shipment status",          templateFile: "shipment-receiving.csv" },
   { value: "fba_summary",       label: "FBA Summary",       sub: "FBA ending balance report",            templateFile: "fbasummary.csv" },
   { value: "payment_repository",label: "Payment Repository",sub: "Amazon Payment / Transaction report",  templateFile: "payment_repository.csv" },
   { value: "settlement_report", label: "Settlement Report", sub: "Amazon settlement (orders/refunds/other)", templateFile: "" },
