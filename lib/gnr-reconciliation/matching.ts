@@ -49,23 +49,41 @@ export function buildReimbByFnsku(
   return m;
 }
 
-/** FBA Summary: latest endingBalance per FNSKU (highest summaryDate). */
+/**
+ * FBA Summary → per FNSKU total ending balance.
+ *
+ * Inventory Ledger "Summary View" emits one row per FNSKU × disposition × date
+ * (Sellable, Unsellable, Defective, Customer Damaged, etc). For a given FNSKU
+ * the true on-hand quantity = sum of endingBalance across all dispositions
+ * on the LATEST summaryDate.
+ *
+ * Algorithm:
+ * 1. First pass: find latest summaryDate per FNSKU.
+ * 2. Second pass: sum endingBalance for rows matching that latest date.
+ */
 export function buildFbaLatestMap(
   rows: { fnsku: string | null; endingBalance: number; summaryDate: Date | null }[],
 ): Map<string, { fbaEnding: number; summaryDate: Date | null }> {
+  const latestDate = new Map<string, number>(); // fnsku → ms timestamp
+  for (const r of rows) {
+    const k = trimStr(r.fnsku);
+    if (!k) continue;
+    const ts = r.summaryDate ? r.summaryDate.getTime() : -Infinity;
+    const prev = latestDate.get(k);
+    if (prev === undefined || ts > prev) latestDate.set(k, ts);
+  }
+
   const m = new Map<string, { fbaEnding: number; summaryDate: Date | null }>();
   for (const r of rows) {
     const k = trimStr(r.fnsku);
     if (!k) continue;
+    const ts = r.summaryDate ? r.summaryDate.getTime() : -Infinity;
+    if (ts !== latestDate.get(k)) continue;
     const prev = m.get(k);
     if (!prev) {
-      m.set(k, { fbaEnding: r.endingBalance, summaryDate: r.summaryDate });
-      continue;
-    }
-    const a = prev.summaryDate ? prev.summaryDate.getTime() : -Infinity;
-    const b = r.summaryDate ? r.summaryDate.getTime() : -Infinity;
-    if (b > a) {
-      m.set(k, { fbaEnding: r.endingBalance, summaryDate: r.summaryDate });
+      m.set(k, { fbaEnding: r.endingBalance || 0, summaryDate: r.summaryDate });
+    } else {
+      prev.fbaEnding += r.endingBalance || 0;
     }
   }
   return m;

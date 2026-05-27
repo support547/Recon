@@ -4,9 +4,9 @@ import * as React from "react";
 import { Download, Loader2, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 
-import { uploadFile } from "@/actions/uploads";
 import {
   type ReportTypeValue,
+  type UploadFileResult,
   uploadResultDescription,
 } from "@/lib/upload-report-types";
 import { Button } from "@/components/ui/button";
@@ -129,7 +129,11 @@ export function UploadZone({
       fd.set("file", file);
 
       try {
-        const res = await uploadFile(fd);
+        const httpRes = await fetch("/api/uploads", {
+          method: "POST",
+          body: fd,
+        });
+        const res = (await httpRes.json()) as UploadFileResult;
         stopProgressTimer();
         setProgress(100);
 
@@ -221,7 +225,7 @@ export function UploadZone({
             Drop file here or click to browse
           </p>
           <p className="mb-3.5 mt-1 text-xs text-muted-foreground">
-            CSV, TSV, TXT, XLSX, XLS · max 50 MB
+            CSV, TSV, TXT, XLSX, XLS · max 10 MB
           </p>
           <span className="inline-block rounded-md border border-border bg-muted/50 px-2.5 py-1 text-[10px] text-muted-foreground">
             CSV / TSV / XLSX / TXT

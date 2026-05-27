@@ -21,6 +21,8 @@ export const shipmentReconCaseActionSchema = z.object({
   ]),
   issue_date: z.string().optional(),
   notes: z.string().optional(),
+  case_url: z.string().trim().url().nullable().optional().or(z.literal("").transform(() => null)),
+  attachment_url: z.string().trim().max(2048).nullable().optional(),
 });
 
 export type ShipmentReconCaseActionInput = z.infer<
@@ -41,6 +43,7 @@ export const shipmentReconAdjActionSchema = z.object({
     "correction",
     "count_adjustment",
     "donated",
+    "wrong_label",
     "other",
   ]),
   qty_before: z.coerce.number().int(),
@@ -93,6 +96,8 @@ export const shipmentCaStandaloneCaseSchema = z.object({
   raised_date: z.string().optional(),
   resolved_date: z.string().optional(),
   notes: z.string().optional(),
+  case_url: z.string().nullable().optional(),
+  attachment_url: z.string().nullable().optional(),
 });
 
 export type ShipmentCaStandaloneCaseInput = z.infer<

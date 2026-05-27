@@ -1,5 +1,6 @@
 export type ReplacementStatusKey =
   | "TAKE_ACTION"
+  | "WAITING_RETURN"
   | "PARTIAL"
   | "RETURNED"
   | "REIMBURSED"
@@ -8,6 +9,7 @@ export type ReplacementStatusKey =
 export type ReplacementReconRow = {
   id: string;
   shipmentDate: string;
+  daysSinceShipment: number | null;
   msku: string;
   asin: string;
   quantity: number;
@@ -65,6 +67,8 @@ export type ReplacementReconStats = {
   reimbAmount: number;
   takeActionSkus: number;
   takeActionQty: number;
+  waitingReturnSkus: number;
+  waitingReturnQty: number;
 };
 
 export type ReturnMeta = {

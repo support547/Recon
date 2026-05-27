@@ -32,12 +32,13 @@ import {
 } from "@/components/shared/columns-menu";
 import { RaiseCaseModal } from "@/components/fc-transfer-reconciliation/modals/raise-case-modal";
 import { AdjustModal } from "@/components/fc-transfer-reconciliation/modals/adjust-modal";
+import { MskuLogModal } from "@/components/fc-transfer-reconciliation/modals/msku-log-modal";
 import type {
   FcActionStatus,
   FcAnalysisRow,
 } from "@/lib/fc-transfer-reconciliation/types";
 
-type CardKey = "all" | "take-action" | "waiting" | "excess";
+type CardKey = "all" | "take-action" | "waiting" | "excess" | "cases-raised" | "reimbursed";
 
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
@@ -80,6 +81,8 @@ export function FcTransferReconciliationClient({
   const [caseOpen, setCaseOpen] = React.useState(false);
   const [adjRow, setAdjRow] = React.useState<FcAnalysisRow | null>(null);
   const [adjOpen, setAdjOpen] = React.useState(false);
+  const [logRow, setLogRow] = React.useState<FcAnalysisRow | null>(null);
+  const [logOpen, setLogOpen] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
@@ -107,6 +110,8 @@ export function FcTransferReconciliationClient({
 
   const filteredAnalysis = React.useMemo(() => {
     if (filterCard === "all") return payload.analysis;
+    if (filterCard === "cases-raised") return payload.analysis.filter((r) => r.caseOpenCount > 0);
+    if (filterCard === "reimbursed") return payload.analysis.filter((r) => r.reimbursed);
     const target: FcActionStatus =
       filterCard === "take-action" ? "take-action" :
       filterCard === "waiting" ? "waiting" : "excess";
@@ -219,13 +224,17 @@ export function FcTransferReconciliationClient({
               }}
             />
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
               <KpiCard label="Take Action >60 Days" border="red" primary={stats.takeActionCount} secondary={stats.takeActionQty} secLabel="Units"
                 active={filterCard === "take-action"} onClick={() => setFilterCard(filterCard === "take-action" ? "all" : "take-action")} />
               <KpiCard label="Waiting <60 Days" border="amber" primary={stats.waitingCount} secondary={stats.waitingQty} secLabel="Units"
                 active={filterCard === "waiting"} onClick={() => setFilterCard(filterCard === "waiting" ? "all" : "waiting")} />
               <KpiCard label="Excess Stock" border="blue" primary={stats.excessCount} secondary={stats.excessQty} secLabel="Surplus"
                 active={filterCard === "excess"} onClick={() => setFilterCard(filterCard === "excess" ? "all" : "excess")} />
+              <KpiCard label="Cases Raised" border="green" primary={stats.casesRaisedCount} secondary={stats.casesRaisedQty} secLabel="Open"
+                active={filterCard === "cases-raised"} onClick={() => setFilterCard(filterCard === "cases-raised" ? "all" : "cases-raised")} />
+              <KpiCard label="Reimbursed" border="teal" primary={stats.reimbursedCount} secondary={stats.reimbursedQty} secLabel="Units"
+                active={filterCard === "reimbursed"} onClick={() => setFilterCard(filterCard === "reimbursed" ? "all" : "reimbursed")} />
               <KpiCard label="Total Unresolved" border="slate" primary={stats.totalUnresolved} secondary={stats.totalUnresolvedQty} secLabel="Missing"
                 active={filterCard === "all"} onClick={() => setFilterCard("all")} />
             </div>
@@ -238,6 +247,7 @@ export function FcTransferReconciliationClient({
                 rows={filteredAnalysis}
                 onRaiseCase={(r) => { setCaseRow(r); setCaseOpen(true); }}
                 onAdjust={(r) => { setAdjRow(r); setAdjOpen(true); }}
+                onViewLog={(r) => { setLogRow(r); setLogOpen(true); }}
               />
             )}
           </TabsContent>
@@ -279,6 +289,7 @@ export function FcTransferReconciliationClient({
 
         <RaiseCaseModal row={caseRow} open={caseOpen} onOpenChange={setCaseOpen} onSaved={() => void reload()} />
         <AdjustModal row={adjRow} open={adjOpen} onOpenChange={setAdjOpen} onSaved={() => void reload()} />
+        <MskuLogModal row={logRow} logRows={payload.logRows} open={logOpen} onOpenChange={setLogOpen} />
       </div>
     </TooltipProvider>
   );
@@ -319,7 +330,7 @@ function KpiCard({
   label, border, primary, secondary, secLabel, active, onClick, hideSecondary,
 }: {
   label: string;
-  border: "blue" | "green" | "red" | "amber" | "slate";
+  border: "blue" | "green" | "red" | "amber" | "slate" | "teal";
   primary: number;
   secondary: number;
   secLabel: string;
@@ -331,12 +342,14 @@ function KpiCard({
     border === "blue" ? "border-t-blue-600" :
     border === "green" ? "border-t-emerald-500" :
     border === "red" ? "border-t-red-500" :
-    border === "amber" ? "border-t-amber-500" : "border-t-slate-400";
+    border === "amber" ? "border-t-amber-500" :
+    border === "teal" ? "border-t-teal-500" : "border-t-slate-400";
   const c =
     border === "blue" ? "text-blue-600" :
     border === "green" ? "text-emerald-700" :
     border === "red" ? "text-red-600" :
-    border === "amber" ? "text-amber-800" : "text-slate-600";
+    border === "amber" ? "text-amber-800" :
+    border === "teal" ? "text-teal-700" : "text-slate-600";
   const Component = onClick ? "button" : "div";
   return (
     <Component

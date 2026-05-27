@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FBA Reconciliation ERP
 
-## Getting Started
+Next.js 16 + TypeScript + Prisma + PostgreSQL app for reconciling Amazon FBA inventory, returns, removals, FC transfers, GNR, replacements, and settlement reports.
 
-First, run the development server:
+## Stack
+
+- Next.js 16.2.6, React 19.2.4, TypeScript 5
+- Prisma 7.8.0 + PostgreSQL
+- next-auth v5 beta, Tailwind v4, shadcn/ui
+- Zod, csv-parse, xlsx
+
+## Environment Variables
+
+Required in `.env`:
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | yes | PostgreSQL connection string |
+| `AUTH_ENABLED` | optional | `true` to enable auth. Defaults to dev stub user. |
+| `NEXTAUTH_SECRET` | if `AUTH_ENABLED=true` | session encryption secret |
+| `AUTH_SECRET` | alternative to `NEXTAUTH_SECRET` | |
+
+Validation runs at startup via `lib/env.ts` (imported from `next.config.ts`).
+
+## Setup
 
 ```bash
+npm install
+npx prisma generate
+npx prisma migrate deploy
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Report Types
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+15 Amazon reports are uploaded via `/upload`. Parsers live in `actions/uploads.ts`:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Report | Target table | Source |
+|---|---|---|
+| Shipped to FBA | `shipped_to_fba` | InvenSync export |
+| Sales Data | `sales_data` | Amazon Sales (Flat File) |
+| FBA Receipts | `fba_receipts` | Inventory Event Detail |
+| Customer Returns | `customer_returns` | FBA Customer Returns |
+| Reimbursements | `reimbursements` | Reimbursements report |
+| FBA Removals | `fba_removals` | Removal Order Detail |
+| FC Transfers | `fc_transfers` | Inventory Event Detail (transfers) |
+| Shipment Status | `shipment_status` | Inbound Shipments |
+| FBA Summary | `fba_summary` | Inventory Ledger - Summary |
+| Replacements | `replacements` | Replacements report |
+| Adjustments | `adjustments` | Manual upload |
+| GNR Report | `gnr_report` | Grade & Resell unit status |
+| Payment Repository | `payment_repository` | Date Range Transaction |
+| Removal Shipments | `removal_shipments` | Removal Shipment Detail |
+| Settlement Report | `settlement_report` | Statements / settlements |
 
-## Learn More
+## Reconciliation Formula (MSKU level)
 
-To learn more about Next.js, take a look at the following resources:
+```
+expectedQty = shippedQty + receivedQty + returnQty + reimbQty + fcTransferQty
+            − soldQty − removalQty
+variance    = expectedQty − fbaEndingBalance
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Single source of truth: `lib/full-reconciliation/formula.ts`.
+Per-module FNSKU formulas live in `lib/<module>/formula.ts`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Conventions
 
-## Deploy on Vercel
+- Soft delete: every business model has `deletedAt`. ALWAYS query with `where: { deletedAt: null }`.
+- Server actions return `MutationResult = { ok: true } | { ok: false, error: string }`.
+- Formula logic stays out of `actions/` — keep it in `lib/<module>/formula.ts`.
+- Zod schemas in `lib/validations/<module>.ts`.
+- Decimal fields use `new Prisma.Decimal(value)`.
+- Middleware lives in `proxy.ts` (Next.js 16 convention).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Auth
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`AUTH_ENABLED=false` (default in dev): `requireAuth()` in `actions/auth.ts` returns a stub system user — all mutations work without login.
+
+## Migrations
+
+```bash
+npx prisma migrate dev --name <change>
+npx prisma migrate deploy
+```
+
+See `prisma/schema.prisma` for the data model.

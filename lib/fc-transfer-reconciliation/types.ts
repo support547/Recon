@@ -35,11 +35,13 @@ export type FcAnalysisRow = {
   actionStatus: FcActionStatus;
   fcs: string;
   caseCount: number;
+  caseOpenCount: number;
   caseStatusTop: string;
   caseApprovedQty: number;
   caseApprovedAmount: number;
   adjQty: number;
   effectiveReimbQty: number;
+  reimbursed: boolean;
 };
 
 export type FcLogRow = {
@@ -69,10 +71,15 @@ export type FcReconStats = {
   excessQty: number;
   totalUnresolved: number;
   totalUnresolvedQty: number;
+  casesRaisedCount: number;
+  casesRaisedQty: number;
+  reimbursedCount: number;
+  reimbursedQty: number;
 };
 
 export type FcCaseMeta = {
   count: number;
+  openCount: number;
   claimedQty: number;
   approvedQty: number;
   approvedAmount: number;

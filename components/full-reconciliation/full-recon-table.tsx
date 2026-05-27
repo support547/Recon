@@ -163,7 +163,10 @@ export function FullReconTable({
             {COLS.filter((c) => show(c.key)).map((c) => (
               <TableHead
                 key={c.key}
-                className="whitespace-nowrap text-right h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3"
+                className={cn(
+                  "whitespace-nowrap text-right h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3",
+                  (c.key === "endingBalance" || c.key === "fbaEndingBalance") && "bg-indigo-50",
+                )}
               >
                 <div className="flex flex-col items-end">
                   <span>{c.label}</span>
@@ -323,12 +326,12 @@ function RowItem({
         </TableCell>
       )}
       {show("endingBalance") && (
-        <TableCell className="text-right font-mono text-xs">
+        <TableCell className="text-right font-mono text-xs bg-indigo-50/40">
           <EndingBalCell row={row} />
         </TableCell>
       )}
       {show("fbaEndingBalance") && (
-        <TableCell className="text-right font-mono text-xs">
+        <TableCell className="text-right font-mono text-xs bg-indigo-50/40">
           <FbaBalCell row={row} />
         </TableCell>
       )}
@@ -445,14 +448,7 @@ function ReimbCell({ row }: { row: FullReconRow }) {
   return (
     <CellHoverPopover
       trigger={
-        <span className="font-bold">
-          −{row.reimbQty}
-          {row.reimbAmt > 0 ? (
-            <span className="ml-1 text-[9px] text-emerald-600">
-              ${row.reimbAmt.toFixed(2)}
-            </span>
-          ) : null}
-        </span>
+        <span className="font-bold">−{Math.abs(row.reimbQty)}</span>
       }
       title="Reimbursements (Lost/Damaged)"
       count={row.reimbDetails.length}

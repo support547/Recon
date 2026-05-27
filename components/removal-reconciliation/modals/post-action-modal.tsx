@@ -3,7 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 
-import { savePostAction } from "@/actions/removal-reconciliation";
+import { savePostAction, saveCaseRemark } from "@/actions/removal-reconciliation";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -78,6 +78,7 @@ export function PostActionModal({
   const [billedAmount, setBilledAmount] = React.useState(0);
   const [invoiceNumber, setInvoiceNumber] = React.useState("");
   const [reshippedQty, setReshippedQty] = React.useState(0);
+  const [caseRemark, setCaseRemark] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   type ReceiptExt = RemovalReceiptRow & {
@@ -137,6 +138,7 @@ export function PostActionModal({
     setBilledAmount(receipt.billedAmount || 0);
     setInvoiceNumber(r?.invoiceNumber ?? "");
     setReshippedQty(r?.reshippedQty ?? 0);
+    setCaseRemark(receipt.caseRemark ?? "");
   }, [open, receipt, r]);
 
   if (!receipt) return null;
@@ -148,12 +150,24 @@ export function PostActionModal({
   }
 
   async function onSubmit() {
-    if (!action) {
-      toast.error("Please select an action");
+    const remarkOnly = !action && caseRemark.trim().length > 0;
+    if (!action && !remarkOnly) {
+      toast.error("Select an action or add a Case Remark");
       return;
     }
     setBusy(true);
     try {
+      if (remarkOnly) {
+        const res = await saveCaseRemark(receipt!.id, caseRemark);
+        if (!res.ok) {
+          toast.error("Save failed", { description: res.error });
+          return;
+        }
+        toast.success("✓ Case remark saved!");
+        onOpenChange(false);
+        onSaved?.();
+        return;
+      }
       const res = await savePostAction({
         receiptId: receipt!.id,
         postAction: action,
@@ -169,6 +183,7 @@ export function PostActionModal({
         billedAmount: warehouseBilled ? billedAmount : 0,
         invoiceNumber: invoiceNumber || null,
         reshippedQty,
+        caseRemark: caseRemark.trim() ? caseRemark.trim() : null,
       });
       if (!res.ok) {
         toast.error("Save failed", { description: res.error });
@@ -186,7 +201,10 @@ export function PostActionModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-xl overflow-y-auto">
+      <DialogContent
+        className="max-h-[92vh] w-[95vw] overflow-y-auto sm:!max-w-3xl"
+        style={{ maxWidth: "min(95vw, 900px)" }}
+      >
         <DialogHeader>
           <DialogTitle>🎯 Post-Receipt Action</DialogTitle>
           <p className="text-xs text-muted-foreground">
@@ -381,6 +399,18 @@ export function PostActionModal({
               />
             </div>
           </div>
+        </div>
+
+        <div className="border-t border-slate-200 pt-3">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+            Case Remark
+          </div>
+          <Textarea
+            value={caseRemark}
+            onChange={(e) => setCaseRemark(e.target.value)}
+            rows={2}
+            placeholder="Internal notes about the case (status update, follow-up, escalation)…"
+          />
         </div>
 
         <div className="border-t border-slate-200 pt-3">

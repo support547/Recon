@@ -115,3 +115,77 @@ export type AdjustmentInput = {
   adjDate: string | null;
   notes: string | null;
 };
+
+// ============================================================
+// ASIN Verification (additive — does not affect existing Returns Recon)
+// ============================================================
+
+export type AsinMatchStatus =
+  | "FULLY_VERIFIED"
+  | "ASIN_MISMATCH"
+  | "MSKU_MISMATCH"
+  | "MULTI_MISMATCH"
+  | "NOT_IN_CATALOG"
+  | "ORDER_NOT_FOUND";
+
+export type AsinVerificationRow = {
+  orderId: string;
+  returnFnsku: string;
+  returnAsin: string;
+  returnMsku: string;
+  returnTitle: string;
+  returnedQty: number;
+  returnEvents: number;
+  disposition: string;
+  reasons: string;
+  salesAsin: string;
+  salesMsku: string;
+  salesFnsku: string;
+  catalogAsin: string;
+  catalogMsku: string;
+  catalogTitle: string;
+  asinMatch: boolean;
+  mskuMatch: boolean;
+  matchStatus: AsinMatchStatus;
+  matchScore: number; // 0..3 (fnsku + asin + msku)
+  isSellable: boolean;
+  isSellableMismatch: boolean;
+  caseCount: number;
+  caseStatusTop: string;
+  caseIds: string;
+  reimbQty: number;
+  reimbAmount: number;
+  earliestReturn: string;
+  latestReturn: string;
+};
+
+export type AsinVerificationStats = {
+  total: number;
+  totalQty: number;
+  verifiedCount: number;
+  verifiedQty: number;
+  asinMismatchCount: number;
+  asinMismatchQty: number;
+  mskuMismatchCount: number;
+  mskuMismatchQty: number;
+  multiMismatchCount: number;
+  multiMismatchQty: number;
+  notInCatalogCount: number;
+  notInCatalogQty: number;
+  orderNotFoundCount: number;
+  orderNotFoundQty: number;
+  sellableMismatchCount: number;
+  sellableMismatchQty: number;
+};
+
+export type SalesOrderDetailMeta = {
+  fnskuSet: Set<string>;
+  asinSet: Set<string>;
+  mskuSet: Set<string>;
+};
+
+export type CatalogMeta = {
+  msku: string;
+  asin: string;
+  title: string;
+};

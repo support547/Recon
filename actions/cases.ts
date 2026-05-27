@@ -48,6 +48,8 @@ export type CaseTrackerRow = {
   resolvedDate: Date | null;
   notes: string | null;
   store: string | null;
+  caseUrl: string | null;
+  attachmentUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -154,6 +156,8 @@ function toCaseCreateInput(
     resolvedDate: v.resolvedDate ?? undefined,
     notes: v.notes,
     store: v.store,
+    caseUrl: v.caseUrl,
+    attachmentUrl: v.attachmentUrl,
   };
 }
 

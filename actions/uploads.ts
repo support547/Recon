@@ -1,5 +1,6 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { parse } from "csv-parse/sync";
 import { revalidatePath } from "next/cache";
 import * as XLSX from "xlsx";
@@ -163,54 +164,59 @@ export async function deleteUploadBatch(id: string): Promise<UploadMutationResul
 
   const at = uf.uploadedAt;
   const rt = uf.reportType as ReportTypeValue;
+  // Short-term: match rows by exact uploadedAt timestamp.
+  // Risk: two uploads of the same report type in the same millisecond
+  // would share a timestamp. TODO: add batchId UUID column to all fact
+  // tables, stamp at upload time, and delete by batchId.
+  const where = { uploadedAt: at };
 
   try {
     await prisma.$transaction(async (tx) => {
       switch (rt) {
         case "shipped_to_fba":
-          await tx.shippedToFba.deleteMany({ where: { uploadedAt: at } });
+          await tx.shippedToFba.deleteMany({ where });
           break;
         case "sales_data":
-          await tx.salesData.deleteMany({ where: { uploadedAt: at } });
+          await tx.salesData.deleteMany({ where });
           break;
         case "fba_receipts":
-          await tx.fbaReceipt.deleteMany({ where: { uploadedAt: at } });
+          await tx.fbaReceipt.deleteMany({ where });
           break;
         case "customer_returns":
-          await tx.customerReturn.deleteMany({ where: { uploadedAt: at } });
+          await tx.customerReturn.deleteMany({ where });
           break;
         case "reimbursements":
-          await tx.reimbursement.deleteMany({ where: { uploadedAt: at } });
+          await tx.reimbursement.deleteMany({ where });
           break;
         case "fba_removals":
-          await tx.fbaRemoval.deleteMany({ where: { uploadedAt: at } });
+          await tx.fbaRemoval.deleteMany({ where });
           break;
         case "fc_transfers":
-          await tx.fcTransfer.deleteMany({ where: { uploadedAt: at } });
+          await tx.fcTransfer.deleteMany({ where });
           break;
         case "shipment_status":
-          await tx.shipmentStatus.deleteMany({ where: { uploadedAt: at } });
+          await tx.shipmentStatus.deleteMany({ where });
           break;
         case "fba_summary":
-          await tx.fbaSummary.deleteMany({ where: { uploadedAt: at } });
+          await tx.fbaSummary.deleteMany({ where });
           break;
         case "replacements":
-          await tx.replacement.deleteMany({ where: { uploadedAt: at } });
+          await tx.replacement.deleteMany({ where });
           break;
         case "adjustments":
-          await tx.adjustment.deleteMany({ where: { uploadedAt: at } });
+          await tx.adjustment.deleteMany({ where });
           break;
         case "gnr_report":
-          await tx.gnrReport.deleteMany({ where: { uploadedAt: at } });
+          await tx.gnrReport.deleteMany({ where });
           break;
         case "payment_repository":
-          await tx.paymentRepository.deleteMany({ where: { uploadedAt: at } });
+          await tx.paymentRepository.deleteMany({ where });
           break;
         case "removal_shipments":
-          await tx.removalShipment.deleteMany({ where: { uploadedAt: at } });
+          await tx.removalShipment.deleteMany({ where });
           break;
         case "settlement_report":
-          await tx.settlementReport.deleteMany({ where: { uploadedAt: at } });
+          await tx.settlementReport.deleteMany({ where });
           break;
         default:
           throw new Error(`Unknown report type: ${rt}`);
@@ -225,7 +231,7 @@ export async function deleteUploadBatch(id: string): Promise<UploadMutationResul
   }
 }
 
-const MAX_BYTES = 50 * 1024 * 1024;
+const MAX_BYTES = 100 * 1024 * 1024;
 
 export async function uploadFile(formData: FormData): Promise<UploadFileResult> {
   try {
@@ -246,7 +252,7 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
     return { ok: false, error: "The file is empty." };
   }
   if (file.size > MAX_BYTES) {
-    return { ok: false, error: "File is too large (max 50 MB)." };
+    return { ok: false, error: "File is too large (max 100 MB)." };
   }
 
   const buf = Buffer.from(await file.arrayBuffer());
@@ -367,6 +373,7 @@ function parseSpreadsheet(filename: string, buf: Buffer): string[][] {
       skip_empty_lines: true,
       trim: true,
       relax_quotes: true,
+      relax_column_count: true,
     }) as string[][];
     return parsed.map((row) =>
       row.map((c) => String(c ?? "").replace(/^"|"$/g, "").trim()),
@@ -461,6 +468,21 @@ type ProcessOutcome = {
   rowsInserted: number;
   rowsSkipped: number;
 };
+
+// Batch large IN-clauses to stay under Postgres bind-param limit (~32767).
+async function fetchExistingHashes(
+  hashes: string[],
+  finder: (chunk: string[]) => Promise<{ rowHash: string | null }[]>,
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  const CHUNK = 1000;
+  for (let i = 0; i < hashes.length; i += CHUNK) {
+    const chunk = hashes.slice(i, i + CHUNK);
+    const rows = await finder(chunk);
+    for (const r of rows) if (r.rowHash) out.add(r.rowHash);
+  }
+  return out;
+}
 
 /* ─── Processors (legacy server.js behaviour) ─── */
 
@@ -708,62 +730,85 @@ async function processSales(
     })
     .filter(Boolean) as SaleRow[];
 
+  const hashOf = (r: SaleRow): string => {
+    const parts = [
+      r.orderId,
+      r.fnsku ?? "",
+      r.saleDate ? r.saleDate.toISOString() : "",
+      r.msku,
+      r.asin ?? "",
+      r.fc ?? "",
+      String(r.quantity),
+      r.currency,
+      r.productAmount ? r.productAmount.toString() : "",
+      r.shippingAmount ? r.shippingAmount.toString() : "",
+      r.giftAmount ? r.giftAmount.toString() : "",
+      r.shipCity ?? "",
+      r.shipState ?? "",
+      r.shipPostalCode ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
   let bad = 0;
+
+  const validRows: { r: SaleRow; hash: string }[] = [];
   for (const r of rows) {
     if (!r.saleDate) {
       bad += 1;
       continue;
     }
-    const existed = await tx.salesData.findFirst({
-      where: { orderId: r.orderId, saleDate: r.saleDate },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "sales_data" (
-        "id", "msku", "fnsku", "asin", "quantity", "saleDate", "orderId", "currency",
-        "productAmount", "shippingAmount", "giftAmount", "fc",
-        "shipCity", "shipState", "shipPostalCode", "store",
-        "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${r.msku},
-        ${r.fnsku},
-        ${r.asin},
-        ${r.quantity},
-        ${r.saleDate},
-        ${r.orderId},
-        ${r.currency},
-        ${rawDec(r.productAmount)},
-        ${rawDec(r.shippingAmount)},
-        ${rawDec(r.giftAmount)},
-        ${r.fc},
-        ${r.shipCity},
-        ${r.shipState},
-        ${r.shipPostalCode},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("orderId", "saleDate") DO UPDATE SET
-        "msku" = EXCLUDED."msku",
-        "fnsku" = EXCLUDED."fnsku",
-        "asin" = EXCLUDED."asin",
-        "quantity" = EXCLUDED."quantity",
-        "currency" = EXCLUDED."currency",
-        "productAmount" = EXCLUDED."productAmount",
-        "shippingAmount" = EXCLUDED."shippingAmount",
-        "giftAmount" = EXCLUDED."giftAmount",
-        "fc" = EXCLUDED."fc",
-        "shipCity" = EXCLUDED."shipCity",
-        "shipState" = EXCLUDED."shipState",
-        "shipPostalCode" = EXCLUDED."shipPostalCode",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
+    validRows.push({ r, hash: hashOf(r) });
+  }
+
+  if (validRows.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      validRows.map((v) => v.hash),
+      (chunk) =>
+        tx.salesData.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+
+    for (const { r, hash } of validRows) {
+      if (existingSet.has(hash)) {
+        sk += 1;
+        continue;
+      }
+      await tx.$executeRaw`
+        INSERT INTO "sales_data" (
+          "id", "msku", "fnsku", "asin", "quantity", "saleDate", "orderId", "currency",
+          "productAmount", "shippingAmount", "giftAmount", "fc",
+          "shipCity", "shipState", "shipPostalCode", "store", "rowHash",
+          "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.msku},
+          ${r.fnsku},
+          ${r.asin},
+          ${r.quantity},
+          ${r.saleDate},
+          ${r.orderId},
+          ${r.currency},
+          ${rawDec(r.productAmount)},
+          ${rawDec(r.shippingAmount)},
+          ${rawDec(r.giftAmount)},
+          ${r.fc},
+          ${r.shipCity},
+          ${r.shipState},
+          ${r.shipPostalCode},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
+    }
   }
 
   return { totalRows: rows.length, rowsInserted: ins, rowsSkipped: sk + bad };
@@ -792,143 +837,117 @@ async function processReceipts(
     );
   }
 
-  const dataRows = allRows.slice(1).filter((r) => r[3] && String(r[3]).trim());
-  const map: Record<
-    string,
-    {
-      msku: string;
-      fnsku: string;
-      asin: string;
-      title: string;
-      event_type: string;
-      shipmentId: string;
-      fc: string;
-      disposition: string;
-      reason: string;
-      country: string;
-      recon_qty: number;
-      unrecon_qty: number;
-      qty: number;
-      date: Date | null;
-      recv_dt: Date | null;
-      store: string;
-    }
-  > = {};
+  type RcptRow = {
+    msku: string;
+    fnsku: string;
+    asin: string;
+    title: string;
+    event_type: string;
+    shipmentId: string;
+    fc: string;
+    disposition: string;
+    reason: string;
+    country: string;
+    recon_qty: number;
+    unrecon_qty: number;
+    qty: number;
+    date: Date | null;
+    recv_dt: Date | null;
+    store: string;
+  };
 
+  const dataRows = allRows.slice(1).filter((r) => r[3] && String(r[3]).trim());
+  const entries: RcptRow[] = [];
   for (const row of dataRows) {
     const msku = String(row[3] ?? "").trim();
     const fnsku = String(row[1] ?? "").trim();
-    const asin = String(row[2] ?? "").trim();
-    const title = String(row[4] ?? "").trim();
-    const event_type = String(row[5] ?? "").trim();
-    const shipmentId = String(row[6] ?? "").trim();
-    const qty = toNum(row[7]);
-    const fc = String(row[8] ?? "").trim();
-    const disposition = String(row[9] ?? "").trim();
-    const reason = String(row[10] ?? "").trim();
-    const country =
-      row.length > 11 ? String(row[11] ?? "").trim() : "";
-    const recon_qty = toNum(row[12]);
-    const unrecon_qty = toNum(row[13]);
-    const datetime_raw = String(row[14] ?? "").trim();
-    const store = String(row[15] ?? "")
-      .replace(/[\r\n]/g, "")
-      .trim();
-    const date = toDate(row[0]);
-    const recv_dt = datetime_raw ? toDate(datetime_raw) : date;
     if (!fnsku && !msku) continue;
-    const key =
-      fnsku +
-      "|||" +
-      shipmentId +
-      "|||" +
-      (date?.toISOString() ?? "");
-    if (!map[key]) {
-      map[key] = {
-        msku,
-        fnsku,
-        asin,
-        title,
-        event_type,
-        shipmentId,
-        fc,
-        disposition,
-        reason,
-        country,
-        recon_qty: 0,
-        unrecon_qty: 0,
-        qty: 0,
-        date,
-        recv_dt,
-        store,
-      };
-    }
-    map[key].qty += qty;
-    map[key].recon_qty += recon_qty;
-    map[key].unrecon_qty += unrecon_qty;
+    const date = toDate(row[0]);
+    const datetime_raw = String(row[14] ?? "").trim();
+    entries.push({
+      msku,
+      fnsku,
+      asin: String(row[2] ?? "").trim(),
+      title: String(row[4] ?? "").trim(),
+      event_type: String(row[5] ?? "").trim(),
+      shipmentId: String(row[6] ?? "").trim(),
+      qty: toNum(row[7]),
+      fc: String(row[8] ?? "").trim(),
+      disposition: String(row[9] ?? "").trim(),
+      reason: String(row[10] ?? "").trim(),
+      country: row.length > 11 ? String(row[11] ?? "").trim() : "",
+      recon_qty: toNum(row[12]),
+      unrecon_qty: toNum(row[13]),
+      date,
+      recv_dt: datetime_raw ? toDate(datetime_raw) : date,
+      store: String(row[15] ?? "").replace(/[\r\n]/g, "").trim(),
+    });
   }
 
-  const entries = Object.values(map);
+  const hashOf = (e: RcptRow): string => {
+    const parts = [
+      e.fnsku, e.msku, e.asin, e.title, e.event_type, e.shipmentId,
+      String(e.qty), e.fc, e.disposition, e.reason, e.country,
+      String(e.recon_qty), String(e.unrecon_qty),
+      e.date ? e.date.toISOString() : "",
+      e.recv_dt ? e.recv_dt.toISOString() : "",
+      e.store,
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
   let bad = 0;
+  const valid: { e: RcptRow; hash: string }[] = [];
   for (const e of entries) {
-    if (!e.date || !e.fnsku) {
-      bad += 1;
-      continue;
+    if (!e.date || !e.fnsku) { bad += 1; continue; }
+    valid.push({ e, hash: hashOf(e) });
+  }
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.fbaReceipt.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { e, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "fba_receipts" (
+          "id", "msku", "title", "asin", "fnsku", "quantity", "receiptDate", "shipmentId",
+          "eventType", "fulfillmentCenter", "disposition", "reason", "country",
+          "reconciledQty", "unreconciledQty", "receiptDatetime", "store", "rowHash",
+          "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${e.msku || null},
+          ${e.title || null},
+          ${e.asin || null},
+          ${e.fnsku || null},
+          ${e.qty},
+          ${e.date},
+          ${e.shipmentId || null},
+          ${e.event_type || null},
+          ${e.fc || null},
+          ${e.disposition || null},
+          ${e.reason || null},
+          ${e.country || null},
+          ${e.recon_qty || 0},
+          ${e.unrecon_qty || 0},
+          ${e.recv_dt},
+          ${e.store || null},
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
     }
-    const shipId = e.shipmentId ?? "";
-    const existed = await tx.fbaReceipt.findFirst({
-      where: {
-        fnsku: e.fnsku,
-        receiptDate: e.date,
-        shipmentId: shipId,
-      },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "fba_receipts" (
-        "id", "msku", "title", "asin", "fnsku", "quantity", "receiptDate", "shipmentId",
-        "eventType", "fulfillmentCenter", "disposition", "reason", "country",
-        "reconciledQty", "unreconciledQty", "receiptDatetime", "store",
-        "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${e.msku || null},
-        ${e.title || null},
-        ${e.asin || null},
-        ${e.fnsku || null},
-        ${e.qty},
-        ${e.date},
-        ${shipId},
-        ${e.event_type || null},
-        ${e.fc || null},
-        ${e.disposition || null},
-        ${e.reason || null},
-        ${e.country || null},
-        ${e.recon_qty || 0},
-        ${e.unrecon_qty || 0},
-        ${e.recv_dt},
-        ${e.store || null},
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("fnsku", "receiptDate", "shipmentId") DO UPDATE SET
-        "title" = EXCLUDED."title",
-        "asin" = EXCLUDED."asin",
-        "quantity" = EXCLUDED."quantity",
-        "shipmentId" = EXCLUDED."shipmentId",
-        "reason" = EXCLUDED."reason",
-        "country" = EXCLUDED."country",
-        "reconciledQty" = EXCLUDED."reconciledQty",
-        "unreconciledQty" = EXCLUDED."unreconciledQty",
-        "receiptDatetime" = EXCLUDED."receiptDatetime",
-        "store" = EXCLUDED."store",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
   }
 
   return { totalRows: entries.length, rowsInserted: ins, rowsSkipped: sk + bad };
@@ -1003,69 +1022,73 @@ async function processReturns(
     })
     .filter(Boolean) as RetRow[];
 
+  const hashOf = (r: RetRow): string => {
+    const parts = [
+      r.orderId ?? "", r.fnsku ?? "", r.returnDate ? r.returnDate.toISOString() : "",
+      r.msku, r.asin ?? "", r.title ?? "", String(r.quantity),
+      r.disposition ?? "", r.detailedDisposition ?? "", r.reason ?? "",
+      r.status ?? "", r.fulfillmentCenter ?? "", r.licensePlateNumber ?? "",
+      r.customerComments ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
+  let bad = 0;
+  const valid: { r: RetRow; hash: string }[] = [];
   for (const r of rows) {
-    if (!r.orderId || !r.fnsku || !r.returnDate) continue;
-    const existed = await tx.customerReturn.findFirst({
-      where: {
-        orderId: r.orderId,
-        fnsku: r.fnsku,
-        returnDate: r.returnDate,
-      },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "customer_returns" (
-        "id", "msku", "asin", "fnsku", "title", "quantity", "disposition", "detailedDisposition",
-        "reason", "status", "returnDate", "orderId", "fulfillmentCenter", "licensePlateNumber",
-        "customerComments", "store", "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${r.msku},
-        ${r.asin},
-        ${r.fnsku},
-        ${r.title},
-        ${r.quantity},
-        ${r.disposition},
-        ${r.detailedDisposition},
-        ${r.reason},
-        ${r.status},
-        ${r.returnDate},
-        ${r.orderId},
-        ${r.fulfillmentCenter},
-        ${r.licensePlateNumber},
-        ${r.customerComments},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("orderId", "fnsku", "returnDate") DO UPDATE SET
-        "msku" = EXCLUDED."msku",
-        "asin" = EXCLUDED."asin",
-        "title" = EXCLUDED."title",
-        "quantity" = EXCLUDED."quantity",
-        "disposition" = EXCLUDED."disposition",
-        "detailedDisposition" = EXCLUDED."detailedDisposition",
-        "reason" = EXCLUDED."reason",
-        "status" = EXCLUDED."status",
-        "fulfillmentCenter" = EXCLUDED."fulfillmentCenter",
-        "licensePlateNumber" = EXCLUDED."licensePlateNumber",
-        "customerComments" = EXCLUDED."customerComments",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
+    if (!r.orderId || !r.fnsku || !r.returnDate) { bad += 1; continue; }
+    valid.push({ r, hash: hashOf(r) });
   }
 
-  const skippedMissingKey = rows.filter(
-    (r) => !r.orderId || !r.fnsku || !r.returnDate,
-  ).length;
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.customerReturn.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "customer_returns" (
+          "id", "msku", "asin", "fnsku", "title", "quantity", "disposition", "detailedDisposition",
+          "reason", "status", "returnDate", "orderId", "fulfillmentCenter", "licensePlateNumber",
+          "customerComments", "store", "rowHash", "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.msku},
+          ${r.asin},
+          ${r.fnsku},
+          ${r.title},
+          ${r.quantity},
+          ${r.disposition},
+          ${r.detailedDisposition},
+          ${r.reason},
+          ${r.status},
+          ${r.returnDate},
+          ${r.orderId},
+          ${r.fulfillmentCenter},
+          ${r.licensePlateNumber},
+          ${r.customerComments},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
+    }
+  }
+
   return {
     totalRows: rows.length,
     rowsInserted: ins,
-    rowsSkipped: sk + skippedMissingKey,
+    rowsSkipped: sk + bad,
   };
 }
 
@@ -1144,73 +1167,75 @@ async function processReimbursements(
     })
     .filter(Boolean) as RRow[];
 
+  const hashOf = (r: RRow): string => {
+    const parts = [
+      r.reimbursementId ?? "", r.msku, r.fnsku ?? "",
+      r.approvalDate ? r.approvalDate.toISOString() : "",
+      r.caseId ?? "", r.amazonOrderId ?? "", r.reason ?? "",
+      r.asin ?? "", r.title ?? "", r.conditionVal ?? "", r.currency,
+      r.amountPerUnit ? r.amountPerUnit.toString() : "",
+      r.amount ? r.amount.toString() : "",
+      String(r.qtyCash), String(r.qtyInventory), String(r.quantity),
+      r.originalReimbId ?? "", r.originalReimbType ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
   let bad = 0;
+  const valid: { r: RRow; hash: string }[] = [];
   for (const r of rows) {
-    if (!r.reimbursementId) {
-      bad += 1;
-      continue;
+    if (!r.reimbursementId) { bad += 1; continue; }
+    valid.push({ r, hash: hashOf(r) });
+  }
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.reimbursement.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "reimbursements" (
+          "id", "approvalDate", "reimbursementId", "caseId", "amazonOrderId", "reason",
+          "msku", "fnsku", "asin", "title", "conditionVal", "currency", "amountPerUnit", "amount",
+          "qtyCash", "qtyInventory", "quantity", "originalReimbId", "originalReimbType",
+          "store", "rowHash", "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.approvalDate},
+          ${r.reimbursementId},
+          ${r.caseId},
+          ${r.amazonOrderId},
+          ${r.reason},
+          ${r.msku},
+          ${r.fnsku},
+          ${r.asin},
+          ${r.title},
+          ${r.conditionVal},
+          ${r.currency},
+          ${rawDec(r.amountPerUnit)},
+          ${rawDec(r.amount)},
+          ${r.qtyCash},
+          ${r.qtyInventory},
+          ${r.quantity},
+          ${r.originalReimbId},
+          ${r.originalReimbType},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
     }
-    const existed = await tx.reimbursement.findFirst({
-      where: {
-        reimbursementId: r.reimbursementId,
-        msku: r.msku,
-        fnsku: r.fnsku ?? "",
-      },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "reimbursements" (
-        "id", "approvalDate", "reimbursementId", "caseId", "amazonOrderId", "reason",
-        "msku", "fnsku", "asin", "title", "conditionVal", "currency", "amountPerUnit", "amount",
-        "qtyCash", "qtyInventory", "quantity", "originalReimbId", "originalReimbType",
-        "store", "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${r.approvalDate},
-        ${r.reimbursementId},
-        ${r.caseId},
-        ${r.amazonOrderId},
-        ${r.reason},
-        ${r.msku},
-        ${r.fnsku},
-        ${r.asin},
-        ${r.title},
-        ${r.conditionVal},
-        ${r.currency},
-        ${rawDec(r.amountPerUnit)},
-        ${rawDec(r.amount)},
-        ${r.qtyCash},
-        ${r.qtyInventory},
-        ${r.quantity},
-        ${r.originalReimbId},
-        ${r.originalReimbType},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("reimbursementId", "msku", "fnsku") DO UPDATE SET
-        "approvalDate" = EXCLUDED."approvalDate",
-        "caseId" = EXCLUDED."caseId",
-        "amazonOrderId" = EXCLUDED."amazonOrderId",
-        "reason" = EXCLUDED."reason",
-        "asin" = EXCLUDED."asin",
-        "title" = EXCLUDED."title",
-        "conditionVal" = EXCLUDED."conditionVal",
-        "currency" = EXCLUDED."currency",
-        "amountPerUnit" = EXCLUDED."amountPerUnit",
-        "amount" = EXCLUDED."amount",
-        "qtyCash" = EXCLUDED."qtyCash",
-        "qtyInventory" = EXCLUDED."qtyInventory",
-        "quantity" = EXCLUDED."quantity",
-        "originalReimbId" = EXCLUDED."originalReimbId",
-        "originalReimbType" = EXCLUDED."originalReimbType",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
   }
 
   return {
@@ -1264,6 +1289,7 @@ async function processRemovals(
     orderSource: string | null;
     orderType: string | null;
     lastUpdated: Date | null;
+    requestedQty: number;
     cancelledQty: number;
     disposedQty: number;
     quantity: number;
@@ -1272,95 +1298,138 @@ async function processRemovals(
     currency: string;
   };
 
-  const dataRows = allRows.slice(1).filter((r) => r[6] && String(r[6]).trim());
+  const idx = (...names: string[]): number => {
+    for (const n of names) {
+      const t = n.toLowerCase().trim();
+      const i = hdr.findIndex((h) => h === t);
+      if (i !== -1) return i;
+    }
+    for (const n of names) {
+      const t = n.toLowerCase().trim();
+      const i = hdr.findIndex((h) => h.includes(t));
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+
+  const cReqDate = idx("request-date", "request date");
+  const cOrderId = idx("order-id", "order id");
+  const cOrderSrc = idx("order-source", "order source");
+  const cOrderType = idx("order-type", "order type");
+  const cOrderStatus = idx("order-status", "order status");
+  const cLastUpd = idx("last-updated-date", "last-updated", "last updated");
+  const cSku = idx("sku", "msku");
+  const cFnsku = idx("fnsku");
+  const cDisp = idx("disposition");
+  const cRequested = idx("requested-quantity", "requested quantity");
+  const cCancelled = idx("cancelled-quantity", "cancelled quantity");
+  const cDisposed = idx("disposed-quantity", "disposed quantity");
+  const cShipped = idx("shipped-quantity", "shipped quantity");
+  const cInProc = idx("in-process-quantity", "in process quantity");
+  const cFee = idx("removal-fee", "removal fee");
+  const cCur = idx("currency");
+
+  const pick = (row: string[], i: number): unknown =>
+    i >= 0 ? row[i] : undefined;
+
+  const dataRows = allRows
+    .slice(1)
+    .filter((r) => cSku >= 0 && r[cSku] && String(r[cSku]).trim());
   const rows = dataRows
     .map((row) => {
-      const msku = String(row[6] ?? "").trim();
-      const fnsku = String(row[7] ?? "").trim();
+      const msku = String(pick(row, cSku) ?? "").trim();
+      const fnsku = String(pick(row, cFnsku) ?? "").trim();
       if (!msku && !fnsku) return null;
       return {
         msku: msku || null,
         fnsku: fnsku || null,
-        disposition: String(row[8] ?? "").trim() || null,
-        orderStatus: String(row[4] ?? "").trim() || null,
-        orderId: String(row[1] ?? "").trim() || null,
-        requestDate: toDate(row[0]),
-        orderSource: String(row[2] ?? "").trim() || null,
-        orderType: String(row[3] ?? "").trim() || null,
-        lastUpdated: toDate(row[5]),
-        cancelledQty: toNum(row[10]),
-        disposedQty: toNum(row[11]),
-        quantity: toNum(row[12]),
-        inProcessQty: toNum(row[13]),
-        removalFee: decMoney(row[14]),
+        disposition: String(pick(row, cDisp) ?? "").trim() || null,
+        orderStatus: String(pick(row, cOrderStatus) ?? "").trim() || null,
+        orderId: String(pick(row, cOrderId) ?? "").trim() || null,
+        requestDate: toDate(pick(row, cReqDate)),
+        orderSource: String(pick(row, cOrderSrc) ?? "").trim() || null,
+        orderType: String(pick(row, cOrderType) ?? "").trim() || null,
+        lastUpdated: toDate(pick(row, cLastUpd)),
+        requestedQty: toNum(pick(row, cRequested)),
+        cancelledQty: toNum(pick(row, cCancelled)),
+        disposedQty: toNum(pick(row, cDisposed)),
+        quantity: toNum(pick(row, cShipped)),
+        inProcessQty: toNum(pick(row, cInProc)),
+        removalFee: decMoney(pick(row, cFee)),
         currency:
-          String(row[15] ?? "USD")
+          String(pick(row, cCur) ?? "USD")
             .replace(/[\r\n]/g, "")
             .trim() || "USD",
       };
     })
     .filter(Boolean) as RemRow[];
 
+  const hashOf = (r: RemRow): string => {
+    const parts = [
+      r.orderId ?? "", r.fnsku ?? "", r.requestDate ? r.requestDate.toISOString() : "",
+      r.msku ?? "", r.disposition ?? "", r.orderStatus ?? "",
+      r.orderSource ?? "", r.orderType ?? "",
+      r.lastUpdated ? r.lastUpdated.toISOString() : "",
+      String(r.requestedQty), String(r.cancelledQty), String(r.disposedQty),
+      String(r.quantity), String(r.inProcessQty),
+      r.removalFee ? r.removalFee.toString() : "",
+      r.currency,
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
   let bad = 0;
+  const valid: { r: RemRow; hash: string }[] = [];
   for (const r of rows) {
-    if (!r.orderId || !r.fnsku || !r.requestDate) {
-      bad += 1;
-      continue;
+    if (!r.orderId || !r.fnsku || !r.requestDate) { bad += 1; continue; }
+    valid.push({ r, hash: hashOf(r) });
+  }
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.fbaRemoval.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "fba_removals" (
+          "id", "msku", "fnsku", "quantity", "disposition", "orderStatus", "orderId", "requestDate",
+          "orderSource", "orderType", "lastUpdated", "requestedQty", "cancelledQty", "disposedQty", "inProcessQty",
+          "removalFee", "currency", "store", "rowHash", "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.msku},
+          ${r.fnsku},
+          ${r.quantity},
+          ${r.disposition},
+          ${r.orderStatus},
+          ${r.orderId},
+          ${r.requestDate},
+          ${r.orderSource},
+          ${r.orderType},
+          ${r.lastUpdated},
+          ${r.requestedQty},
+          ${r.cancelledQty},
+          ${r.disposedQty},
+          ${r.inProcessQty},
+          ${rawDec(r.removalFee)},
+          ${r.currency},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
     }
-    const existed = await tx.fbaRemoval.findFirst({
-      where: {
-        orderId: r.orderId,
-        fnsku: r.fnsku,
-        requestDate: r.requestDate,
-      },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "fba_removals" (
-        "id", "msku", "fnsku", "quantity", "disposition", "orderStatus", "orderId", "requestDate",
-        "orderSource", "orderType", "lastUpdated", "cancelledQty", "disposedQty", "inProcessQty",
-        "removalFee", "currency", "store", "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${r.msku},
-        ${r.fnsku},
-        ${r.quantity},
-        ${r.disposition},
-        ${r.orderStatus},
-        ${r.orderId},
-        ${r.requestDate},
-        ${r.orderSource},
-        ${r.orderType},
-        ${r.lastUpdated},
-        ${r.cancelledQty},
-        ${r.disposedQty},
-        ${r.inProcessQty},
-        ${rawDec(r.removalFee)},
-        ${r.currency},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("orderId", "fnsku", "requestDate") DO UPDATE SET
-        "msku" = EXCLUDED."msku",
-        "disposition" = EXCLUDED."disposition",
-        "orderStatus" = EXCLUDED."orderStatus",
-        "orderSource" = EXCLUDED."orderSource",
-        "orderType" = EXCLUDED."orderType",
-        "lastUpdated" = EXCLUDED."lastUpdated",
-        "cancelledQty" = EXCLUDED."cancelledQty",
-        "disposedQty" = EXCLUDED."disposedQty",
-        "quantity" = EXCLUDED."quantity",
-        "inProcessQty" = EXCLUDED."inProcessQty",
-        "removalFee" = EXCLUDED."removalFee",
-        "currency" = EXCLUDED."currency",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
   }
 
   return {
@@ -1418,109 +1487,97 @@ async function processFcTransfers(
   };
 
   const dataRows = allRows.slice(1).filter((r) => r[3] && String(r[3]).trim());
-
-  // Dedupe by (fnsku, transferDate, referenceId) — Amazon may emit multiple
-  // rows per key with split quantities; sum them so ON CONFLICT does not
-  // discard rows. Mirrors processReceipts pattern.
-  const grouped = new Map<string, FtRow>();
+  const rows: FtRow[] = [];
   for (const row of dataRows) {
     const msku = String(row[3] ?? "").trim();
     const fnsku = String(row[1] ?? "").trim();
     if (!msku && !fnsku) continue;
     const dt_raw = String(row[14] ?? "").trim();
     const date = toDate(row[0]);
-    const recv_dt = dt_raw ? toDate(dt_raw) : date;
-    const referenceId = String(row[6] ?? "").trim();
-    const qty = toNum(row[7]);
-    const reconQty = toNum(row[12]);
-    const unreconQty = toNum(row[13]);
-    const key = `${fnsku}|||${date?.toISOString() ?? ""}|||${referenceId}`;
-    const prev = grouped.get(key);
-    if (prev) {
-      prev.quantity += qty;
-      prev.reconciledQty += reconQty;
-      prev.unreconciledQty += unreconQty;
-      continue;
-    }
-    grouped.set(key, {
+    rows.push({
       msku: msku || null,
       fnsku: fnsku || null,
       asin: String(row[2] ?? "").trim() || null,
       title: String(row[4] ?? "").trim() || null,
-      quantity: qty,
+      quantity: toNum(row[7]),
       transferDate: date,
       eventType: String(row[5] ?? "").trim() || null,
-      referenceId: referenceId || null,
+      referenceId: String(row[6] ?? "").trim() || null,
       fulfillmentCenter: String(row[8] ?? "").trim() || null,
       disposition: String(row[9] ?? "").trim() || null,
       reason: String(row[10] ?? "").trim() || null,
       country: String(row[11] ?? "").trim() || null,
-      reconciledQty: reconQty,
-      unreconciledQty: unreconQty,
-      transferDatetime: recv_dt,
-      store:
-        String(row[15] ?? "")
-          .replace(/[\r\n]/g, "")
-          .trim() || null,
+      reconciledQty: toNum(row[12]),
+      unreconciledQty: toNum(row[13]),
+      transferDatetime: dt_raw ? toDate(dt_raw) : date,
+      store: String(row[15] ?? "").replace(/[\r\n]/g, "").trim() || null,
     });
   }
-  const rows = Array.from(grouped.values());
+
+  const hashOf = (r: FtRow): string => {
+    const parts = [
+      r.fnsku ?? "", r.transferDate ? r.transferDate.toISOString() : "",
+      r.referenceId ?? "", r.msku ?? "", r.asin ?? "", r.title ?? "",
+      String(r.quantity), r.eventType ?? "", r.fulfillmentCenter ?? "",
+      r.disposition ?? "", r.reason ?? "", r.country ?? "",
+      String(r.reconciledQty), String(r.unreconciledQty),
+      r.transferDatetime ? r.transferDatetime.toISOString() : "",
+      r.store ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
 
   let ins = 0;
   let sk = 0;
   let bad = 0;
+  const valid: { r: FtRow; hash: string }[] = [];
   for (const r of rows) {
-    if (!r.transferDate || !r.fnsku) {
-      bad += 1;
-      continue;
+    if (!r.transferDate || !r.fnsku) { bad += 1; continue; }
+    valid.push({ r, hash: hashOf(r) });
+  }
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.fcTransfer.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "fc_transfers" (
+          "id", "msku", "fnsku", "asin", "title", "quantity", "transferDate", "eventType", "referenceId",
+          "fulfillmentCenter", "disposition", "reason", "country", "reconciledQty", "unreconciledQty",
+          "transferDatetime", "store", "rowHash", "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.msku},
+          ${r.fnsku},
+          ${r.asin},
+          ${r.title},
+          ${r.quantity},
+          ${r.transferDate},
+          ${r.eventType},
+          ${r.referenceId},
+          ${r.fulfillmentCenter},
+          ${r.disposition},
+          ${r.reason},
+          ${r.country},
+          ${r.reconciledQty},
+          ${r.unreconciledQty},
+          ${r.transferDatetime},
+          ${r.store},
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
     }
-    const refId = r.referenceId ?? "";
-    // Single round-trip: INSERT ... ON CONFLICT ... RETURNING xmax = 0 lets
-    // us distinguish inserts from updates without a separate SELECT.
-    const result = await tx.$queryRaw<{ inserted: boolean }[]>`
-      INSERT INTO "fc_transfers" (
-        "id", "msku", "fnsku", "asin", "title", "quantity", "transferDate", "eventType", "referenceId",
-        "fulfillmentCenter", "disposition", "reason", "country", "reconciledQty", "unreconciledQty",
-        "transferDatetime", "store", "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${r.msku},
-        ${r.fnsku},
-        ${r.asin},
-        ${r.title},
-        ${r.quantity},
-        ${r.transferDate},
-        ${r.eventType},
-        ${refId},
-        ${r.fulfillmentCenter},
-        ${r.disposition},
-        ${r.reason},
-        ${r.country},
-        ${r.reconciledQty},
-        ${r.unreconciledQty},
-        ${r.transferDatetime},
-        ${r.store},
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("fnsku", "transferDate", "referenceId") DO UPDATE SET
-        "asin" = EXCLUDED."asin",
-        "title" = EXCLUDED."title",
-        "quantity" = EXCLUDED."quantity",
-        "disposition" = EXCLUDED."disposition",
-        "reason" = EXCLUDED."reason",
-        "country" = EXCLUDED."country",
-        "reconciledQty" = EXCLUDED."reconciledQty",
-        "unreconciledQty" = EXCLUDED."unreconciledQty",
-        "transferDatetime" = EXCLUDED."transferDatetime",
-        "store" = EXCLUDED."store",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-      RETURNING (xmax = 0) AS inserted
-    `;
-    if (result[0]?.inserted) ins += 1;
-    else sk += 1;
   }
 
   return { totalRows: rows.length, rowsInserted: ins, rowsSkipped: sk + bad };
@@ -1600,47 +1657,57 @@ async function processShipmentStatus(
     })
     .filter(Boolean) as SRow[];
 
+  const hashOf = (r: SRow): string => {
+    const parts = [
+      r.shipmentId, r.shipmentName ?? "",
+      r.createdDate ? r.createdDate.toISOString() : "",
+      r.lastUpdated ? r.lastUpdated.toISOString() : "",
+      r.shipTo ?? "", String(r.totalSkus), String(r.unitsExpected),
+      String(r.unitsLocated), r.status ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
-  for (const r of rows) {
-    const existed = await tx.shipmentStatus.findFirst({
-      where: { shipmentId: r.shipmentId },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "shipment_status" (
-        "id", "shipmentName", "shipmentId", "createdDate", "lastUpdated", "shipTo",
-        "totalSkus", "unitsExpected", "unitsLocated", "status", "store",
-        "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${r.shipmentName},
-        ${r.shipmentId},
-        ${r.createdDate},
-        ${r.lastUpdated},
-        ${r.shipTo},
-        ${r.totalSkus},
-        ${r.unitsExpected},
-        ${r.unitsLocated},
-        ${r.status},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("shipmentId") DO UPDATE SET
-        "shipmentName" = EXCLUDED."shipmentName",
-        "createdDate" = EXCLUDED."createdDate",
-        "lastUpdated" = EXCLUDED."lastUpdated",
-        "shipTo" = EXCLUDED."shipTo",
-        "totalSkus" = EXCLUDED."totalSkus",
-        "unitsExpected" = EXCLUDED."unitsExpected",
-        "unitsLocated" = EXCLUDED."unitsLocated",
-        "status" = EXCLUDED."status",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
+  const valid = rows.map((r) => ({ r, hash: hashOf(r) }));
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.shipmentStatus.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "shipment_status" (
+          "id", "shipmentName", "shipmentId", "createdDate", "lastUpdated", "shipTo",
+          "totalSkus", "unitsExpected", "unitsLocated", "status", "store", "rowHash",
+          "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.shipmentName},
+          ${r.shipmentId},
+          ${r.createdDate},
+          ${r.lastUpdated},
+          ${r.shipTo},
+          ${r.totalSkus},
+          ${r.unitsExpected},
+          ${r.unitsLocated},
+          ${r.status},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
+    }
   }
 
   return { totalRows: rows.length, rowsInserted: ins, rowsSkipped: sk };
@@ -1698,7 +1765,13 @@ async function processFbaSummary(
   const iFound = findCol("found");
   const iLost = findCol("lost");
   const iDamage = findCol("damaged");
-  const iDispos = findCol("dispos");
+  const iDispos = (() => {
+    const exact = hdrSummary.findIndex((h) => h === "disposed");
+    if (exact !== -1) return exact;
+    return hdrSummary.findIndex(
+      (h, idx) => idx !== iDisp && h.startsWith("dispos") && h !== "disposition",
+    );
+  })();
   const iOther = findCol("other events");
   const iEnding = findCol(
     "ending warehouse",
@@ -1711,7 +1784,10 @@ async function processFbaSummary(
 
   if (iFnsku === -1 || iEnding === -1) {
     throw new Error(
-      `Required FBA Summary columns not found. First headers: ${hdrSummary.slice(0, 12).join(", ")}`,
+      `Required FBA Summary columns not found (need FNSKU + Ending Warehouse Balance). ` +
+        `This looks like Inventory Ledger "Detailed View" — please download the "Summary View" instead ` +
+        `(Reports → Fulfillment → Inventory Ledger → View: Summary). ` +
+        `First headers found: ${hdrSummary.slice(0, 12).join(", ")}`,
     );
   }
 
@@ -1722,181 +1798,132 @@ async function processFbaSummary(
     .slice(1)
     .filter((r) => get(r, iFnsku) && String(get(r, iFnsku)).trim());
 
-  const map: Record<
-    string,
-    {
-      msku: string;
-      fnsku: string;
-      asin: string;
-      title: string;
-      disp: string;
-      ending: number;
-      starting: number;
-      in_transit: number;
-      receipts: number;
-      shipments: number;
-      returns: number;
-      vendor_ret: number;
-      transfer: number;
-      found: number;
-      lost: number;
-      damaged: number;
-      disposed: number;
-      other: number;
-      unknown: number;
-      location: string;
-      store: string;
-      date: Date | null;
-    }
-  > = {};
+  type SumRow = {
+    msku: string;
+    fnsku: string;
+    asin: string;
+    title: string;
+    disp: string;
+    ending: number;
+    starting: number;
+    in_transit: number;
+    receipts: number;
+    shipments: number;
+    returns: number;
+    vendor_ret: number;
+    transfer: number;
+    found: number;
+    lost: number;
+    damaged: number;
+    disposed: number;
+    other: number;
+    unknown: number;
+    location: string;
+    store: string;
+    date: Date | null;
+  };
 
+  const entries: SumRow[] = [];
   for (const row of dataRows) {
-    const msku = String(get(row, iMsku)).trim();
     const fnsku = String(get(row, iFnsku)).trim();
-    const asin = String(get(row, iAsin)).trim();
-    const title = String(get(row, iTitle)).trim();
-    const disp = String(get(row, iDisp)).trim();
-    const starting = toNum(get(row, iStart));
-    const in_transit = toNum(get(row, iTransit));
-    const receipts = toNum(get(row, iRecpts));
-    const shipments = toNum(get(row, iShip));
-    const returns = toNum(get(row, iReturn));
-    const vendor_ret = toNum(get(row, iVendor));
-    const transfer = toNum(get(row, iXfer));
-    const found = toNum(get(row, iFound));
-    const lost = toNum(get(row, iLost));
-    const damaged = toNum(get(row, iDamage));
-    const disposed = toNum(get(row, iDispos));
-    const other = toNum(get(row, iOther));
-    const ending = toNum(get(row, iEnding));
-    const unknown = toNum(get(row, iUnknown));
-    const location = String(get(row, iLoc)).trim();
-    const store = String(get(row, iStore))
-      .replace(/[\r\n]/g, "")
-      .trim();
-    const date = toDate(get(row, iDate));
     if (!fnsku) continue;
-    const key = [msku || "", fnsku, disp || "", date?.toISOString() ?? "", store || ""].join("|");
-    if (!map[key]) {
-      map[key] = {
-        msku,
-        fnsku,
-        asin,
-        title,
-        disp,
-        ending: 0,
-        starting: 0,
-        in_transit: 0,
-        receipts: 0,
-        shipments: 0,
-        returns: 0,
-        vendor_ret: 0,
-        transfer: 0,
-        found: 0,
-        lost: 0,
-        damaged: 0,
-        disposed: 0,
-        other: 0,
-        unknown: 0,
-        location,
-        store,
-        date,
-      };
-    }
-    map[key].ending += ending;
-    map[key].starting += starting;
-    map[key].in_transit += in_transit;
-    map[key].receipts += receipts;
-    map[key].shipments += shipments;
-    map[key].returns += returns;
-    map[key].vendor_ret += vendor_ret;
-    map[key].transfer += transfer;
-    map[key].found += found;
-    map[key].lost += lost;
-    map[key].damaged += damaged;
-    map[key].disposed += disposed;
-    map[key].other += other;
-    map[key].unknown += unknown;
+    entries.push({
+      msku: String(get(row, iMsku)).trim(),
+      fnsku,
+      asin: String(get(row, iAsin)).trim(),
+      title: String(get(row, iTitle)).trim(),
+      disp: String(get(row, iDisp)).trim(),
+      starting: toNum(get(row, iStart)),
+      in_transit: toNum(get(row, iTransit)),
+      receipts: toNum(get(row, iRecpts)),
+      shipments: toNum(get(row, iShip)),
+      returns: toNum(get(row, iReturn)),
+      vendor_ret: toNum(get(row, iVendor)),
+      transfer: toNum(get(row, iXfer)),
+      found: toNum(get(row, iFound)),
+      lost: toNum(get(row, iLost)),
+      damaged: toNum(get(row, iDamage)),
+      disposed: toNum(get(row, iDispos)),
+      other: toNum(get(row, iOther)),
+      ending: toNum(get(row, iEnding)),
+      unknown: toNum(get(row, iUnknown)),
+      location: String(get(row, iLoc)).trim(),
+      store: String(get(row, iStore)).replace(/[\r\n]/g, "").trim(),
+      date: toDate(get(row, iDate)),
+    });
   }
 
-  const entries = Object.values(map);
+  const hashOf = (e: SumRow): string => {
+    const parts = [
+      e.msku, e.fnsku, e.disp, e.date ? e.date.toISOString() : "", e.store,
+      e.asin, e.title, String(e.ending), String(e.starting), String(e.in_transit),
+      String(e.receipts), String(e.shipments), String(e.returns),
+      String(e.vendor_ret), String(e.transfer), String(e.found), String(e.lost),
+      String(e.damaged), String(e.disposed), String(e.other), String(e.unknown),
+      e.location,
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
   let bad = 0;
+  const valid: { e: SumRow; hash: string }[] = [];
   for (const e of entries) {
-    if (!e.date || !e.fnsku) {
-      bad += 1;
-      continue;
+    if (!e.date || !e.fnsku) { bad += 1; continue; }
+    valid.push({ e, hash: hashOf(e) });
+  }
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.fbaSummary.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { e, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "fba_summary" (
+          "id", "msku", "fnsku", "asin", "title", "disposition", "endingBalance", "startingBalance",
+          "inTransit", "receipts", "customerShipments", "customerReturns", "vendorReturns",
+          "warehouseTransfer", "found", "lost", "damaged", "disposedQty", "otherEvents",
+          "unknownEvents", "location", "store", "summaryDate", "rowHash",
+          "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${e.msku || null},
+          ${e.fnsku || null},
+          ${e.asin || null},
+          ${e.title || null},
+          ${e.disp || null},
+          ${e.ending},
+          ${e.starting},
+          ${e.in_transit},
+          ${e.receipts},
+          ${e.shipments},
+          ${e.returns},
+          ${e.vendor_ret},
+          ${e.transfer},
+          ${e.found},
+          ${e.lost},
+          ${e.damaged},
+          ${e.disposed},
+          ${e.other},
+          ${e.unknown},
+          ${e.location || null},
+          ${e.store || null},
+          ${e.date},
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
     }
-    const mskuK = e.msku ?? "";
-    const dispK = e.disp ?? "";
-    const storeK = e.store ?? "";
-    const existed = await tx.fbaSummary.findFirst({
-      where: {
-        msku: mskuK,
-        fnsku: e.fnsku,
-        disposition: dispK,
-        summaryDate: e.date,
-        store: storeK,
-      },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "fba_summary" (
-        "id", "msku", "fnsku", "asin", "title", "disposition", "endingBalance", "startingBalance",
-        "inTransit", "receipts", "customerShipments", "customerReturns", "vendorReturns",
-        "warehouseTransfer", "found", "lost", "damaged", "disposedQty", "otherEvents",
-        "unknownEvents", "location", "store", "summaryDate", "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${e.msku || null},
-        ${e.fnsku || null},
-        ${e.asin || null},
-        ${e.title || null},
-        ${e.disp || null},
-        ${e.ending},
-        ${e.starting},
-        ${e.in_transit},
-        ${e.receipts},
-        ${e.shipments},
-        ${e.returns},
-        ${e.vendor_ret},
-        ${e.transfer},
-        ${e.found},
-        ${e.lost},
-        ${e.damaged},
-        ${e.disposed},
-        ${e.other},
-        ${e.unknown},
-        ${e.location || null},
-        ${e.store || null},
-        ${e.date},
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("msku", "fnsku", "disposition", "summaryDate", "store") DO UPDATE SET
-        "asin" = EXCLUDED."asin",
-        "title" = EXCLUDED."title",
-        "endingBalance" = EXCLUDED."endingBalance",
-        "startingBalance" = EXCLUDED."startingBalance",
-        "inTransit" = EXCLUDED."inTransit",
-        "receipts" = EXCLUDED."receipts",
-        "customerShipments" = EXCLUDED."customerShipments",
-        "customerReturns" = EXCLUDED."customerReturns",
-        "vendorReturns" = EXCLUDED."vendorReturns",
-        "warehouseTransfer" = EXCLUDED."warehouseTransfer",
-        "found" = EXCLUDED."found",
-        "lost" = EXCLUDED."lost",
-        "damaged" = EXCLUDED."damaged",
-        "disposedQty" = EXCLUDED."disposedQty",
-        "otherEvents" = EXCLUDED."otherEvents",
-        "unknownEvents" = EXCLUDED."unknownEvents",
-        "location" = EXCLUDED."location",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
   }
 
   return { totalRows: entries.length, rowsInserted: ins, rowsSkipped: sk + bad };
@@ -1935,9 +1962,21 @@ async function processReplacements(
     );
   }
 
+  type ReplRow = {
+    msku: string;
+    orderId: string | null;
+    quantity: number;
+    asin: string | null;
+    fulfillmentCenterId: string | null;
+    originalFulfillmentCenterId: string | null;
+    replacementReasonCode: string | null;
+    replacementOrderId: string | null;
+    originalOrderId: string | null;
+    shipmentDate: Date | null;
+  };
+
   const dataRows = allRows.slice(1).filter((r) => r.some((c) => String(c ?? "").trim()));
-  let ins = 0;
-  let sk = 0;
+  const rows: ReplRow[] = [];
   for (const row of dataRows) {
     const msku = String(row[idxSku] ?? "").trim();
     if (!msku) continue;
@@ -1945,10 +1984,7 @@ async function processReplacements(
       idxReplOrd >= 0 ? String(row[idxReplOrd] ?? "").trim() : "";
     const originalOrdId =
       idxOrigOrd >= 0 ? String(row[idxOrigOrd] ?? "").trim() : "";
-    const shipDate =
-      idxDate >= 0 ? toDate(row[idxDate]) : null;
-
-    const payload = {
+    rows.push({
       msku,
       orderId: replacementOrdId || originalOrdId || null,
       quantity:
@@ -1964,48 +2000,57 @@ async function processReplacements(
         idxReason >= 0 ? String(row[idxReason] ?? "").trim() || null : null,
       replacementOrderId: replacementOrdId || null,
       originalOrderId: originalOrdId || null,
-      shipmentDate: shipDate,
-      uploadedAt: batchAt,
-    };
+      shipmentDate: idxDate >= 0 ? toDate(row[idxDate]) : null,
+    });
+  }
 
-    if (replacementOrdId) {
-      // payload.orderId resolves to replacementOrdId (or originalOrdId) in this
-      // branch, but Prisma's composite key expects non-null fields.
-      const compositeKey = {
-        orderId: payload.orderId ?? replacementOrdId,
-        msku: payload.msku,
-        replacementOrderId: replacementOrdId,
-      };
-      const existed = await tx.replacement.findUnique({
-        where: {
-          orderId_msku_replacementOrderId: compositeKey,
-        },
-      });
-      await tx.replacement.upsert({
-        where: {
-          orderId_msku_replacementOrderId: compositeKey,
-        },
-        create: payload,
-        update: {
-          quantity: payload.quantity,
-          asin: payload.asin,
-          fulfillmentCenterId: payload.fulfillmentCenterId,
-          originalFulfillmentCenterId: payload.originalFulfillmentCenterId,
-          replacementReasonCode: payload.replacementReasonCode,
-          originalOrderId: payload.originalOrderId,
-          shipmentDate: payload.shipmentDate,
+  const hashOf = (r: ReplRow): string => {
+    const parts = [
+      r.msku, r.orderId ?? "", r.replacementOrderId ?? "",
+      r.originalOrderId ?? "", String(r.quantity), r.asin ?? "",
+      r.fulfillmentCenterId ?? "", r.originalFulfillmentCenterId ?? "",
+      r.replacementReasonCode ?? "",
+      r.shipmentDate ? r.shipmentDate.toISOString() : "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
+  let ins = 0;
+  let sk = 0;
+  const valid = rows.map((r) => ({ r, hash: hashOf(r) }));
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.replacement.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.replacement.create({
+        data: {
+          msku: r.msku,
+          orderId: r.orderId,
+          quantity: r.quantity,
+          asin: r.asin,
+          fulfillmentCenterId: r.fulfillmentCenterId,
+          originalFulfillmentCenterId: r.originalFulfillmentCenterId,
+          replacementReasonCode: r.replacementReasonCode,
+          replacementOrderId: r.replacementOrderId,
+          originalOrderId: r.originalOrderId,
+          shipmentDate: r.shipmentDate,
+          rowHash: hash,
           uploadedAt: batchAt,
         },
       });
-      if (existed) sk += 1;
-      else ins += 1;
-    } else {
-      await tx.replacement.create({ data: payload });
       ins += 1;
     }
   }
 
-  return { totalRows: dataRows.length, rowsInserted: ins, rowsSkipped: sk };
+  return { totalRows: rows.length, rowsInserted: ins, rowsSkipped: sk };
 }
 
 async function processAdjustments(
@@ -2025,23 +2070,31 @@ async function processAdjustments(
   let ins = 0;
   let sk = 0;
   for (const [msku, quantity] of entries) {
-    const existed = await tx.adjustment.findUnique({ where: { msku } });
-    await tx.adjustment.upsert({
-      where: { msku },
-      create: {
-        msku,
-        flag: "F",
-        quantity,
-        uploadedAt: batchAt,
-      },
-      update: {
-        quantity: { increment: quantity },
-        flag: "F",
-        uploadedAt: batchAt,
-      },
+    const existed = await tx.adjustment.findFirst({
+      where: { msku, store: null },
+      select: { id: true },
     });
-    if (existed) sk += 1;
-    else ins += 1;
+    if (existed) {
+      await tx.adjustment.update({
+        where: { id: existed.id },
+        data: {
+          quantity: { increment: quantity },
+          flag: "F",
+          uploadedAt: batchAt,
+        },
+      });
+      sk += 1;
+    } else {
+      await tx.adjustment.create({
+        data: {
+          msku,
+          flag: "F",
+          quantity,
+          uploadedAt: batchAt,
+        },
+      });
+      ins += 1;
+    }
   }
   return { totalRows: entries.length, rowsInserted: ins, rowsSkipped: sk };
 }
@@ -2147,65 +2200,68 @@ async function processGnr(
     });
   }
 
+  const hashOf = (g: GRow): string => {
+    const parts = [
+      g.orderId, g.fnsku ?? "", g.reportDate ? g.reportDate.toISOString() : "",
+      g.lpn ?? "", g.valueRecoveryType ?? "", g.manualOrderItemId ?? "",
+      g.msku ?? "", g.asin ?? "", String(g.quantity),
+      g.unitStatus ?? "", g.reasonForUnitStatus ?? "",
+      g.usedCondition ?? "", g.usedMsku ?? "", g.usedFnsku ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
   let bad = 0;
+  const valid: { g: GRow; hash: string }[] = [];
   for (const g of toSave) {
-    if (!g.fnsku || !g.reportDate) {
-      bad += 1;
-      continue;
+    if (!g.fnsku || !g.reportDate) { bad += 1; continue; }
+    valid.push({ g, hash: hashOf(g) });
+  }
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.gnrReport.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { g, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "gnr_report" (
+          "id", "reportDate", "orderId", "valueRecoveryType", "lpn", "manualOrderItemId",
+          "msku", "fnsku", "asin", "quantity", "unitStatus", "reasonForUnitStatus",
+          "usedCondition", "usedMsku", "usedFnsku", "store", "rowHash",
+          "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${g.reportDate},
+          ${g.orderId},
+          ${g.valueRecoveryType},
+          ${g.lpn},
+          ${g.manualOrderItemId},
+          ${g.msku},
+          ${g.fnsku},
+          ${g.asin},
+          ${g.quantity},
+          ${g.unitStatus},
+          ${g.reasonForUnitStatus},
+          ${g.usedCondition},
+          ${g.usedMsku},
+          ${g.usedFnsku},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
     }
-    const lpnKey = g.lpn ?? "";
-    const existed = await tx.gnrReport.findFirst({
-      where: {
-        orderId: g.orderId,
-        fnsku: g.fnsku,
-        reportDate: g.reportDate,
-        lpn: lpnKey,
-      },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "gnr_report" (
-        "id", "reportDate", "orderId", "valueRecoveryType", "lpn", "manualOrderItemId",
-        "msku", "fnsku", "asin", "quantity", "unitStatus", "reasonForUnitStatus",
-        "usedCondition", "usedMsku", "usedFnsku", "store", "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${g.reportDate},
-        ${g.orderId},
-        ${g.valueRecoveryType},
-        ${lpnKey},
-        ${g.manualOrderItemId},
-        ${g.msku},
-        ${g.fnsku},
-        ${g.asin},
-        ${g.quantity},
-        ${g.unitStatus},
-        ${g.reasonForUnitStatus},
-        ${g.usedCondition},
-        ${g.usedMsku},
-        ${g.usedFnsku},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("orderId", "fnsku", "reportDate", "lpn") DO UPDATE SET
-        "valueRecoveryType" = EXCLUDED."valueRecoveryType",
-        "manualOrderItemId" = EXCLUDED."manualOrderItemId",
-        "msku" = EXCLUDED."msku",
-        "asin" = EXCLUDED."asin",
-        "quantity" = EXCLUDED."quantity",
-        "unitStatus" = EXCLUDED."unitStatus",
-        "reasonForUnitStatus" = EXCLUDED."reasonForUnitStatus",
-        "usedCondition" = EXCLUDED."usedCondition",
-        "usedMsku" = EXCLUDED."usedMsku",
-        "usedFnsku" = EXCLUDED."usedFnsku",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
   }
 
   return {
@@ -2220,13 +2276,31 @@ async function processPaymentRepository(
   allRows: string[][],
   batchAt: Date,
 ): Promise<ProcessOutcome> {
-  const hdr = (allRows[0] ?? []).map((c) =>
+  // Amazon Unified Transaction CSV has 9 preamble lines before the real
+  // header. Template files put the header on row 0. Auto-detect by scanning
+  // up to the first 20 rows for a row containing both "date/time" and
+  // "settlement id" (canonical Payment Repository markers).
+  const normCell = (c: unknown) =>
     String(c ?? "")
       .toLowerCase()
       .trim()
       .replace(/['"]/g, "")
-      .replace(/\ufeff/g, ""),
-  );
+      .replace(/\ufeff/g, "");
+  let headerIdx = 0;
+  const scanLimit = Math.min(allRows.length, 20);
+  for (let i = 0; i < scanLimit; i++) {
+    const cells = (allRows[i] ?? []).map(normCell);
+    const hasDate = cells.some((h) => h.includes("date/time") || h === "posted date" || h.includes("posted date"));
+    const hasSettle = cells.some((h) => h.includes("settlement id") || h.includes("settlement-id"));
+    if (hasDate && hasSettle) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx > 0) {
+    allRows = allRows.slice(headerIdx);
+  }
+  const hdr = (allRows[0] ?? []).map(normCell);
   const findCol = (...terms: string[]) => {
     for (const t of terms) {
       const tl = t.toLowerCase();
@@ -2416,94 +2490,94 @@ async function processPaymentRepository(
     });
   }
 
+  const decToStr = (v: unknown): string => {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "number") return String(v);
+    if (v instanceof Prisma.Decimal) return v.toString();
+    try { return new Prisma.Decimal(v as never).toString(); } catch { return ""; }
+  };
+  const hashOf = (r: PayRow): string => {
+    const parts = [
+      r.settlementId ?? "", r.orderId ?? "", r.sku ?? "",
+      r.lineType ?? "", r.postedDatetime ?? "",
+      r.description ?? "", String(r.quantity ?? 0),
+      r.marketplace ?? "", r.accountType ?? "", r.fulfillmentId ?? "",
+      r.taxCollectionModel ?? "",
+      decToStr(r.productSales), decToStr(r.productSalesTax),
+      decToStr(r.shippingCredits), decToStr(r.shippingCreditsTax),
+      decToStr(r.giftWrapCredits), decToStr(r.giftWrapCreditsTax),
+      decToStr(r.promotionalRebates), decToStr(r.promotionalRebatesTax),
+      decToStr(r.marketplaceWithheldTax), decToStr(r.sellingFees),
+      decToStr(r.fbaFees), decToStr(r.otherTransactionFees),
+      decToStr(r.other), decToStr(r.total),
+      r.transactionStatus ?? "", r.transactionReleaseDatetime ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
   let ins = 0;
   let sk = 0;
-  for (const r of rows) {
-    const settlementId = r.settlementId ?? "";
-    const orderId = r.orderId ?? "";
-    const sku = r.sku ?? "";
-    const lineType = r.lineType ?? "";
-    const postedDatetime = r.postedDatetime ?? "";
-    const existed = await tx.paymentRepository.findFirst({
-      where: {
-        settlementId,
-        orderId,
-        sku,
-        lineType,
-        postedDatetime,
-      },
-    });
-    await tx.$executeRaw`
-      INSERT INTO "payment_repository" (
-        "id", "postedDatetime", "settlementId", "lineType", "orderId", "sku", "description", "quantity",
-        "marketplace", "accountType", "fulfillmentId", "taxCollectionModel",
-        "productSales", "productSalesTax", "shippingCredits", "shippingCreditsTax",
-        "giftWrapCredits", "giftWrapCreditsTax", "promotionalRebates", "promotionalRebatesTax",
-        "marketplaceWithheldTax", "sellingFees", "fbaFees", "otherTransactionFees", "other", "total",
-        "transactionStatus", "transactionReleaseDatetime", "store",
-        "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${postedDatetime},
-        ${settlementId},
-        ${lineType},
-        ${orderId},
-        ${sku},
-        ${r.description},
-        ${r.quantity},
-        ${r.marketplace},
-        ${r.accountType},
-        ${r.fulfillmentId},
-        ${r.taxCollectionModel},
-        ${rawDec(r.productSales)},
-        ${rawDec(r.productSalesTax)},
-        ${rawDec(r.shippingCredits)},
-        ${rawDec(r.shippingCreditsTax)},
-        ${rawDec(r.giftWrapCredits)},
-        ${rawDec(r.giftWrapCreditsTax)},
-        ${rawDec(r.promotionalRebates)},
-        ${rawDec(r.promotionalRebatesTax)},
-        ${rawDec(r.marketplaceWithheldTax)},
-        ${rawDec(r.sellingFees)},
-        ${rawDec(r.fbaFees)},
-        ${rawDec(r.otherTransactionFees)},
-        ${rawDec(r.other)},
-        ${rawDec(r.total)},
-        ${r.transactionStatus},
-        ${r.transactionReleaseDatetime},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("settlementId", "orderId", "sku", "lineType", "postedDatetime") DO UPDATE SET
-        "description" = EXCLUDED."description",
-        "quantity" = EXCLUDED."quantity",
-        "marketplace" = EXCLUDED."marketplace",
-        "accountType" = EXCLUDED."accountType",
-        "fulfillmentId" = EXCLUDED."fulfillmentId",
-        "taxCollectionModel" = EXCLUDED."taxCollectionModel",
-        "productSales" = EXCLUDED."productSales",
-        "productSalesTax" = EXCLUDED."productSalesTax",
-        "shippingCredits" = EXCLUDED."shippingCredits",
-        "shippingCreditsTax" = EXCLUDED."shippingCreditsTax",
-        "giftWrapCredits" = EXCLUDED."giftWrapCredits",
-        "giftWrapCreditsTax" = EXCLUDED."giftWrapCreditsTax",
-        "promotionalRebates" = EXCLUDED."promotionalRebates",
-        "promotionalRebatesTax" = EXCLUDED."promotionalRebatesTax",
-        "marketplaceWithheldTax" = EXCLUDED."marketplaceWithheldTax",
-        "sellingFees" = EXCLUDED."sellingFees",
-        "fbaFees" = EXCLUDED."fbaFees",
-        "otherTransactionFees" = EXCLUDED."otherTransactionFees",
-        "other" = EXCLUDED."other",
-        "total" = EXCLUDED."total",
-        "transactionStatus" = EXCLUDED."transactionStatus",
-        "transactionReleaseDatetime" = EXCLUDED."transactionReleaseDatetime",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
+  const valid = rows.map((r) => ({ r, hash: hashOf(r) }));
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.paymentRepository.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "payment_repository" (
+          "id", "postedDatetime", "settlementId", "lineType", "orderId", "sku", "description", "quantity",
+          "marketplace", "accountType", "fulfillmentId", "taxCollectionModel",
+          "productSales", "productSalesTax", "shippingCredits", "shippingCreditsTax",
+          "giftWrapCredits", "giftWrapCreditsTax", "promotionalRebates", "promotionalRebatesTax",
+          "marketplaceWithheldTax", "sellingFees", "fbaFees", "otherTransactionFees", "other", "total",
+          "transactionStatus", "transactionReleaseDatetime", "store", "rowHash",
+          "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.postedDatetime},
+          ${r.settlementId},
+          ${r.lineType},
+          ${r.orderId},
+          ${r.sku},
+          ${r.description},
+          ${r.quantity},
+          ${r.marketplace},
+          ${r.accountType},
+          ${r.fulfillmentId},
+          ${r.taxCollectionModel},
+          ${rawDec(r.productSales)},
+          ${rawDec(r.productSalesTax)},
+          ${rawDec(r.shippingCredits)},
+          ${rawDec(r.shippingCreditsTax)},
+          ${rawDec(r.giftWrapCredits)},
+          ${rawDec(r.giftWrapCreditsTax)},
+          ${rawDec(r.promotionalRebates)},
+          ${rawDec(r.promotionalRebatesTax)},
+          ${rawDec(r.marketplaceWithheldTax)},
+          ${rawDec(r.sellingFees)},
+          ${rawDec(r.fbaFees)},
+          ${rawDec(r.otherTransactionFees)},
+          ${rawDec(r.other)},
+          ${rawDec(r.total)},
+          ${r.transactionStatus},
+          ${r.transactionReleaseDatetime},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
+    }
   }
   return { totalRows: rows.length, rowsInserted: ins, rowsSkipped: sk };
 }
@@ -2556,9 +2630,23 @@ async function processRemovalShipments(
     return oi && String(oi).trim();
   });
 
+  type RShipRow = {
+    orderId: string;
+    fnsku: string;
+    tracking: string;
+    requestDate: Date | null;
+    shipmentDate: Date | null;
+    msku: string | null;
+    disposition: string | null;
+    shippedQty: number;
+    carrier: string | null;
+    removalOrderType: string | null;
+  };
+
   let ins = 0;
   let sk = 0;
   let bad = 0;
+  const valid: { r: RShipRow; hash: string }[] = [];
   for (const row of dataRows) {
     const orderId =
       ci.order_id >= 0
@@ -2568,72 +2656,74 @@ async function processRemovalShipments(
       ci.fnsku >= 0 ? String(row[ci.fnsku] ?? "").trim() : "";
     const tracking =
       ci.tracking >= 0 ? String(row[ci.tracking] ?? "").trim() : "";
-    if (!orderId || !fnsku || !tracking) {
-      bad += 1;
-      continue;
-    }
+    if (!orderId || !fnsku || !tracking) { bad += 1; continue; }
 
-    const existed = await tx.removalShipment.findFirst({
-      where: { orderId, fnsku, trackingNumber: tracking },
-    });
-    const requestDate =
-      ci.request_date >= 0 ? toDate(row[ci.request_date]) : null;
-    const shipmentDate =
-      ci.shipment_date >= 0 ? toDate(row[ci.shipment_date]) : null;
-    const mskuRow =
-      ci.msku >= 0
-        ? String(row[ci.msku] ?? "").trim() || null
-        : null;
-    const dispositionRow =
-      ci.disposition >= 0
+    const r: RShipRow = {
+      orderId,
+      fnsku,
+      tracking,
+      requestDate: ci.request_date >= 0 ? toDate(row[ci.request_date]) : null,
+      shipmentDate: ci.shipment_date >= 0 ? toDate(row[ci.shipment_date]) : null,
+      msku: ci.msku >= 0 ? String(row[ci.msku] ?? "").trim() || null : null,
+      disposition: ci.disposition >= 0
         ? String(row[ci.disposition] ?? "").trim() || null
-        : null;
-    const shippedQty =
-      ci.shipped_qty >= 0 ? toNum(row[ci.shipped_qty]) : 0;
-    const carrierRow =
-      ci.carrier >= 0
+        : null,
+      shippedQty: ci.shipped_qty >= 0 ? toNum(row[ci.shipped_qty]) : 0,
+      carrier: ci.carrier >= 0
         ? String(row[ci.carrier] ?? "").trim() || null
-        : null;
-    const removalOrderTypeRow =
-      ci.order_type >= 0
+        : null,
+      removalOrderType: ci.order_type >= 0
         ? String(row[ci.order_type] ?? "").trim() || null
-        : null;
+        : null,
+    };
+    const parts = [
+      r.orderId, r.fnsku, r.tracking,
+      r.requestDate ? r.requestDate.toISOString() : "",
+      r.shipmentDate ? r.shipmentDate.toISOString() : "",
+      r.msku ?? "", r.disposition ?? "", String(r.shippedQty),
+      r.carrier ?? "", r.removalOrderType ?? "",
+    ];
+    const hash = createHash("sha256").update(parts.join("\x1f")).digest("hex");
+    valid.push({ r, hash });
+  }
 
-    await tx.$executeRaw`
-      INSERT INTO "removal_shipments" (
-        "id", "orderId", "requestDate", "shipmentDate", "msku", "fnsku", "disposition",
-        "shippedQty", "carrier", "trackingNumber", "removalOrderType", "store",
-        "uploadedAt", "createdAt", "updatedAt"
-      ) VALUES (
-        gen_random_uuid()::text,
-        ${orderId},
-        ${requestDate},
-        ${shipmentDate},
-        ${mskuRow},
-        ${fnsku},
-        ${dispositionRow},
-        ${shippedQty},
-        ${carrierRow},
-        ${tracking},
-        ${removalOrderTypeRow},
-        NULL,
-        ${batchAt},
-        ${batchAt},
-        ${batchAt}
-      )
-      ON CONFLICT ("orderId", "fnsku", "trackingNumber") DO UPDATE SET
-        "requestDate" = EXCLUDED."requestDate",
-        "shipmentDate" = EXCLUDED."shipmentDate",
-        "msku" = EXCLUDED."msku",
-        "disposition" = EXCLUDED."disposition",
-        "shippedQty" = EXCLUDED."shippedQty",
-        "carrier" = EXCLUDED."carrier",
-        "removalOrderType" = EXCLUDED."removalOrderType",
-        "uploadedAt" = EXCLUDED."uploadedAt",
-        "updatedAt" = EXCLUDED."updatedAt"
-    `;
-    if (existed) sk += 1;
-    else ins += 1;
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.removalShipment.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "removal_shipments" (
+          "id", "orderId", "requestDate", "shipmentDate", "msku", "fnsku", "disposition",
+          "shippedQty", "carrier", "trackingNumber", "removalOrderType", "store", "rowHash",
+          "uploadedAt", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.orderId},
+          ${r.requestDate},
+          ${r.shipmentDate},
+          ${r.msku},
+          ${r.fnsku},
+          ${r.disposition},
+          ${r.shippedQty},
+          ${r.carrier},
+          ${r.tracking},
+          ${r.removalOrderType},
+          NULL,
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+      `;
+      ins += 1;
+    }
   }
 
   return {
@@ -2716,6 +2806,12 @@ async function processSettlementReport(
     const t = s.trim();
     return t ? t : null;
   };
+  const dateOrNull = (s: string): Date | null => {
+    const t = s.trim();
+    if (!t) return null;
+    const d = new Date(t);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
 
   const dataRows = allRows
     .slice(1)
@@ -2725,9 +2821,9 @@ async function processSettlementReport(
   for (const row of dataRows) {
     records.push({
       settlementId: strOrNull(get(row, iSettleId)),
-      settlementStartDate: strOrNull(get(row, iStart)),
-      settlementEndDate: strOrNull(get(row, iEnd)),
-      depositDate: strOrNull(get(row, iDeposit)),
+      settlementStartDate: dateOrNull(get(row, iStart)),
+      settlementEndDate: dateOrNull(get(row, iEnd)),
+      depositDate: dateOrNull(get(row, iDeposit)),
       totalAmount: num(get(row, iTotalAmt)),
       currency: strOrNull(get(row, iCurrency)),
       transactionType: strOrNull(get(row, iTxType)),
@@ -2743,8 +2839,8 @@ async function processSettlementReport(
       quantityPurchased: intOrNull(get(row, iQty)),
       promotionId: strOrNull(get(row, iPromo)),
       orderItemCode: strOrNull(get(row, iOIC)),
-      postedDate: strOrNull(get(row, iPosted)),
-      postedDateTime: strOrNull(get(row, iPostedDt)),
+      postedDate: dateOrNull(get(row, iPosted)),
+      postedDateTime: dateOrNull(get(row, iPostedDt)),
       uploadedAt: batchAt,
     });
   }

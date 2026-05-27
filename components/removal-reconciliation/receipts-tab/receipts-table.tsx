@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { DollarSign, Trash2, Unlock, Wrench } from "lucide-react";
+import { DollarSign, Paperclip, Trash2, Unlock, Wrench } from "lucide-react";
 
 import {
   Table,
@@ -17,6 +17,8 @@ import { WrongItemBadge } from "@/components/removal-reconciliation/shared/statu
 import { cn } from "@/lib/utils";
 import { Pagination } from "@/components/shared/Pagination";
 import type { RemovalReceiptRow } from "@/lib/removal-reconciliation/types";
+import { caseStatusBadgeClass, formatEnumLabel } from "@/lib/cases-ui";
+import type { CaseStatus } from "@prisma/client";
 
 export function ReceiptsTable({
   rows,
@@ -77,6 +79,9 @@ export function ReceiptsTable({
                 r.wrongItemReceived && "bg-amber-50/40",
               )}
             >
+              {show("order_date") && (
+                <TableCell className="font-mono text-[11px]">{(r as any).requestDate || "—"}</TableCell>
+              )}
               {show("order_id") && <TableCell className="font-mono text-[10px]">{r.orderId || "—"}</TableCell>}
               {show("fnsku") && <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>}
               {show("msku") && (
@@ -85,12 +90,26 @@ export function ReceiptsTable({
                 </TableCell>
               )}
               {show("tracking") && (
-                <TableCell className="max-w-[100px] truncate font-mono text-[10px]" title={r.trackingNumber}>
-                  {r.trackingNumber || "—"}
+                <TableCell className="max-w-[120px] truncate font-mono text-[10px]" title={r.trackingNumber}>
+                  <TrackingWithBol row={r} />
+                </TableCell>
+              )}
+              {show("carrier") && (
+                <TableCell className="font-mono text-[10px]">{r.carrier || "—"}</TableCell>
+              )}
+              {show("rcvd_date") && <TableCell className="font-mono text-[11px]">{r.receivedDate || "—"}</TableCell>}
+              {show("lpn") && (
+                <TableCell className="font-mono text-[11px]">{(r as any).lpnNumber || "—"}</TableCell>
+              )}
+              {show("bin_location") && (
+                <TableCell className="font-mono text-[11px]">{r.binLocation || "—"}</TableCell>
+              )}
+              {show("item_title") && (
+                <TableCell className="max-w-[160px] truncate text-[11px]" title={r.itemTitle}>
+                  {r.itemTitle || "—"}
                 </TableCell>
               )}
               {show("exp") && <TableCell className="text-right font-mono text-xs">{r.expectedQty}</TableCell>}
-              {show("rcvd_date") && <TableCell className="font-mono text-[11px]">{r.receivedDate || "—"}</TableCell>}
               {show("rcvd_qty") && (
                 <TableCell className="text-right">
                   <RcvdCell row={r} />
@@ -101,14 +120,37 @@ export function ReceiptsTable({
                   <CondBadge value={r.conditionReceived} />
                 </TableCell>
               )}
-              {show("wrong") && (
-                <TableCell className="text-center">
-                  <WrongItemTooltip row={r} />
+              {show("title_note") && (
+                <TableCell className="max-w-[140px] truncate text-[11px] text-muted-foreground" title={r.notes}>
+                  {r.notes || "—"}
                 </TableCell>
               )}
               {show("wh_comment") && (
                 <TableCell className="max-w-[140px] truncate text-[11px] text-muted-foreground" title={r.warehouseComment}>
                   {r.warehouseComment || "—"}
+                </TableCell>
+              )}
+              {show("front_photo") && (
+                <TableCell className="text-center">
+                  <AttachmentLinks urls={(r as any).frontPhotoUrls ?? []} />
+                </TableCell>
+              )}
+              {show("back_photo") && (
+                <TableCell className="text-center">
+                  <AttachmentLinks urls={(r as any).backPhotoUrls ?? []} />
+                </TableCell>
+              )}
+              {show("packing_list") && (
+                <TableCell className="text-center">
+                  <AttachmentLinks urls={(r as any).packingListUrls ?? []} />
+                </TableCell>
+              )}
+              {show("processed_by") && (
+                <TableCell className="text-[11px]">{r.receivedBy || "—"}</TableCell>
+              )}
+              {show("wrong") && (
+                <TableCell className="text-center">
+                  <WrongItemTooltip row={r} />
                 </TableCell>
               )}
               {show("wh_status") && (
@@ -138,6 +180,21 @@ export function ReceiptsTable({
               {show("seller_comments") && (
                 <TableCell className="max-w-[130px] truncate text-[11px] text-muted-foreground" title={r.sellerComments}>
                   {r.sellerComments || "—"}
+                </TableCell>
+              )}
+              {show("case_id") && (
+                <TableCell className="font-mono text-[11px]">
+                  <CaseIdCell row={r} />
+                </TableCell>
+              )}
+              {show("case_status") && (
+                <TableCell className="text-[11px]">
+                  <CaseStatusBadge value={(r as any).caseStatus ?? ""} />
+                </TableCell>
+              )}
+              {show("case_remark") && (
+                <TableCell className="max-w-[160px] truncate text-[11px] text-muted-foreground" title={(r as any).caseRemark ?? ""}>
+                  {(r as any).caseRemark || "—"}
                 </TableCell>
               )}
               {show("reimb_qty") && (
@@ -174,7 +231,6 @@ export function ReceiptsTable({
                   {r.actionRemarks || "—"}
                 </TableCell>
               )}
-              {show("by") && <TableCell className="text-[11px]">{r.receivedBy || "—"}</TableCell>}
               {show("actions") && (
                 <TableCell>
                   <ReceiptActions
@@ -197,30 +253,97 @@ export function ReceiptsTable({
 }
 
 export const RECEIPTS_TABLE_COLUMNS = [
+  { id: "order_date", label: "Order Date", align: "left" as const },
   { id: "order_id", label: "Order ID", align: "left" as const },
   { id: "fnsku", label: "FNSKU", align: "left" as const },
   { id: "msku", label: "MSKU", align: "left" as const },
   { id: "tracking", label: "Tracking", align: "left" as const },
-  { id: "exp", label: "Exp.", align: "right" as const },
+  { id: "carrier", label: "Carrier", align: "left" as const },
   { id: "rcvd_date", label: "Rcvd Date", align: "left" as const },
+  { id: "lpn", label: "LPN #", align: "left" as const },
+  { id: "bin_location", label: "Bin Location", align: "left" as const },
+  { id: "item_title", label: "Item Title", align: "left" as const },
+  { id: "exp", label: "Exp.", align: "right" as const },
   { id: "rcvd_qty", label: "Rcvd Qty", align: "right" as const },
-  { id: "condition", label: "Condition", align: "left" as const },
-  { id: "wrong", label: "Wrong Item", align: "center" as const },
+  { id: "condition", label: "Book Condition", align: "left" as const },
+  { id: "title_note", label: "Title Note", align: "left" as const },
   { id: "wh_comment", label: "Wh. Comment", align: "left" as const },
+  { id: "front_photo", label: "Front Photo", align: "center" as const },
+  { id: "back_photo", label: "Back Photo", align: "center" as const },
+  { id: "packing_list", label: "Packing List", align: "center" as const },
+  { id: "processed_by", label: "Processed By", align: "left" as const },
+  { id: "wrong", label: "Wrong Item", align: "center" as const },
   { id: "wh_status", label: "Wh. Status", align: "left" as const },
   { id: "transfer", label: "Transfer To", align: "left" as const },
   { id: "post_action", label: "Post-Action", align: "left" as const },
   { id: "seller_status", label: "Seller Status", align: "left" as const },
   { id: "seller_comments", label: "Seller Comments", align: "left" as const },
+  { id: "case_id", label: "Case ID", align: "left" as const },
+  { id: "case_status", label: "Case Status", align: "left" as const },
+  { id: "case_remark", label: "Case Remark", align: "left" as const },
   { id: "reimb_qty", label: "Reimb. Qty", align: "right" as const },
   { id: "reimb_amt", label: "Reimb. $", align: "right" as const },
   { id: "billed", label: "Wh. Billed", align: "center" as const },
   { id: "billed_date", label: "Billed Date", align: "left" as const },
   { id: "billed_amt", label: "Billed Amt", align: "right" as const },
   { id: "remarks", label: "Remarks", align: "left" as const },
-  { id: "by", label: "By", align: "left" as const },
   { id: "actions", label: "Actions", align: "left" as const },
 ];
+
+function AttachmentLinks({ urls }: { urls: string[] }) {
+  if (!urls?.length) return <span className="text-[11px] text-muted-foreground">—</span>;
+  if (urls.length === 1) {
+    return (
+      <a
+        href={urls[0]}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100"
+        title="Open attachment"
+      >
+        <Paperclip className="size-3" aria-hidden /> 1
+      </a>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {urls.map((u, i) => (
+        <a
+          key={i}
+          href={u}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100"
+          title={`Attachment ${i + 1}`}
+        >
+          {i + 1}
+        </a>
+      ))}
+    </span>
+  );
+}
+
+function TrackingWithBol({ row }: { row: RemovalReceiptRow }) {
+  const tracking = row.trackingNumber;
+  if (!tracking) return <span className="text-muted-foreground">—</span>;
+  const bolUrls = (row as any).bolAttachmentUrls as string[] | undefined;
+  const bol = bolUrls?.[0];
+  if (!bol) return <span title={tracking}>{tracking}</span>;
+  return (
+    <a
+      href={bol}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="text-blue-600 underline-offset-2 hover:underline"
+      title={`${tracking} — open BOL`}
+    >
+      {tracking}
+    </a>
+  );
+}
 
 function RcvdCell({ row }: { row: RemovalReceiptRow }) {
   if (row.receivedQty === 0) {
@@ -246,6 +369,37 @@ function RcvdCell({ row }: { row: RemovalReceiptRow }) {
   );
 }
 
+function CaseStatusBadge({ value }: { value: string }) {
+  if (!value) return <span className="text-muted-foreground">—</span>;
+  const cls = caseStatusBadgeClass(value as CaseStatus);
+  return (
+    <Badge variant="outline" className={cn("rounded-full font-mono text-[10px]", cls)}>
+      {formatEnumLabel(value)}
+    </Badge>
+  );
+}
+
+function CaseIdCell({ row }: { row: RemovalReceiptRow }) {
+  const id = row.caseId;
+  if (!id) return <span className="text-muted-foreground">—</span>;
+  const url = (row as any).caseUrl as string | undefined;
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="text-blue-600 hover:underline"
+        title={`Open ${id}`}
+      >
+        {id}
+      </a>
+    );
+  }
+  return <span>{id}</span>;
+}
+
 function CondBadge({ value }: { value: string }) {
   if (!value) return <span className="text-[11px] text-muted-foreground">—</span>;
   const map: Record<string, string> = {
@@ -254,6 +408,8 @@ function CondBadge({ value }: { value: string }) {
     "USED GOOD": "border-blue-200 bg-blue-50 text-blue-700",
     USED: "border-slate-200 bg-slate-50 text-slate-700",
     "INCORRECT ITEM": "border-amber-200 bg-amber-50 text-amber-800",
+    "WRONG ITEM": "border-amber-200 bg-amber-50 text-amber-800",
+    "USED ACCEPTABLE": "border-slate-200 bg-slate-50 text-slate-700",
     DAMAGED: "border-red-200 bg-red-50 text-red-700",
     "WATER DAMAGED": "border-pink-200 bg-pink-50 text-pink-700",
     DISPOSE: "border-slate-300 bg-slate-100 text-slate-700",

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ScrollText, Wrench } from "lucide-react";
+import { ScrollText, Wrench, FileText } from "lucide-react";
 
 import {
   TableBody,
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import {
   ActionStatusBadge,
 } from "@/components/fc-transfer-reconciliation/shared/action-status-badge";
+import { Badge } from "@/components/ui/badge";
 import { CellHoverPopover, CellHoverRow } from "@/components/shared/cell-hover-popover";
 import type { FcAnalysisRow } from "@/lib/fc-transfer-reconciliation/types";
 
@@ -22,11 +23,13 @@ export function AnalysisTable({
   rows,
   onRaiseCase,
   onAdjust,
+  onViewLog,
   visibility,
 }: {
   rows: FcAnalysisRow[];
   onRaiseCase: (row: FcAnalysisRow) => void;
   onAdjust: (row: FcAnalysisRow) => void;
+  onViewLog: (row: FcAnalysisRow) => void;
   visibility?: Record<string, boolean>;
 }) {
   const show = (id: string) => visibility?.[id] !== false;
@@ -112,7 +115,7 @@ export function AnalysisTable({
                 {show("days") && <TableCell className={cn("text-right text-[11px]", daysCls)}>{r.daysPending}d</TableCell>}
                 {show("status") && (
                   <TableCell>
-                    <ActionStatusBadge status={r.actionStatus} />
+                    <LifecycleStatus row={r} />
                   </TableCell>
                 )}
                 {show("rimbqty") && (
@@ -167,7 +170,7 @@ export function AnalysisTable({
                 )}
                 {show("action") && (
                   <TableCell>
-                    <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} />
+                    <Actions row={r} onRaiseCase={onRaiseCase} onAdjust={onAdjust} onViewLog={onViewLog} />
                   </TableCell>
                 )}
               </TableRow>
@@ -203,16 +206,34 @@ function Actions({
   row,
   onRaiseCase,
   onAdjust,
+  onViewLog,
 }: {
   row: FcAnalysisRow;
   onRaiseCase: (row: FcAnalysisRow) => void;
   onAdjust: (row: FcAnalysisRow) => void;
+  onViewLog: (row: FcAnalysisRow) => void;
 }) {
+  const logBtn = (
+    <button
+      type="button"
+      onClick={() => onViewLog(row)}
+      className="flex h-6 items-center gap-1 rounded bg-slate-700 px-2 text-[10px] font-bold text-white hover:bg-slate-800"
+      title="View MSKU Log"
+    >
+      <FileText className="size-3" aria-hidden /> Log
+    </button>
+  );
   if (row.actionStatus === "excess") {
-    return <span className="text-[10px] text-muted-foreground">— Monitor</span>;
+    return (
+      <div className="flex items-center gap-1">
+        {logBtn}
+        <span className="text-[10px] text-muted-foreground">Monitor</span>
+      </div>
+    );
   }
   return (
-    <div className="flex gap-1">
+    <div className="flex items-center gap-1">
+      {logBtn}
       {row.caseCount > 0 ? (
         <span className="flex h-6 items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 text-[10px] font-bold text-emerald-700">
           ⚖️ {row.caseCount} Case{row.caseCount > 1 ? "s" : ""}
@@ -238,3 +259,41 @@ function Actions({
     </div>
   );
 }
+
+function LifecycleStatus({ row }: { row: FcAnalysisRow }) {
+  if (row.reimbursed) {
+    return (
+      <Badge
+        variant="outline"
+        className="rounded-full border-teal-200 bg-teal-50 font-mono text-[10px] font-bold text-teal-700"
+      >
+        💰 Reimbursed
+      </Badge>
+    );
+  }
+  if (row.caseCount > 0) {
+    const status = row.caseStatusTop;
+    const cls =
+      status === "Resolved" || status === "Approved"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : status === "Open" || status === "In Progress" || status === "Pending"
+          ? "border-orange-200 bg-orange-50 text-orange-800"
+          : status === "Rejected"
+            ? "border-red-200 bg-red-50 text-red-700"
+            : status === "Closed"
+              ? "border-slate-200 bg-slate-100 text-slate-600"
+              : "border-slate-200 bg-slate-50 text-slate-600";
+    return (
+      <div className="flex flex-col items-start gap-0.5">
+        <Badge variant="outline" className={cn("rounded-full font-mono text-[10px] font-bold", cls)}>
+          ⚖ Case: {status}
+        </Badge>
+        <span className="text-[9px] text-muted-foreground">
+          {row.caseCount} case{row.caseCount > 1 ? "s" : ""}
+        </span>
+      </div>
+    );
+  }
+  return <ActionStatusBadge status={row.actionStatus} />;
+}
+

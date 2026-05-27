@@ -196,18 +196,19 @@ model SalesData {
   shipState      String?
   shipPostalCode String?
   store          String?
+  rowHash        String?
   uploadedAt     DateTime  @default(now())
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  @@unique([orderId, saleDate])
   @@index([msku])
   @@index([fnsku])
   @@index([asin])
   @@index([orderId])
   @@index([saleDate])
   @@index([store])
+  @@index([rowHash])
   @@map("sales_data")
 }
 
@@ -229,17 +230,18 @@ model FbaReceipt {
   unreconciledQty   Int       @default(0)
   receiptDatetime   DateTime?
   store             String?
+  rowHash           String?
   uploadedAt        DateTime  @default(now())
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
 
-  @@unique([fnsku, receiptDate, shipmentId])
   @@index([msku])
   @@index([fnsku])
   @@index([shipmentId])
   @@index([store])
   @@index([receiptDate])
+  @@index([rowHash])
   @@map("fba_receipts")
 }
 
@@ -260,18 +262,19 @@ model CustomerReturn {
   licensePlateNumber  String?
   customerComments    String?
   store               String?
+  rowHash             String?
   uploadedAt          DateTime  @default(now())
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   deletedAt           DateTime?
 
-  @@unique([orderId, fnsku, returnDate])
   @@index([msku])
   @@index([fnsku])
   @@index([asin])
   @@index([orderId])
   @@index([returnDate])
   @@index([store])
+  @@index([rowHash])
   @@map("customer_returns")
 }
 
@@ -296,12 +299,12 @@ model Reimbursement {
   originalReimbId   String?
   originalReimbType String?
   store             String?
+  rowHash           String?
   uploadedAt        DateTime  @default(now())
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
 
-  @@unique([reimbursementId, msku, fnsku])
   @@index([msku])
   @@index([fnsku])
   @@index([asin])
@@ -309,6 +312,7 @@ model Reimbursement {
   @@index([reason])
   @@index([store])
   @@index([approvalDate])
+  @@index([rowHash])
   @@map("reimbursements")
 }
 
@@ -324,23 +328,25 @@ model FbaRemoval {
   orderSource  String?
   orderType    String?
   lastUpdated  DateTime?
+  requestedQty Int       @default(0)
   cancelledQty Int       @default(0)
   disposedQty  Int       @default(0)
   inProcessQty Int       @default(0)
   removalFee   Decimal?  @db.Decimal(12, 2)
   currency     String?
   store        String?
+  rowHash      String?
   uploadedAt   DateTime  @default(now())
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?
 
-  @@unique([orderId, fnsku, requestDate])
   @@index([msku])
   @@index([fnsku])
   @@index([orderId])
   @@index([store])
   @@index([requestDate])
+  @@index([rowHash])
   @@map("fba_removals")
 }
 
@@ -362,17 +368,18 @@ model FcTransfer {
   unreconciledQty   Int       @default(0)
   transferDatetime  DateTime?
   store             String?
+  rowHash           String?
   uploadedAt        DateTime  @default(now())
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
 
-  @@unique([fnsku, transferDate, referenceId])
   @@index([msku])
   @@index([fnsku])
   @@index([referenceId])
   @@index([store])
   @@index([transferDate])
+  @@index([rowHash])
   @@map("fc_transfers")
 }
 
@@ -388,15 +395,16 @@ model ShipmentStatus {
   unitsLocated  Int       @default(0)
   status        String?
   store         String?
+  rowHash       String?
   uploadedAt    DateTime  @default(now())
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  @@unique([shipmentId])
   @@index([shipmentId])
   @@index([status])
   @@index([store])
+  @@index([rowHash])
   @@map("shipment_status")
 }
 
@@ -424,17 +432,18 @@ model FbaSummary {
   location          String?
   store             String?
   summaryDate       DateTime?
+  rowHash           String?
   uploadedAt        DateTime  @default(now())
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   deletedAt         DateTime?
 
-  @@unique([msku, fnsku, disposition, summaryDate, store])
   @@index([msku])
   @@index([fnsku])
   @@index([asin])
   @@index([store])
   @@index([summaryDate])
+  @@index([rowHash])
   @@map("fba_summary")
 }
 
@@ -451,19 +460,18 @@ model Replacement {
   replacementOrderId          String?
   originalOrderId             String?
   store                       String?
+  rowHash                     String?
   uploadedAt                  DateTime  @default(now())
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
   deletedAt                   DateTime?
 
-  // Nullable replacementOrderId: PostgreSQL UNIQUE allows multiple NULLs;
-  // for a strict partial unique (WHERE NOT NULL), add SQL in migration.
-  @@unique([orderId, msku, replacementOrderId])
   @@index([msku])
   @@index([asin])
   @@index([orderId])
   @@index([originalOrderId])
   @@index([store])
+  @@index([rowHash])
   @@map("replacements")
 }
 
@@ -478,7 +486,7 @@ model Adjustment {
   updatedAt  DateTime  @updatedAt
   deletedAt  DateTime?
 
-  @@unique([msku])
+  @@unique([msku, store])
   @@index([msku])
   @@index([store])
   @@map("adjustments")
@@ -501,16 +509,17 @@ model RemovalShipment {
   trackingNumber   String?
   removalOrderType String?
   store            String?
+  rowHash          String?
   uploadedAt       DateTime  @default(now())
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  @@unique([orderId, fnsku, trackingNumber])
   @@index([orderId])
   @@index([msku])
   @@index([fnsku])
   @@index([store])
+  @@index([rowHash])
   @@map("removal_shipments")
 }
 
@@ -554,17 +563,24 @@ model RemovalReceipt {
   caseType          String?
   caseRaisedAt      DateTime?
   caseTrackerId     String?
+  caseRemark        String?              @map("case_remark")
   store             String?
   // Extended fields (Task L)
   invoiceNumber     String?              @map("invoice_number")
   reshippedQty      Int                  @default(0) @map("reshipped_qty")
   itemTitle         String?              @map("item_title")
   binLocation       String?              @map("bin_location")
+  lpnNumber            String?           @map("lpn_number")
+  bolAttachmentCount   Int               @default(0) @map("bol_attachment_count")
+  frontPhotoCount      Int               @default(0) @map("front_photo_count")
+  backPhotoCount       Int               @default(0) @map("back_photo_count")
+  packingListCount     Int               @default(0) @map("packing_list_count")
   attachmentUrls    Json?                @map("attachment_urls")
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   deletedAt         DateTime?
 
+  @@unique([orderId, fnsku, trackingNumber, receivedDate])
   @@index([orderId])
   @@index([fnsku])
   @@index([msku])
@@ -595,18 +611,19 @@ model GnrReport {
   usedMsku            String?
   usedFnsku           String?
   store               String?
+  rowHash             String?
   uploadedAt          DateTime  @default(now())
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
   deletedAt           DateTime?
 
-  @@unique([orderId, fnsku, reportDate, lpn])
   @@index([msku])
   @@index([fnsku])
   @@index([usedMsku])
   @@index([usedFnsku])
   @@index([orderId])
   @@index([store])
+  @@index([rowHash])
   @@map("gnr_report")
 }
 
@@ -640,6 +657,11 @@ model GradeResellItem {
   updatedAt     DateTime          @updatedAt
   deletedAt     DateTime?
 
+  // PostgreSQL allows multiple NULLs through @@unique. For strict dedup,
+  // add a partial unique index in migration SQL:
+  //   CREATE UNIQUE INDEX grade_resell_used_key
+  //     ON grade_resell_items(used_msku, used_fnsku)
+  //     WHERE used_msku IS NOT NULL AND used_fnsku IS NOT NULL;
   @@unique([usedMsku, usedFnsku])
   @@index([msku])
   @@index([fnsku])
@@ -653,10 +675,14 @@ model GradeResellItem {
 // =============================================================
 
 model FullReconRemark {
-  fnsku     String   @id
+  id        String   @id @default(cuid())
+  fnsku     String
+  store     String?
   remarks   String?
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
+  @@unique([fnsku, store])
+  @@index([fnsku])
   @@map("full_recon_remarks")
 }
 
@@ -673,9 +699,9 @@ model GnrReconRemark {
 model SettlementReport {
   id                       String    @id @default(cuid())
   settlementId             String?   @map("settlement_id")
-  settlementStartDate      String?   @map("settlement_start_date")
-  settlementEndDate        String?   @map("settlement_end_date")
-  depositDate              String?   @map("deposit_date")
+  settlementStartDate      DateTime? @map("settlement_start_date")
+  settlementEndDate        DateTime? @map("settlement_end_date")
+  depositDate              DateTime? @map("deposit_date")
   totalAmount              Decimal?  @map("total_amount") @db.Decimal(14, 4)
   currency                 String?
   transactionType          String?   @map("transaction_type")
@@ -688,8 +714,8 @@ model SettlementReport {
   amountDescription        String?   @map("amount_description")
   amount                   Decimal?  @db.Decimal(14, 4)
   fulfillmentId            String?   @map("fulfillment_id")
-  postedDate               String?   @map("posted_date")
-  postedDateTime           String?   @map("posted_date_time")
+  postedDate               DateTime? @map("posted_date")
+  postedDateTime           DateTime? @map("posted_date_time")
   orderItemCode            String?   @map("order_item_code")
   merchantOrderItemId      String?   @map("merchant_order_item_id")
   merchantAdjustmentItemId String?   @map("merchant_adjustment_item_id")
@@ -741,16 +767,17 @@ model PaymentRepository {
   transactionStatus          String?
   transactionReleaseDatetime String?
   store                      String?
+  rowHash                    String?
   uploadedAt                 DateTime  @default(now())
   createdAt                  DateTime  @default(now())
   updatedAt                  DateTime  @updatedAt
   deletedAt                  DateTime?
 
-  @@unique([settlementId, orderId, sku, lineType, postedDatetime])
   @@index([orderId])
   @@index([sku])
   @@index([settlementId])
   @@index([store])
+  @@index([rowHash])
   @@map("payment_repository")
 }
 
@@ -784,12 +811,19 @@ model CaseTracker {
   resolvedDate   DateTime?
   notes          String?
   store          String?
+  // External Amazon case page URL + uploaded PDF attachment path
+  caseUrl        String?
+  attachmentUrl  String?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   deletedAt      DateTime?
 
   manualAdjustments ManualAdjustment[]
 
+  // For dedup, add a partial unique index in migration SQL:
+  //   CREATE UNIQUE INDEX case_tracker_dedup
+  //     ON case_tracker(msku, recon_type, shipment_id)
+  //     WHERE deleted_at IS NULL AND shipment_id IS NOT NULL;
   @@index([msku])
   @@index([fnsku])
   @@index([asin])
@@ -824,6 +858,7 @@ model ManualAdjustment {
   notes       String?
   adjDate     DateTime?
   store       String?
+  receivedAsFnsku String?  @map("received_as_fnsku")
   // Optional case link
   caseId      String?
   case        CaseTracker? @relation(fields: [caseId], references: [id])

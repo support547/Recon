@@ -15,6 +15,12 @@ import {
   type DataExplorerFilters,
 } from "@/actions/data-explorer";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { type DataExplorerTabId } from "@/lib/data-explorer-constants";
 import {
   dispositionChipVariant,
@@ -421,33 +427,41 @@ export function DataTable({
     return buttons;
   }, [page, pageCount]);
 
-  const exportCsv = React.useCallback(async () => {
-    if (exporting) return;
-    setExporting(true);
-    try {
-      const exportRows: Record<string, unknown>[] = exportTab
-        ? await fetchAllDataExplorerTab(exportTab, exportFilters)
-        : sortedRows.map((r) => r.original);
-      const headers = columnSpecs.map((c) => c.header);
-      const lines = [
-        headers.map(csvEscape).join(","),
-        ...exportRows.map((row) =>
-          columnSpecs.map((spec) => csvEscape(csvCell(spec, row))).join(","),
-        ),
-      ];
-      const blob = new Blob([lines.join("\n")], {
-        type: "text/csv;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${exportFileName ?? "data-explorer-export"}-${Date.now()}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setExporting(false);
-    }
-  }, [columnSpecs, sortedRows, exportTab, exportFilters, exportFileName, exporting]);
+  const exportCsv = React.useCallback(
+    async (mode: "screen" | "all") => {
+      if (exporting) return;
+      setExporting(true);
+      try {
+        const exportRows: Record<string, unknown>[] =
+          mode === "all" && exportTab
+            ? await fetchAllDataExplorerTab(exportTab, exportFilters)
+            : sortedRows.map((r) => r.original);
+        const headers = columnSpecs.map((c) => c.header);
+        const lines = [
+          headers.map(csvEscape).join(","),
+          ...exportRows.map((row) =>
+            columnSpecs.map((spec) => csvEscape(csvCell(spec, row))).join(","),
+          ),
+        ];
+        const blob = new Blob(["﻿" + lines.join("\n")], {
+          type: "text/csv;charset=utf-8",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const suffix = mode === "all" ? "all" : "page";
+        a.href = url;
+        a.download = `${exportFileName ?? "data-explorer-export"}-${suffix}-${Date.now()}.csv`;
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } finally {
+        setExporting(false);
+      }
+    },
+    [columnSpecs, sortedRows, exportTab, exportFilters, exportFileName, exporting],
+  );
 
   if (total <= 0) {
     return (
@@ -469,17 +483,31 @@ export function DataTable({
           <span className="font-[family-name:var(--font-dm-mono)] text-[11px] text-[#9ca3af]">
             {total.toLocaleString()} rows
           </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 border-[#c8cdd8] text-xs font-semibold"
-            onClick={exportCsv}
-            disabled={exporting}
-          >
-            <Download className="size-3.5" aria-hidden />
-            {exporting ? "Exporting…" : "Export CSV"}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 border-[#c8cdd8] text-xs font-semibold"
+                disabled={exporting}
+              >
+                <Download className="size-3.5" aria-hidden />
+                {exporting ? "Exporting…" : "Export CSV"}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => exportCsv("screen")}>
+                Export screen data ({sortedRows.length.toLocaleString()} rows)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => exportCsv("all")}
+                disabled={!exportTab}
+              >
+                Export full data ({total.toLocaleString()} rows)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -488,17 +516,10 @@ export function DataTable({
           <thead>
             <tr>
               {table.getHeaderGroups()[0]?.headers.map((header) => {
-                const spec = (
-                  header.column.columnDef.meta as { spec?: ExplorerColumnSpec }
-                )?.spec;
-                const role = spec ? defaultCellRole(spec) : "text";
-                const alignRight = isRightAligned(role) || spec?.kind === "money";
                 return (
                   <th
                     key={header.id}
-                    className={`sticky top-0 z-20 whitespace-nowrap border-b-2 border-[#e4e7ec] bg-[#f8fafc] px-[11px] py-[7px] text-left text-[9.5px] font-bold uppercase tracking-[0.6px] text-[#9ca3af] shadow-[0_1px_0_0_#e4e7ec] first:pl-[14px] ${
-                      alignRight ? "text-right" : ""
-                    }`}
+                    className={`sticky top-0 z-20 whitespace-nowrap border-b-2 border-[#e4e7ec] bg-[#f8fafc] px-[11px] py-[7px] text-center text-[9.5px] font-bold uppercase tracking-[0.6px] text-[#9ca3af] shadow-[0_1px_0_0_#e4e7ec]`}
                   >
                     <span className="font-[family-name:var(--font-dm-sans)]">
                       {flexRender(header.column.columnDef.header, header.getContext())}
@@ -530,8 +551,6 @@ export function DataTable({
                         spec?: ExplorerColumnSpec;
                       }
                     )?.spec;
-                    const role = spec ? defaultCellRole(spec) : "text";
-                    const alignRight = isRightAligned(role) || spec?.kind === "money";
                     const content =
                       spec != null
                         ? renderExplorerCell(spec, row.original)
@@ -539,9 +558,7 @@ export function DataTable({
                     return (
                       <td
                         key={cell.id}
-                        className={`px-[11px] py-[7px] align-middle text-[12px] text-[#0f1117] first:pl-[14px] ${
-                          alignRight ? "text-right" : ""
-                        }`}
+                        className="whitespace-nowrap px-[11px] py-[7px] align-middle text-center text-[12px] text-[#0f1117]"
                       >
                         {content}
                       </td>

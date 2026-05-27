@@ -189,14 +189,11 @@ export function FullReconciliationClient({
         </HeaderActions>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <KpiTotal label="Total FNSKUs" value={stats.totalFnskus} icon="🔢" border="blue" />
-          <KpiTotal label="Total Shipped" value={stats.totalShipped} icon="📤" border="sky" />
-          <KpiTotal label="Total Received" value={stats.totalReceived} icon="📥" border="green" />
-          <KpiTotal label="Total Shortage" value={stats.totalShortage} icon="⚠" border="red" />
-          <KpiTotal label="Total Sold" value={stats.totalSold} icon="🛒" border="amber" />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <KpiStatus
+            label="Total MSKUs"
+            value={stats.totalMskus}
+            border="amber"
+          />
           <KpiStatus
             label="Matched"
             value={stats.matched}
@@ -219,24 +216,11 @@ export function FullReconciliationClient({
             onClick={() => setStatusKpi("Take Action")}
           />
           <KpiStatus
-            label="Reimbursed"
-            value={stats.reimbursed}
-            border="green"
-            active={statusFilter === "Reimbursed"}
-            onClick={() => setStatusKpi("Reimbursed")}
-          />
-          <KpiStatus
             label="No Snapshot"
             value={stats.noSnapshot}
             border="slate"
             active={statusFilter === "No Snapshot"}
             onClick={() => setStatusKpi("No Snapshot")}
-          />
-          <KpiStatus
-            label="TA Variance"
-            value={stats.takeActionVariance}
-            suffix="u"
-            border="amber"
           />
         </div>
 
@@ -310,27 +294,6 @@ export function FullReconciliationClient({
         />
       </div>
     </TooltipProvider>
-  );
-}
-
-function KpiTotal({
-  label, value, icon, border,
-}: { label: string; value: number; icon: string; border: "blue"|"sky"|"green"|"red"|"amber" }) {
-  const bg =
-    border === "blue" ? "bg-blue-50" :
-    border === "sky" ? "bg-sky-50" :
-    border === "green" ? "bg-emerald-50" :
-    border === "red" ? "bg-red-50" : "bg-amber-50";
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
-      <div className={cn("flex size-9 items-center justify-center rounded-md text-base", bg)}>
-        {icon}
-      </div>
-      <div>
-        <div className="font-mono text-lg font-bold leading-none">{value.toLocaleString()}</div>
-        <div className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      </div>
-    </div>
   );
 }
 

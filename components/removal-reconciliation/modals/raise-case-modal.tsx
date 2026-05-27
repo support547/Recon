@@ -15,7 +15,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CaseTypeButtonGrid } from "@/components/removal-reconciliation/shared/condition-button-grid";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { CASE_TYPE_PRESETS } from "@/components/removal-reconciliation/shared/condition-button-grid";
 import type { RemovalReconRow } from "@/lib/removal-reconciliation/types";
 
 function todayIso() {
@@ -37,6 +44,8 @@ export function RaiseCaseModal({
   const [unitsClaimed, setUnitsClaimed] = React.useState(1);
   const [amountClaimed, setAmountClaimed] = React.useState("");
   const [caseNotes, setCaseNotes] = React.useState("");
+  const [caseId, setCaseId] = React.useState("");
+  const [caseUrl, setCaseUrl] = React.useState("");
   const [issueDate, setIssueDate] = React.useState(todayIso());
   const [busy, setBusy] = React.useState(false);
 
@@ -51,6 +60,8 @@ export function RaiseCaseModal({
     setUnitsClaimed(defUnits);
     setAmountClaimed("");
     setCaseNotes("");
+    setCaseId("");
+    setCaseUrl("");
     setIssueDate(todayIso());
   }, [open, row]);
 
@@ -75,6 +86,8 @@ export function RaiseCaseModal({
         unitsClaimed,
         amountClaimed: safeAmt,
         caseNotes: caseNotes.trim() ? caseNotes.trim() : null,
+        caseId: caseId.trim() ? caseId.trim() : null,
+        caseUrl: caseUrl.trim() ? caseUrl.trim() : null,
         issueDate,
       });
       if (!res.ok) {
@@ -91,7 +104,10 @@ export function RaiseCaseModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-lg overflow-y-auto">
+      <DialogContent
+        className="max-h-[92vh] w-[95vw] overflow-y-auto sm:!max-w-3xl"
+        style={{ maxWidth: "min(95vw, 880px)" }}
+      >
         <DialogHeader>
           <DialogTitle>Raise removal case</DialogTitle>
         </DialogHeader>
@@ -112,7 +128,18 @@ export function RaiseCaseModal({
           </div>
 
           <Field label="Case type">
-            <CaseTypeButtonGrid value={caseReason} onChange={setCaseReason} />
+            <Select value={caseReason} onValueChange={setCaseReason}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select case type" />
+              </SelectTrigger>
+              <SelectContent>
+                {CASE_TYPE_PRESETS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
@@ -135,6 +162,24 @@ export function RaiseCaseModal({
                 className="font-mono"
                 value={amountClaimed}
                 onChange={(e) => setAmountClaimed(e.target.value)}
+              />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Case ID (if already raised)">
+              <Input
+                value={caseId}
+                onChange={(e) => setCaseId(e.target.value)}
+                placeholder="Amazon case number"
+              />
+            </Field>
+            <Field label="Amazon Case URL">
+              <Input
+                type="url"
+                value={caseUrl}
+                onChange={(e) => setCaseUrl(e.target.value)}
+                placeholder="https://sellercentral.amazon.com/cu/case-dashboard/view-case?caseID=..."
               />
             </Field>
           </div>

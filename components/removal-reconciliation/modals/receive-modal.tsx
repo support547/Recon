@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { Hash, MapPin, Upload, X, FileText, Camera, Package } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveReceiveAction } from "@/actions/removal-reconciliation";
+import { uploadRemovalAttachment } from "@/actions/removal-attachments";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,23 +27,15 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   CaseTypeButtonGrid,
   CONDITION_PRESETS,
-  ConditionButtonGrid,
 } from "@/components/removal-reconciliation/shared/condition-button-grid";
+import { cn } from "@/lib/utils";
 import type { RemovalReconRow } from "@/lib/removal-reconciliation/types";
-
-const CARRIERS = ["UPS_GR_PL", "USPS_ATS_BPM", "FedEx", "Other"];
-const WH_STATUSES = [
-  "Pending",
-  "Received - Ready",
-  "Received - Pending Check",
-  "Damaged - Case Needed",
-  "Incorrect Item",
-  "Disposed",
-];
 
 function todayIso() {
   return new Date().toISOString().split("T")[0];
 }
+
+type AttachmentSlot = "bol" | "front" | "back" | "packing";
 
 export function ReceiveModal({
   row,
@@ -56,61 +50,64 @@ export function ReceiveModal({
   preselectCase?: boolean;
   onSaved?: () => void;
 }) {
-  const [trackingNumber, setTrackingNumber] = React.useState("");
-  const [carrier, setCarrier] = React.useState("");
   const [receivedDate, setReceivedDate] = React.useState(todayIso());
-  const [receivedBy, setReceivedBy] = React.useState("");
+  const [lpnNumber, setLpnNumber] = React.useState("");
+  const [binLocation, setBinLocation] = React.useState("");
+  const [itemTitle, setItemTitle] = React.useState("");
   const [receivedQty, setReceivedQty] = React.useState(0);
   const [sellableQty, setSellableQty] = React.useState(0);
   const [unsellableQty, setUnsellableQty] = React.useState(0);
   const [conditionReceived, setConditionReceived] = React.useState("NEW");
-  const [notes, setNotes] = React.useState("");
+  const [titleNote, setTitleNote] = React.useState("");
   const [whComment, setWhComment] = React.useState("");
-  const [whStatus, setWhStatus] = React.useState("Pending");
-  const [transferTo, setTransferTo] = React.useState("");
-  const [wrongItem, setWrongItem] = React.useState(false);
-  const [wrongItemNotes, setWrongItemNotes] = React.useState("");
+  const [processedBy, setProcessedBy] = React.useState("");
+  const [transferTo, setTransferTo] = React.useState("FBA Reshipment");
+  const [whStatus, setWhStatus] = React.useState("Received - Ready");
   const [raiseCase, setRaiseCase] = React.useState(false);
   const [caseReason, setCaseReason] = React.useState("Removal_Short_Received");
   const [unitsClaimed, setUnitsClaimed] = React.useState(0);
   const [valuePerUnit, setValuePerUnit] = React.useState(0);
   const [caseNotes, setCaseNotes] = React.useState("");
-  const [invoiceNumber, setInvoiceNumber] = React.useState("");
-  const [reshippedQty, setReshippedQty] = React.useState(0);
-  const [itemTitle, setItemTitle] = React.useState("");
-  const [binLocation, setBinLocation] = React.useState("");
+  const [caseId, setCaseId] = React.useState("");
+  const [caseUrl, setCaseUrl] = React.useState("");
+  const [files, setFiles] = React.useState<Record<AttachmentSlot, File[]>>({
+    bol: [],
+    front: [],
+    back: [],
+    packing: [],
+  });
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (!open || !row) return;
     const exp = row.expectedShipped;
-    setTrackingNumber(row.trackingNumbers.split(" | ")[0] ?? "");
-    setCarrier(row.carriers.split(", ")[0] ?? "");
     setReceivedDate(todayIso());
-    setReceivedBy("");
+    setLpnNumber("");
+    setBinLocation("");
+    setItemTitle("");
     setReceivedQty(exp);
     setSellableQty(exp);
     setUnsellableQty(0);
     setConditionReceived("NEW");
-    setNotes("");
+    setTitleNote("");
     setWhComment("");
-    setWhStatus("Received - Ready");
+    setProcessedBy("");
     setTransferTo("FBA Reshipment");
-    setWrongItem(false);
-    setWrongItemNotes("");
+    setWhStatus("Received - Ready");
     setRaiseCase(Boolean(preselectCase));
     setCaseReason("Removal_Short_Received");
     setUnitsClaimed(0);
     setValuePerUnit(0);
     setCaseNotes("");
-    setInvoiceNumber("");
-    setReshippedQty(0);
-    setItemTitle("");
-    setBinLocation("");
+    setCaseId("");
+    setCaseUrl("");
+    setFiles({ bol: [], front: [], back: [], packing: [] });
   }, [open, row, preselectCase]);
 
   if (!row) return null;
 
+  const trackingNumber = row.trackingNumbers.split(/[,\n| ]/).map((s) => s.trim()).filter(Boolean)[0] ?? "";
+  const carrier = row.carriers.split(/[,\n]/)[0]?.trim() ?? "";
   const expectedQty = row.expectedShipped;
   const missing = Math.max(0, expectedQty - receivedQty);
   const totalClaim = unitsClaimed * valuePerUnit;
@@ -157,20 +154,50 @@ export function ReceiveModal({
     if (preset.triggersCase) {
       setRaiseCase(true);
       if (preset.caseReason) setCaseReason(preset.caseReason);
-      if (preset.value === "INCORRECT ITEM") {
+      if (preset.value === "WRONG ITEM" || preset.value === "INCORRECT ITEM") {
         setUnitsClaimed(expectedQty);
       } else if (preset.value === "DAMAGED" || preset.value === "WATER DAMAGED") {
         setUnitsClaimed(unsellableQty || receivedQty);
       }
-    } else {
+    } else if (missing === 0 && unsellableQty === 0) {
       setRaiseCase(false);
     }
   }
 
+  async function uploadSlot(arr: File[]): Promise<string[]> {
+    if (!arr.length) return [];
+    const out: string[] = [];
+    for (const f of arr) {
+      const fd = new FormData();
+      fd.append("file", f);
+      const res = await uploadRemovalAttachment(fd);
+      if (!res.ok) {
+        toast.error(`Upload failed: ${f.name}`, { description: res.error });
+        throw new Error(res.error);
+      }
+      out.push(res.url);
+    }
+    return out;
+  }
+
   async function onSubmit() {
-    if (!row) return;
+    if (!row || !processedBy.trim()) return;
     setBusy(true);
     try {
+      let bolUrls: string[] = [];
+      let frontUrls: string[] = [];
+      let backUrls: string[] = [];
+      let packingUrls: string[] = [];
+      try {
+        [bolUrls, frontUrls, backUrls, packingUrls] = await Promise.all([
+          uploadSlot(files.bol),
+          uploadSlot(files.front),
+          uploadSlot(files.back),
+          uploadSlot(files.packing),
+        ]);
+      } catch {
+        return;
+      }
       const res = await saveReceiveAction({
         orderId: row.orderId,
         fnsku: row.fnsku,
@@ -183,23 +210,34 @@ export function ReceiveModal({
         sellableQty,
         unsellableQty,
         conditionReceived,
-        notes,
-        receivedBy,
+        notes: titleNote || null,
+        receivedBy: processedBy,
         warehouseComment: whComment,
         transferTo,
         whStatus,
-        wrongItemReceived: wrongItem,
-        wrongItemNotes: wrongItem ? wrongItemNotes : null,
+        wrongItemReceived: conditionReceived === "WRONG ITEM" || conditionReceived === "INCORRECT ITEM",
+        wrongItemNotes: null,
         raiseCase,
         caseReason: raiseCase ? caseReason : null,
         unitsClaimed: raiseCase ? unitsClaimed : 0,
         amountClaimed: raiseCase ? totalClaim : 0,
         caseNotes: raiseCase ? caseNotes : null,
+        caseId: raiseCase ? (caseId.trim() || null) : null,
+        caseUrl: raiseCase ? (caseUrl.trim() || null) : null,
         issueDate: receivedDate,
-        invoiceNumber: invoiceNumber || null,
-        reshippedQty,
+        invoiceNumber: lpnNumber || null,
+        reshippedQty: 0,
         itemTitle: itemTitle || null,
         binLocation: binLocation || null,
+        lpnNumber: lpnNumber || null,
+        bolAttachmentCount: bolUrls.length,
+        frontPhotoCount: frontUrls.length,
+        backPhotoCount: backUrls.length,
+        packingListCount: packingUrls.length,
+        bolAttachmentUrls: bolUrls,
+        frontPhotoUrls: frontUrls,
+        backPhotoUrls: backUrls,
+        packingListUrls: packingUrls,
       });
       if (!res.ok) {
         toast.error("Save failed", { description: res.error });
@@ -215,253 +253,252 @@ export function ReceiveModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
+      <DialogContent
+        className="max-h-[95vh] w-[95vw] overflow-y-auto sm:!max-w-3xl"
+        style={{ maxWidth: "min(95vw, 880px)" }}
+      >
         <DialogHeader>
-          <DialogTitle>📦 Mark as Received</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Package className="size-5" aria-hidden /> Mark as Received
+          </DialogTitle>
           <p className="text-xs text-muted-foreground">
             {row.orderType} · {row.orderStatus} · {row.disposition}
           </p>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs sm:grid-cols-4">
-          <Cell label="Order ID" mono>{row.orderId}</Cell>
-          <Cell label="FNSKU" mono>{row.fnsku}</Cell>
-          <Cell label="Expected" tone="blue">{expectedQty}</Cell>
-          <Cell label="Shipped" tone="violet">{row.actualShipped}</Cell>
-          <Cell label="MSKU" mono className="col-span-2 sm:col-span-4">{row.msku}</Cell>
+        {/* ─── Read-only: Order ID / FNSKU / MSKU ─── */}
+        <div className="grid grid-cols-1 gap-2 rounded-md border border-slate-300 bg-slate-100 p-3 sm:grid-cols-3">
+          <SummaryCell label="Order ID" value={row.orderId} mono />
+          <SummaryCell label="FNSKU" value={row.fnsku} mono />
+          <SummaryCell label="MSKU" value={row.msku} mono />
         </div>
 
-        <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-          Step 1 — Warehouse Receipt
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Tracking Number">
-            <Input
-              value={trackingNumber}
-              onChange={(e) => setTrackingNumber(e.target.value)}
-              placeholder="Auto-filled"
-            />
-          </Field>
-          <Field label="Carrier">
-            <Select value={carrier} onValueChange={setCarrier}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select carrier" />
-              </SelectTrigger>
-              <SelectContent>
-                {CARRIERS.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Received Date">
-            <Input
-              type="date"
-              value={receivedDate}
-              onChange={(e) => setReceivedDate(e.target.value)}
-            />
-          </Field>
-          <Field label="Received By">
-            <Input value={receivedBy} onChange={(e) => setReceivedBy(e.target.value)} placeholder="Your name" />
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Received Qty">
-            <Input
-              type="number"
-              min={0}
-              value={receivedQty}
-              onChange={(e) => onChangeReceived(Number.parseInt(e.target.value) || 0)}
-              className="text-center text-lg font-bold"
-            />
-          </Field>
-          <Field label="Sellable Qty">
-            <Input
-              type="number"
-              min={0}
-              value={sellableQty}
-              onChange={(e) => onChangeSellable(Number.parseInt(e.target.value) || 0)}
-              className="text-emerald-700"
-            />
-          </Field>
-          <Field label="Unsellable Qty">
-            <Input
-              type="number"
-              min={0}
-              value={unsellableQty}
-              onChange={(e) => onChangeUnsellable(Number.parseInt(e.target.value) || 0)}
-              className="text-red-700"
-            />
-          </Field>
-        </div>
-
-        {missing > 0 ? (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-            ⚠ <b>{missing}</b> units missing (Expected {expectedQty}, Received {receivedQty})
+        {/* ─── Read-only: Order Date / Tracking / Carrier / Shipped + BOL upload ─── */}
+        <div className="rounded-md border border-slate-300 bg-slate-100 p-3 space-y-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+            <SummaryCell label="Order Date" value={row.requestDate || "—"} mono />
+            <SummaryCell label="Tracking ID / BOL" value={trackingNumber} mono />
+            <SummaryCell label="Carrier" value={carrier} mono />
+            <SummaryCell label="Shipped Qty" value={String(row.actualShipped)} tone="violet" />
           </div>
-        ) : null}
-
-        <Field label="Book Condition">
-          <ConditionButtonGrid value={conditionReceived} onChange={onPickCondition} />
-        </Field>
-
-        <Field label="Notes / Damage Description">
-          <Textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={2}
-            placeholder="e.g. 2 books water damaged, spine broken…"
+          <DropZone
+            label="Tracking ID / BOL Proof"
+            icon={<FileText className="size-4" aria-hidden />}
+            files={files.bol}
+            onChange={(f) => setFiles((p) => ({ ...p, bol: f }))}
           />
-        </Field>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Warehouse Status">
-            <Select value={whStatus} onValueChange={setWhStatus}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {WH_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field label="Transfer To">
-            <Input value={transferTo} onChange={(e) => setTransferTo(e.target.value)} />
-          </Field>
         </div>
 
-        <Field label="Warehouse Comment">
-          <Textarea
-            value={whComment}
-            onChange={(e) => setWhComment(e.target.value)}
-            rows={2}
-          />
-        </Field>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Item Title">
-            <Input
-              value={itemTitle}
-              onChange={(e) => setItemTitle(e.target.value)}
-              placeholder="Optional"
-            />
-          </Field>
-          <Field label="Bin Location">
-            <Input
-              value={binLocation}
-              onChange={(e) => setBinLocation(e.target.value)}
-              placeholder="e.g. A-12-03"
-            />
-          </Field>
-          <Field label="Invoice Number">
-            <Input
-              value={invoiceNumber}
-              onChange={(e) => setInvoiceNumber(e.target.value)}
-              placeholder="Receipt invoice #"
-            />
-          </Field>
-          <Field label="Reshipped Qty">
-            <Input
-              type="number"
-              min={0}
-              value={reshippedQty}
-              onChange={(e) =>
-                setReshippedQty(Number.parseInt(e.target.value) || 0)
-              }
-            />
-          </Field>
-        </div>
-
-        <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-amber-700">
-            ⚠️ Wrong Item Received?
-          </span>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={wrongItem}
-              onChange={(e) => setWrongItem(e.target.checked)}
-              className="size-4 accent-amber-500"
-            />
-            Yes, wrong item received
-          </label>
-        </div>
-        {wrongItem ? (
-          <Field label="Wrong Item Description">
-            <Textarea
-              value={wrongItemNotes}
-              onChange={(e) => setWrongItemNotes(e.target.value)}
-              rows={2}
-              className="border-amber-300"
-              placeholder="e.g. Received ISBN 978-X instead of ISBN 978-Y…"
-            />
-          </Field>
-        ) : null}
-
-        <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-            Step 2 — Raise Reimbursement Case
-          </span>
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={raiseCase}
-              onChange={(e) => setRaiseCase(e.target.checked)}
-              className="size-4 accent-blue-500"
-            />
-            Raise Case
-          </label>
-        </div>
-
-        {raiseCase ? (
-          <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-            <Field label="Case Type">
-              <CaseTypeButtonGrid value={caseReason} onChange={setCaseReason} />
+        {/* ─── Editable: Received Date / Bin Location / LPN ─── */}
+        <Section step={1} title="Receipt Details">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label="Received Date">
+              <Input type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} />
             </Field>
-            <div className="grid grid-cols-3 gap-3">
-              <Field label="Units to Claim">
-                <Input
-                  type="number"
-                  min={0}
-                  value={unitsClaimed}
-                  onChange={(e) => setUnitsClaimed(Number.parseInt(e.target.value) || 0)}
-                  className="text-center font-bold"
-                />
-              </Field>
-              <Field label="Value/Unit ($)">
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={valuePerUnit}
-                  onChange={(e) => setValuePerUnit(Number.parseFloat(e.target.value) || 0)}
-                />
-              </Field>
-              <Field label="Total Claim ($)">
-                <Input readOnly value={totalClaim.toFixed(2)} className="bg-slate-100 text-emerald-700" />
-              </Field>
-            </div>
-            <Field label="Case Notes">
-              <Textarea
-                value={caseNotes}
-                onChange={(e) => setCaseNotes(e.target.value)}
-                rows={2}
-                placeholder="Evidence, notes…"
+            <Field label="Bin Location">
+              <IconInput
+                icon={<MapPin className="size-4" aria-hidden />}
+                value={binLocation}
+                onChange={setBinLocation}
+                placeholder="e.g. A-12-03"
+              />
+            </Field>
+            <Field label="LPN Number">
+              <IconInput
+                icon={<Hash className="size-4" aria-hidden />}
+                value={lpnNumber}
+                onChange={setLpnNumber}
+                placeholder="e.g. LPN-00123"
               />
             </Field>
           </div>
-        ) : null}
+        </Section>
+
+        {/* ─── Item Title / Condition / Received Qty ─── */}
+        <Section step={2} title="Item & Condition">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label="Item Title">
+              <Input
+                value={itemTitle}
+                onChange={(e) => setItemTitle(e.target.value)}
+                placeholder="Book title / product name"
+              />
+            </Field>
+            <Field label="Book Condition">
+              <Select
+                value={conditionReceived}
+                onValueChange={(v) => {
+                  const preset = CONDITION_PRESETS.find((p) => p.value === v);
+                  if (preset) onPickCondition(preset);
+                  else setConditionReceived(v);
+                }}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select condition" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONDITION_PRESETS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      <span className="mr-2">{p.icon}</span>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={`Received Qty (Expected ${expectedQty})`}>
+              <Input
+                type="number"
+                min={0}
+                value={receivedQty}
+                onChange={(e) => onChangeReceived(Number.parseInt(e.target.value) || 0)}
+                className="h-10 text-center text-lg font-bold"
+              />
+            </Field>
+          </div>
+          {missing > 0 ? (
+            <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              ⚠ <b>{missing}</b> units missing (Expected {expectedQty}, Received {receivedQty})
+            </div>
+          ) : null}
+        </Section>
+
+        {/* ─── Notes (2-col) ─── */}
+        <Section step={3} title="Notes & Comments">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Note for Book Title">
+              <Textarea
+                value={titleNote}
+                onChange={(e) => setTitleNote(e.target.value)}
+                rows={3}
+                placeholder="e.g. spine broken, ink stain…"
+              />
+            </Field>
+            <Field label="Warehouse Comment">
+              <Textarea
+                value={whComment}
+                onChange={(e) => setWhComment(e.target.value)}
+                rows={3}
+                placeholder="Internal warehouse note"
+              />
+            </Field>
+          </div>
+        </Section>
+
+        {/* ─── Attachments: Front / Back / Packing Slip ─── */}
+        <Section step={4} title="Photo Attachments">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <DropZone
+              label="Front of Book"
+              icon={<Camera className="size-4" aria-hidden />}
+              files={files.front}
+              onChange={(f) => setFiles((p) => ({ ...p, front: f }))}
+            />
+            <DropZone
+              label="Back of Book"
+              icon={<Camera className="size-4" aria-hidden />}
+              files={files.back}
+              onChange={(f) => setFiles((p) => ({ ...p, back: f }))}
+            />
+            <DropZone
+              label="Packing Slip"
+              icon={<FileText className="size-4" aria-hidden />}
+              files={files.packing}
+              onChange={(f) => setFiles((p) => ({ ...p, packing: f }))}
+            />
+          </div>
+        </Section>
+
+        <Section step={5} title="Processed By">
+          <Field label="Your Name / Processor Name (required)">
+            <Input
+              value={processedBy}
+              onChange={(e) => setProcessedBy(e.target.value)}
+              placeholder="Enter processor name"
+              className={cn(!processedBy.trim() && "border-red-300")}
+            />
+          </Field>
+        </Section>
+
+        <div className="rounded-md border border-slate-200">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              Raise Reimbursement Case (optional)
+            </span>
+            <ToggleSwitch checked={raiseCase} onChange={setRaiseCase} />
+          </div>
+          {raiseCase ? (
+            <div className="space-y-3 p-3">
+              <Field label="Case Type">
+                <CaseTypeButtonGrid value={caseReason} onChange={setCaseReason} />
+              </Field>
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="Units to Claim">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={unitsClaimed}
+                    onChange={(e) => setUnitsClaimed(Number.parseInt(e.target.value) || 0)}
+                    className="text-center font-bold"
+                  />
+                </Field>
+                <Field label="Value/Unit ($)">
+                  <Input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={valuePerUnit}
+                    onChange={(e) => setValuePerUnit(Number.parseFloat(e.target.value) || 0)}
+                  />
+                </Field>
+                <Field label="Total Claim ($)">
+                  <Input readOnly value={totalClaim.toFixed(2)} className="bg-slate-100 text-emerald-700" />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Case ID (if already raised)">
+                  <Input
+                    value={caseId}
+                    onChange={(e) => setCaseId(e.target.value)}
+                    placeholder="Amazon case number"
+                  />
+                </Field>
+                <Field label="Amazon Case URL">
+                  <Input
+                    type="url"
+                    value={caseUrl}
+                    onChange={(e) => setCaseUrl(e.target.value)}
+                    placeholder="https://sellercentral.amazon.com/cu/case-dashboard/view-case?caseID=..."
+                  />
+                </Field>
+              </div>
+              <Field label="Case Notes">
+                <Textarea
+                  value={caseNotes}
+                  onChange={(e) => setCaseNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Evidence, notes…"
+                />
+              </Field>
+            </div>
+          ) : null}
+        </div>
 
         <DialogFooter className="gap-2">
+          {raiseCase ? (
+            <span className="mr-auto text-[11px] text-muted-foreground">
+              A case will be auto-created on save
+            </span>
+          ) : null}
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={() => void onSubmit()} disabled={busy}>
-            💾 Save
+          <Button
+            onClick={() => void onSubmit()}
+            disabled={busy || !processedBy.trim()}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            Save Receipt
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -469,38 +506,210 @@ export function ReceiveModal({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      {children}
-    </div>
-  );
-}
-
-function Cell({
+function SummaryCell({
   label,
-  children,
+  value,
   mono,
   tone,
   className,
 }: {
   label: string;
-  children: React.ReactNode;
+  value: string;
   mono?: boolean;
   tone?: "blue" | "violet";
   className?: string;
 }) {
   const valueClass =
     tone === "blue"
-      ? "text-blue-700 text-lg font-bold"
+      ? "text-blue-700 font-bold text-lg"
       : tone === "violet"
-        ? "text-violet-700 font-bold"
-        : "text-foreground font-semibold";
+        ? "text-violet-700 font-bold text-lg"
+        : "text-foreground font-semibold text-xs";
   return (
-    <div className={className}>
+    <div className={cn("rounded-md border border-slate-300 bg-slate-200/80 px-2.5 py-2", className)}>
       <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`${mono ? "font-mono" : ""} ${valueClass} text-xs truncate`}>{children}</div>
+      <div className={cn(mono ? "font-mono" : "", valueClass, "truncate")} title={value}>
+        {value || "—"}
+      </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  children,
+}: {
+  step?: number;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2 border-t border-slate-200 pt-3 first:border-t-0 first:pt-0">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function IconInput({
+  icon,
+  value,
+  onChange,
+  placeholder,
+}: {
+  icon: React.ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+        {icon}
+      </span>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="pl-8"
+      />
+    </div>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+        checked ? "bg-blue-600" : "bg-slate-300",
+      )}
+    >
+      <span
+        className={cn(
+          "inline-block size-4 transform rounded-full bg-white shadow transition-transform",
+          checked ? "translate-x-4" : "translate-x-0.5",
+        )}
+      />
+    </button>
+  );
+}
+
+function DropZone({
+  label,
+  icon,
+  files,
+  onChange,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  files: File[];
+  onChange: (f: File[]) => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = React.useState(false);
+
+  function add(list: FileList | null) {
+    if (!list) return;
+    const arr = Array.from(list);
+    onChange([...files, ...arr]);
+  }
+
+  function remove(i: number) {
+    onChange(files.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        {icon} {label}
+      </Label>
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          add(e.dataTransfer.files);
+        }}
+        onClick={() => inputRef.current?.click()}
+        className={cn(
+          "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed px-3 py-4 text-center transition",
+          dragOver
+            ? "border-blue-400 bg-blue-50"
+            : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100",
+        )}
+      >
+        <Upload className="size-4 text-muted-foreground" aria-hidden />
+        <span className="text-[11px] text-muted-foreground">
+          Drag &amp; drop or click to upload
+        </span>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,.pdf"
+          multiple
+          className="hidden"
+          onChange={(e) => add(e.target.files)}
+        />
+      </div>
+      {files.length > 0 ? (
+        <div className="space-y-1">
+          {files.map((f, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between rounded border border-slate-200 bg-white px-2 py-1 text-[11px]"
+            >
+              <span className="truncate" title={f.name}>
+                {f.name}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  remove(i);
+                }}
+                className="ml-2 flex size-4 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                aria-label="Remove"
+              >
+                <X className="size-3" aria-hidden />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

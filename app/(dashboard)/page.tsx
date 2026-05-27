@@ -234,9 +234,9 @@ export default async function DashboardHomePage() {
             </p>
           ) : (
             <ul className="divide-y divide-border">
-              {kpis.topVarianceSkus.map((r) => (
+              {kpis.topVarianceSkus.map((r, i) => (
                 <li
-                  key={r.msku}
+                  key={`${r.msku}-${i}`}
                   className="flex items-center justify-between gap-3 py-2 text-xs"
                 >
                   <span className="min-w-0 flex-1 truncate font-mono">

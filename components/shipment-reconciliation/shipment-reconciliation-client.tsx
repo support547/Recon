@@ -18,7 +18,14 @@ import { ShipmentAggTable } from "@/components/shipment-reconciliation/shipment-
 import {
   SKU_TABLE_COLUMNS,
   SkuReconTable,
+  wrongLabelKey,
+  type WrongLabelOverlay,
 } from "@/components/shipment-reconciliation/sku-recon-table";
+import {
+  WrongLabelDialog,
+  type WrongLabelDialogContext,
+} from "@/components/shipment-reconciliation/wrong-label-dialog";
+import { listWrongLabelByShipment } from "@/actions/adjustments";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -118,12 +125,14 @@ type Props = {
   initialPayload: ShipmentReconciliationPayload;
   initialCases: CaseTrackerRow[];
   initialAdjustments: ManualAdjustmentRow[];
+  initialWrongLabelOverlay?: WrongLabelOverlay;
 };
 
 export function ShipmentReconciliationClient({
   initialPayload,
   initialCases,
   initialAdjustments,
+  initialWrongLabelOverlay,
 }: Props) {
   const [pageTab, setPageTab] = React.useState<"recon" | "ca">("recon");
   const [caSub, setCaSub] = React.useState<"cases" | "adj">("cases");
@@ -175,6 +184,44 @@ export function ShipmentReconciliationClient({
   const [adjEditing, setAdjEditing] = React.useState<ManualAdjustmentRow | null>(
     null,
   );
+
+  const [wrongLabelOverlay, setWrongLabelOverlay] = React.useState<WrongLabelOverlay>(
+    initialWrongLabelOverlay ?? {},
+  );
+  const [wrongLabelOpen, setWrongLabelOpen] = React.useState(false);
+  const [wrongLabelCtx, setWrongLabelCtx] =
+    React.useState<WrongLabelDialogContext | null>(null);
+
+  const reloadWrongLabel = React.useCallback(async () => {
+    const ids = Array.from(
+      new Set(rows.map((r) => r.shipment_id).filter(Boolean)),
+    );
+    if (ids.length === 0) {
+      setWrongLabelOverlay({});
+      return;
+    }
+    const list = await listWrongLabelByShipment(ids);
+    const next: WrongLabelOverlay = {};
+    for (const s of list) {
+      next[wrongLabelKey(s.shipmentId, s.msku)] = {
+        totalUnits: s.totalUnits,
+        openCount: s.openCount,
+      };
+    }
+    setWrongLabelOverlay(next);
+  }, [rows]);
+
+  function openFlagWrongLabel(row: ShipmentReconRow) {
+    setWrongLabelCtx({
+      shipmentId: row.shipment_id,
+      msku: row.msku,
+      expectedFnsku: row.fnsku || "",
+      asin: row.asin || null,
+      title: row.title || null,
+      store: null,
+    });
+    setWrongLabelOpen(true);
+  }
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -411,6 +458,8 @@ export function ShipmentReconciliationClient({
         "$ Claimed",
         "$ Approved",
         "Case ID",
+        "Case URL",
+        "Attachment URL",
         "Case Reason",
         "Status",
         "Raised Date",
@@ -429,6 +478,8 @@ export function ShipmentReconciliationClient({
         c.amountClaimed ?? "",
         c.amountApproved ?? "",
         c.referenceId ?? "",
+        c.caseUrl ?? "",
+        c.attachmentUrl ?? "",
         c.caseReason ?? "",
         displayCaseStatusLabel(c),
         formatIsoDate(c.raisedDate),
@@ -643,24 +694,6 @@ export function ShipmentReconciliationClient({
             </Select>
             <div className="hidden h-6 w-px bg-slate-200 sm:block" />
             <span className="text-[11px] font-semibold text-muted-foreground">
-              Shipment ID
-            </span>
-            <Select value={shipmentId} onValueChange={setShipmentId}>
-              <SelectTrigger className="h-8 min-w-[200px] max-w-[280px] text-xs">
-                <SelectValue placeholder="All Shipments" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Shipments</SelectItem>
-                {shipmentOptions.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {shipmentIcon(o.status)} {o.id}
-                    {o.dateKey ? ` · ${o.dateKey}` : ""} ({o.status})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="hidden h-6 w-px bg-slate-200 sm:block" />
-            <span className="text-[11px] font-semibold text-muted-foreground">
               Recon Status
             </span>
             <Select value={reconStatus} onValueChange={setReconStatus}>
@@ -775,12 +808,14 @@ export function ShipmentReconciliationClient({
                 <SkuReconTable
                   rows={filteredRows}
                   overlay={overlay}
+                  wrongLabelOverlay={wrongLabelOverlay}
                   onOpenDrawer={(r) => setDrawerRow(r)}
                   onOpenAction={(r, mode) => {
                     setActionRow(r);
                     setActionPre(mode);
                     setActionOpen(true);
                   }}
+                  onFlagWrongLabel={openFlagWrongLabel}
                   columnVisibility={columnVisibility}
                   onColumnVisibilityChange={setColumnVisibility}
                   colTotalFilter={colTotalFilter}
@@ -919,6 +954,9 @@ export function ShipmentReconciliationClient({
                       <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Case Reason
                       </TableHead>
+                      <TableHead className="h-11 px-3 text-center text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
+                        Attachment
+                      </TableHead>
                       <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
                         Status
                       </TableHead>
@@ -939,13 +977,13 @@ export function ShipmentReconciliationClient({
                   <TableBody>
                     {caLoading ? (
                       <TableRow>
-                        <TableCell colSpan={17} className="py-12 text-center">
+                        <TableCell colSpan={18} className="py-12 text-center">
                           <Skeleton className="mx-auto h-8 w-48" />
                         </TableCell>
                       </TableRow>
                     ) : !cases.length ? (
                       <TableRow>
-                        <TableCell colSpan={17} className="py-16 text-center">
+                        <TableCell colSpan={18} className="py-16 text-center">
                           <div className="text-muted-foreground">
                             <div className="mb-2 text-3xl">📋</div>
                             <div className="text-sm font-semibold text-foreground">
@@ -1012,10 +1050,50 @@ export function ShipmentReconciliationClient({
                                 : "—"}
                             </TableCell>
                             <TableCell className="font-mono text-[11px]">
-                              {c.referenceId ?? "—"}
+                              {c.referenceId ? (
+                                c.caseUrl ? (
+                                  <a
+                                    href={c.caseUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 underline hover:text-blue-800"
+                                    title={c.caseUrl}
+                                  >
+                                    {c.referenceId}
+                                  </a>
+                                ) : (
+                                  c.referenceId
+                                )
+                              ) : c.caseUrl ? (
+                                <a
+                                  href={c.caseUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 underline hover:text-blue-800"
+                                >
+                                  case ↗
+                                </a>
+                              ) : (
+                                "—"
+                              )}
                             </TableCell>
                             <TableCell className="max-w-[140px] truncate text-[11px]">
                               {c.caseReason ?? "—"}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {c.attachmentUrl ? (
+                                <a
+                                  href={c.attachmentUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="View PDF attachment"
+                                  className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100"
+                                >
+                                  📎 PDF
+                                </a>
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                             <TableCell>
                               <Badge
@@ -1379,6 +1457,28 @@ export function ShipmentReconciliationClient({
           });
           setAdjs(a);
           await reloadRecon();
+        }}
+      />
+
+      <WrongLabelDialog
+        open={wrongLabelOpen}
+        onOpenChange={setWrongLabelOpen}
+        context={wrongLabelCtx}
+        onSaved={async () => {
+          await Promise.all([
+            reloadRecon(),
+            reloadWrongLabel(),
+            listShipmentCaCases({
+              reconLegacy: cfType !== CA_ALL ? cfType : undefined,
+              statusLegacy: cfStatus !== CA_ALL ? cfStatus : undefined,
+              search: debouncedCfSearch || undefined,
+            }).then(setCases),
+            listShipmentCaAdjustments({
+              reconLegacy: afType !== CA_ALL ? afType : undefined,
+              adjLegacy: afAdj !== CA_ALL ? afAdj : undefined,
+              search: debouncedAfSearch || undefined,
+            }).then(setAdjs),
+          ]);
         }}
       />
       </div>

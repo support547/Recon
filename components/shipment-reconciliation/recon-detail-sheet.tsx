@@ -172,6 +172,13 @@ export function ReconDetailSheet({
               {row.shipment_status}
             </span>
           </div>
+          {/* TODO: make case IDs clickable links once caseUrl is added to the overlay */}
+          <div className="flex justify-between gap-2 border-b border-slate-100 py-2">
+            <span className="font-medium text-muted-foreground">Case IDs</span>
+            <span className="max-w-[260px] break-all text-right font-mono text-[11px] font-semibold">
+              {ca.case_ids.length > 0 ? ca.case_ids.join(", ") : "—"}
+            </span>
+          </div>
 
           <div className="mb-1 mt-4 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
             Reconciliation Flow

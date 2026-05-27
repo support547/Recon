@@ -23,17 +23,17 @@ function n(v: number | null | undefined): number {
   return Number.isFinite(v) ? Number(v) : 0;
 }
 
-const REIMB_REASON_FILTER = [
-  "lost_warehouse",
-  "damaged_outbound",
-  "lost_outbound",
+const REIMB_REASON_FILTER = new Set([
   "damaged_warehouse",
-  "reimbursement_reversal",
-];
+  "lost_warehouse",
+  "customerserviceissue",
+  "returnadjustment",
+  "generaladjustment",
+]);
 
 function matchesReimbFilter(reason: string | null | undefined): boolean {
-  const r = (reason ?? "").toLowerCase();
-  return REIMB_REASON_FILTER.some((kw) => r.includes(kw));
+  const r = (reason ?? "").trim().toLowerCase();
+  return REIMB_REASON_FILTER.has(r);
 }
 
 // ─────────────────────────────────────────────────────────
@@ -316,8 +316,11 @@ export function aggregateReimbursements(rows: ReimbRow[]): Map<string, ReimbAgg>
       bucket = { qty: 0, amount: 0, reason, orderId, caseId };
       outer.set(subKey, bucket);
     }
-    bucket.qty += r.quantity || 0;
-    bucket.amount += r.amount ? Number(r.amount.toString()) : 0;
+    const isReversal = (r.reason ?? "").toLowerCase().includes("reversal");
+    const qty = r.quantity || 0;
+    const amt = r.amount ? Number(r.amount.toString()) : 0;
+    bucket.qty += isReversal ? -qty : qty;
+    bucket.amount += isReversal ? -amt : amt;
   }
   const out = new Map<string, ReimbAgg>();
   for (const [fnsku, sub] of groups) {

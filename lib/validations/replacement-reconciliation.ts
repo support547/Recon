@@ -25,6 +25,7 @@ export const raiseReplaceCaseSchema = z.object({
   msku: z.string().min(1),
   asin: optStr,
   caseId: optStr,
+  caseUrl: optStr,
   caseReason: z.string().min(1),
   unitsClaimed: intLike,
   amountClaimed: numLike,

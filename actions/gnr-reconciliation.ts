@@ -353,8 +353,7 @@ export async function saveGnrReconRemark(
   }
   const um = (usedMsku ?? "").trim();
   const uf = (usedFnsku ?? "").trim();
-  if (!um || !uf)
-    return { ok: false, error: "used_msku and used_fnsku required" };
+  if (!um) return { ok: false, error: "used_msku required" };
   const value = remarks != null ? String(remarks).trim() || null : null;
   try {
     await prisma.gnrReconRemark.upsert({

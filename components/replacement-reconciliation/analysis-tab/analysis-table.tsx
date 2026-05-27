@@ -30,13 +30,25 @@ export function AnalysisTable({
   onRaiseCase,
   onAdjust,
   visibility,
+  view = "msku",
+  reasonsByAsin,
+  mskuByAsin,
 }: {
   rows: ReplacementReconRow[];
   onRaiseCase: (row: ReplacementReconRow) => void;
   onAdjust: (row: ReplacementReconRow) => void;
   visibility?: Record<string, boolean>;
+  view?: "msku" | "asin";
+  /** ASIN → unique reason list. Used only in `view="asin"` for qty tooltip. */
+  reasonsByAsin?: Map<string, string[]>;
+  /** ASIN → list of {msku, qty}. Used only in `view="asin"` for ASIN cell tooltip. */
+  mskuByAsin?: Map<string, { msku: string; qty: number }[]>;
 }) {
-  const show = (id: string) => visibility?.[id] !== false;
+  const HIDDEN_IN_ASIN = new Set(["msku", "repl_order", "orig_order", "reason"]);
+  const show = (id: string) => {
+    if (view === "asin" && HIDDEN_IN_ASIN.has(id)) return false;
+    return visibility?.[id] !== false;
+  };
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(15);
   React.useEffect(() => { setPage(1); }, [rows]);
@@ -53,7 +65,7 @@ export function AnalysisTable({
   return (
     <div className="space-y-3">
     <div className="rounded-md border border-slate-200 bg-white">
-      <table className="w-full caption-bottom text-sm">
+      <table className="w-full caption-bottom text-sm [&_td]:px-3 [&_td]:py-2.5 [&_td]:align-middle">
         <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
             {REPLACEMENT_ANALYSIS_COLUMNS.filter((c) => show(c.id)).map((c) => (
@@ -80,11 +92,76 @@ export function AnalysisTable({
             return (
               <TableRow key={r.id} className={cn("hover:bg-slate-50", rowBg)}>
                 {show("shipment_date") && <TableCell className="font-mono text-[10px]">{r.shipmentDate || "—"}</TableCell>}
+                {show("days") && (
+                  <TableCell className="text-right font-mono text-[11px]">
+                    {r.daysSinceShipment === null ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <span
+                        className={cn(
+                          "font-bold",
+                          r.daysSinceShipment >= 60
+                            ? "text-red-600"
+                            : r.daysSinceShipment >= 45
+                              ? "text-amber-700"
+                              : "text-slate-600",
+                        )}
+                      >
+                        {r.daysSinceShipment}d
+                      </span>
+                    )}
+                  </TableCell>
+                )}
                 {show("msku") && <TableCell className="font-mono text-[11px] font-semibold">{r.msku}</TableCell>}
-                {show("asin") && <TableCell className="font-mono text-[10px]">{r.asin}</TableCell>}
+                {show("asin") && (
+                  <TableCell className="font-mono text-[10px]">
+                    {view === "asin" ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="cursor-help underline decoration-dotted">
+                            {r.asin}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-sm text-[11px]">
+                          <div className="space-y-1">
+                            <div><b>MSKUs ({mskuByAsin?.get(r.asin)?.length ?? 0}):</b></div>
+                            <div className="space-y-0.5">
+                              {(mskuByAsin?.get(r.asin) ?? []).map((x) => (
+                                <div key={x.msku} className="flex justify-between gap-3 font-mono text-[10px]">
+                                  <span>{x.msku}</span>
+                                  <b>{x.qty}</b>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      r.asin
+                    )}
+                  </TableCell>
+                )}
                 {show("qty") && (
                   <TableCell className="text-right font-mono text-xs font-bold text-blue-700">
-                    {r.quantity}
+                    {view === "asin" ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="cursor-help underline decoration-dotted">
+                            {r.quantity}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="max-w-xs text-[11px]">
+                          <div className="space-y-1">
+                            <div><b>Reasons:</b></div>
+                            <div>
+                              {(reasonsByAsin?.get(r.asin) ?? []).filter(Boolean).join(", ") || "—"}
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      r.quantity
+                    )}
                   </TableCell>
                 )}
                 {show("repl_order") && (
@@ -211,6 +288,7 @@ export function AnalysisTable({
 
 export const REPLACEMENT_ANALYSIS_COLUMNS = [
   { id: "shipment_date", label: "Shipment Date", align: "left" as const },
+  { id: "days", label: "Days", align: "right" as const },
   { id: "msku", label: "MSKU", align: "left" as const },
   { id: "asin", label: "ASIN", align: "left" as const },
   { id: "qty", label: "Repl. Qty", align: "right" as const },

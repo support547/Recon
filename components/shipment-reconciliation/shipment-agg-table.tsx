@@ -21,6 +21,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { ShipmentAggregateRow } from "@/lib/shipment-reconciliation-logic";
+import { cn } from "@/lib/utils";
+
+declare module "@tanstack/react-table" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends unknown, TValue> {
+    align?: "left" | "right" | "center";
+  }
+}
 
 function shipmentDotClass(st: string) {
   if (st === "Closed") return "bg-slate-500";
@@ -49,6 +57,7 @@ export function ShipmentAggTable({
         id: "sid",
         accessorKey: "shipment_id",
         header: "Shipment ID",
+        meta: { align: "left" },
         cell: ({ row }) => {
           const st = row.original.shipment_status;
           return (
@@ -64,27 +73,63 @@ export function ShipmentAggTable({
       {
         id: "ship_date",
         header: "Ship Date",
+        meta: { align: "left" },
         accessorFn: (r) => r.ship_date,
         cell: ({ row }) => {
           const r0 = row.original;
-          const days = r0.days_open !== "—" ? Number(r0.days_open) : null;
-          const dayColor =
-            days != null && days > 60
-              ? "text-red-600"
-              : days != null && days > 30
-                ? "text-amber-500"
-                : "text-slate-500";
           return (
             <div className="font-mono text-[11px] text-muted-foreground">
               <div>{r0.ship_date}</div>
               {r0.last_updated && r0.last_updated !== "—" ? (
                 <div className="mt-0.5 text-[10px]">{r0.last_updated}</div>
               ) : null}
-              {days != null ? (
-                <div className={`mt-0.5 text-[10px] font-semibold ${dayColor}`}>
-                  {days}d
-                </div>
-              ) : null}
+            </div>
+          );
+        },
+      },
+      {
+        id: "days",
+        header: "Days",
+        meta: { align: "right" },
+        accessorFn: (r) => {
+          if (r.days_open !== "—") return Number(r.days_open);
+          if (r.ship_date !== "—" && r.last_updated && r.last_updated !== "—") {
+            const diff =
+              new Date(r.last_updated).getTime() -
+              new Date(r.ship_date).getTime();
+            if (!Number.isNaN(diff)) return Math.round(diff / 86400000);
+          }
+          return null;
+        },
+        cell: ({ row }) => {
+          const r0 = row.original;
+          let days: number | null =
+            r0.days_open !== "—" ? Number(r0.days_open) : null;
+          if (
+            days == null &&
+            r0.ship_date !== "—" &&
+            r0.last_updated &&
+            r0.last_updated !== "—"
+          ) {
+            const diff =
+              new Date(r0.last_updated).getTime() -
+              new Date(r0.ship_date).getTime();
+            if (!Number.isNaN(diff)) days = Math.round(diff / 86400000);
+          }
+          if (days == null) {
+            return (
+              <div className="text-[11px] text-muted-foreground">—</div>
+            );
+          }
+          const dayColor =
+            days > 60
+              ? "text-red-600"
+              : days > 30
+                ? "text-amber-600"
+                : "text-slate-700";
+          return (
+            <div className={`font-mono text-xs font-semibold ${dayColor}`}>
+              {days}d
             </div>
           );
         },
@@ -92,6 +137,7 @@ export function ShipmentAggTable({
       {
         accessorKey: "shipment_status",
         header: "Status",
+        meta: { align: "left" },
         cell: ({ row }) => (
           <span
             className={`text-[11px] font-semibold ${shipmentStatusColor(row.original.shipment_status)}`}
@@ -102,26 +148,29 @@ export function ShipmentAggTable({
       },
       {
         accessorKey: "skus",
-        header: () => <div className="text-right">SKUs</div>,
+        header: "SKUs",
+        meta: { align: "right" },
         cell: ({ getValue }) => (
-          <div className="text-right font-mono text-xs">{Number(getValue())}</div>
+          <div className="font-mono text-xs">{Number(getValue())}</div>
         ),
       },
       {
         accessorKey: "shipped",
-        header: () => <div className="text-right">Shipped</div>,
+        header: "Shipped",
+        meta: { align: "right" },
         cell: ({ getValue }) => (
-          <div className="text-right font-mono text-xs">{Number(getValue())}</div>
+          <div className="font-mono text-xs">{Number(getValue())}</div>
         ),
       },
       {
         id: "received",
         accessorFn: (r) => r.received,
-        header: () => <div className="text-right">Received</div>,
+        header: "Received",
+        meta: { align: "right" },
         cell: ({ row }) => {
           const r0 = row.original;
           return (
-            <div className="text-right font-mono text-xs">
+            <div className="font-mono text-xs">
               {r0.received}
               <ReceiveProgress shipped={r0.shipped} received={r0.received} />
             </div>
@@ -130,40 +179,43 @@ export function ShipmentAggTable({
       },
       {
         accessorKey: "shortage",
-        header: () => <div className="text-right">Shortage</div>,
+        header: "Shortage",
+        meta: { align: "right" },
         cell: ({ row }) =>
           row.original.shortage > 0 ? (
-            <div className="text-right font-mono text-xs font-bold text-red-600">
+            <div className="font-mono text-xs font-bold text-red-600">
               -{row.original.shortage}
             </div>
           ) : (
-            <div className="text-right font-mono text-xs font-bold text-emerald-600">
+            <div className="font-mono text-xs font-bold text-emerald-600">
               0
             </div>
           ),
       },
       {
         accessorKey: "reimb",
-        header: () => <div className="text-right">Reimbursed</div>,
+        header: "Reimbursed",
+        meta: { align: "right" },
         cell: ({ row }) =>
           row.original.reimb > 0 ? (
-            <div className="text-right font-mono text-xs font-bold text-blue-600">
+            <div className="font-mono text-xs font-bold text-blue-600">
               +{row.original.reimb}
             </div>
           ) : (
-            <span className="font-mono text-[11px] text-muted-foreground">—</span>
+            <div className="font-mono text-[11px] text-muted-foreground">—</div>
           ),
       },
       {
         accessorKey: "pending",
-        header: () => <div className="text-right">Pending</div>,
+        header: "Pending",
+        meta: { align: "right" },
         cell: ({ row }) =>
           row.original.pending > 0 ? (
-            <div className="text-right font-mono text-xs font-bold text-red-600">
+            <div className="font-mono text-xs font-bold text-red-600">
               -{row.original.pending}
             </div>
           ) : (
-            <div className="text-right font-mono text-xs font-bold text-emerald-600">
+            <div className="font-mono text-xs font-bold text-emerald-600">
               0
             </div>
           ),
@@ -171,6 +223,7 @@ export function ShipmentAggTable({
       {
         id: "summary",
         header: "Summary",
+        meta: { align: "left" },
         cell: ({ row }) => {
           const g = row.original;
           return (
@@ -221,6 +274,33 @@ export function ShipmentAggTable({
   const cur = table.getState().pagination.pageIndex + 1;
   const { pageIndex, pageSize } = table.getState().pagination;
 
+  const totals = React.useMemo(() => {
+    let skus = 0;
+    let shipped = 0;
+    let received = 0;
+    let shortage = 0;
+    let reimb = 0;
+    let pending = 0;
+    for (const r of rows) {
+      skus += r.skus || 0;
+      shipped += r.shipped || 0;
+      received += r.received || 0;
+      shortage += r.shortage || 0;
+      reimb += r.reimb || 0;
+      pending += r.pending || 0;
+    }
+    return { skus, shipped, received, shortage, reimb, pending };
+  }, [rows]);
+
+  const totalsByCol: Record<string, number> = {
+    skus: totals.skus,
+    shipped: totals.shipped,
+    received: totals.received,
+    shortage: totals.shortage,
+    reimb: totals.reimb,
+    pending: totals.pending,
+  };
+
   return (
     <div className="space-y-3">
       <div className="rounded-md border border-slate-200 bg-white">
@@ -228,16 +308,46 @@ export function ShipmentAggTable({
           <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id} className="border-b-2 border-slate-300 bg-slate-100 hover:bg-slate-100">
-                {hg.headers.map((h) => (
-                  <TableHead
-                    key={h.id}
-                    className="h-11 whitespace-nowrap px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700"
-                  >
-                    {h.isPlaceholder
-                      ? null
-                      : flexRender(h.column.columnDef.header, h.getContext())}
-                  </TableHead>
-                ))}
+                {hg.headers.map((h) => {
+                  const total = totalsByCol[h.id];
+                  const align =
+                    (h.column.columnDef.meta as { align?: string } | undefined)
+                      ?.align ?? "left";
+                  const alignText =
+                    align === "right"
+                      ? "text-right"
+                      : align === "center"
+                        ? "text-center"
+                        : "text-left";
+                  const alignItems =
+                    align === "right"
+                      ? "items-end"
+                      : align === "center"
+                        ? "items-center"
+                        : "items-start";
+                  return (
+                    <TableHead
+                      key={h.id}
+                      className={cn(
+                        "h-11 whitespace-nowrap px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700",
+                        alignText,
+                      )}
+                    >
+                      <div className={cn("flex flex-col gap-0.5", alignItems)}>
+                        <span>
+                          {h.isPlaceholder
+                            ? null
+                            : flexRender(h.column.columnDef.header, h.getContext())}
+                        </span>
+                        {total != null ? (
+                          <span className="font-mono text-[11px] font-bold normal-case tracking-normal text-blue-600">
+                            {total.toLocaleString()}
+                          </span>
+                        ) : null}
+                      </div>
+                    </TableHead>
+                  );
+                })}
               </TableRow>
             ))}
           </TableHeader>
@@ -248,11 +358,26 @@ export function ShipmentAggTable({
                 className="cursor-pointer border-slate-100 hover:bg-slate-50/60"
                 onClick={() => onDrillDown(row.original.shipment_id)}
               >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id} className="align-middle text-xs">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
+                {row.getVisibleCells().map((cell) => {
+                  const align =
+                    (cell.column.columnDef.meta as
+                      | { align?: string }
+                      | undefined)?.align ?? "left";
+                  const alignText =
+                    align === "right"
+                      ? "text-right"
+                      : align === "center"
+                        ? "text-center"
+                        : "text-left";
+                  return (
+                    <TableCell
+                      key={cell.id}
+                      className={cn("px-3 align-middle text-xs", alignText)}
+                    >
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  );
+                })}
               </TableRow>
             ))}
           </TableBody>

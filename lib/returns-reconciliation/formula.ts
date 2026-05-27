@@ -119,6 +119,9 @@ export function computeReturnRow(input: {
   const caseMeta = caseMap.get(agg.msku) ?? EMPTY_CASE;
   const adj = adjMap.get(orderFnskuKey(agg.orderId, agg.fnsku)) ?? EMPTY_ADJ;
 
+  // BUG-11: Math.max assumes direct reimbursement and case approval refer
+  // to the same money (mutually exclusive). If they are independent events,
+  // switch to (reimb.qty + caseMeta.approvedQty). Confirm with team.
   const dbOrCaseQty = Math.max(reimb.qty, caseMeta.approvedQty);
   const effReimbQty = dbOrCaseQty + adj.qty;
   const effReimbAmount = Math.max(reimb.amount, caseMeta.approvedAmount);

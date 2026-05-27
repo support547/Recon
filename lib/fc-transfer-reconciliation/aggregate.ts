@@ -200,15 +200,17 @@ export function aggregateFcAnalysis(
     const startMs = new Date(imbalanceStart + "T00:00:00Z").getTime();
     const daysPending = Math.max(0, Math.floor((todayMs - startMs) / (1000 * 60 * 60 * 24)));
 
-    let actionStatus: FcActionStatus;
-    if (netQty > 0) actionStatus = "excess";
-    else if (daysPending > 60) actionStatus = "take-action";
-    else actionStatus = "waiting";
-
     const cm = caseMap.get(a.msku);
     const am = adjMap.get(a.msku);
     const caseApprovedQty = cm?.approvedQty ?? 0;
     const adjQty = am?.qty ?? 0;
+    const effectiveReimbQty = caseApprovedQty + adjQty;
+    const reimbursed = netQty < 0 && effectiveReimbQty >= Math.abs(netQty);
+
+    let actionStatus: FcActionStatus;
+    if (netQty > 0) actionStatus = "excess";
+    else if (daysPending > 60) actionStatus = "take-action";
+    else actionStatus = "waiting";
 
     out.push({
       msku: a.msku,
@@ -226,11 +228,13 @@ export function aggregateFcAnalysis(
       actionStatus,
       fcs: joinSet(fcSet),
       caseCount: cm?.count ?? 0,
+      caseOpenCount: cm?.openCount ?? 0,
       caseStatusTop: cm?.topStatus ?? "No Case",
       caseApprovedQty,
       caseApprovedAmount: cm?.approvedAmount ?? 0,
       adjQty,
-      effectiveReimbQty: caseApprovedQty + adjQty,
+      effectiveReimbQty,
+      reimbursed,
     });
   }
 
@@ -264,9 +268,15 @@ export function fcStats(summary: FcSummaryRow[], analysis: FcAnalysisRow[]): FcR
   let waitingQty = 0;
   let excessCount = 0;
   let excessQty = 0;
+  let casesRaisedCount = 0;
+  let casesRaisedQty = 0;
+  let reimbursedCount = 0;
+  let reimbursedQty = 0;
   for (const a of analysis) {
     const abs = Math.abs(a.netQty);
-    if (a.actionStatus === "take-action") {
+    if (a.reimbursed) {
+      // already settled — excluded from take-action / waiting / unresolved buckets
+    } else if (a.actionStatus === "take-action") {
       takeActionCount++;
       takeActionQty += abs;
     } else if (a.actionStatus === "waiting") {
@@ -275,6 +285,14 @@ export function fcStats(summary: FcSummaryRow[], analysis: FcAnalysisRow[]): FcR
     } else {
       excessCount++;
       excessQty += a.netQty; // positive
+    }
+    if (a.caseOpenCount > 0) {
+      casesRaisedCount++;
+      casesRaisedQty += a.caseOpenCount;
+    }
+    if (a.reimbursed) {
+      reimbursedCount++;
+      reimbursedQty += a.effectiveReimbQty;
     }
   }
 
@@ -294,5 +312,9 @@ export function fcStats(summary: FcSummaryRow[], analysis: FcAnalysisRow[]): FcR
     excessQty,
     totalUnresolved,
     totalUnresolvedQty,
+    casesRaisedCount,
+    casesRaisedQty,
+    reimbursedCount,
+    reimbursedQty,
   };
 }

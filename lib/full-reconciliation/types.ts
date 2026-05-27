@@ -111,6 +111,7 @@ export type FullReconRow = {
 
 export type FullReconStats = {
   totalFnskus: number;
+  totalMskus: number;
   totalShipped: number;
   totalReceived: number;
   totalShortage: number;

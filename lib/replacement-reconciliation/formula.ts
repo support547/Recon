@@ -25,12 +25,25 @@ function fmtDate(d: Date | null | undefined): string {
   try { return new Date(d).toISOString().split("T")[0]; } catch { return ""; }
 }
 
+/** Wait window before flagging a replacement for action — Amazon allows
+ *  customers to return for ~60 days, so shipments newer than this are still
+ *  "in flight". */
+export const REPLACEMENT_WAIT_DAYS = 60;
+
+export function daysSince(d: Date | null | undefined): number | null {
+  if (!d) return null;
+  const t = new Date(d).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
 export function computeStatus(input: {
   qty: number;
   returnQty: number;
   effectiveReimbQty: number;
+  shipmentDate?: Date | null;
 }): ReplacementStatusKey {
-  const { qty, returnQty, effectiveReimbQty } = input;
+  const { qty, returnQty, effectiveReimbQty, shipmentDate } = input;
   if (qty <= 0) return "RETURNED";
   const covered = returnQty + effectiveReimbQty;
   if (covered >= qty) {
@@ -40,6 +53,8 @@ export function computeStatus(input: {
     return "RESOLVED";
   }
   if (covered > 0) return "PARTIAL";
+  const age = daysSince(shipmentDate ?? null);
+  if (age !== null && age < REPLACEMENT_WAIT_DAYS) return "WAITING_RETURN";
   return "TAKE_ACTION";
 }
 
@@ -115,11 +130,13 @@ export function computeReplacementRow(input: {
     qty: r.quantity,
     returnQty: returnMeta.qty,
     effectiveReimbQty,
+    shipmentDate: r.shipmentDate,
   });
 
   return {
     id: r.id,
     shipmentDate: fmtDate(r.shipmentDate),
+    daysSinceShipment: daysSince(r.shipmentDate),
     msku: msku || "—",
     asin: trimStr(r.asin) || "—",
     quantity: r.quantity,

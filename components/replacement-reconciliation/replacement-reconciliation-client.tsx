@@ -42,7 +42,7 @@ import type {
 
 const ALL = "__all__";
 
-type CardKey = "all" | "returns" | "reimb" | "takeAction";
+type CardKey = "all" | "returns" | "reimb" | "takeAction" | "waiting";
 
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
@@ -59,6 +59,7 @@ export function ReplacementReconciliationClient({
   initialPayload: ReplacementReconciliationPayload;
 }) {
   const [tab, setTab] = React.useState<"analysis" | "log">("analysis");
+  const [analysisView, setAnalysisView] = React.useState<"msku" | "asin">("msku");
   const [analysisVis, setAnalysisVis] = useColumnVisibility(
     "replacementRecon.analysisCols",
     REPLACEMENT_ANALYSIS_COLUMNS,
@@ -120,11 +121,84 @@ export function ReplacementReconciliationClient({
           return r.effectiveReimbQty > 0 || r.effectiveReimbAmount > 0;
         case "takeAction":
           return r.status === "TAKE_ACTION" || r.status === "PARTIAL";
+        case "waiting":
+          return r.status === "WAITING_RETURN";
         default:
           return true;
       }
     });
   }, [rows, filterCard]);
+
+  const reasonsByAsin = React.useMemo(() => {
+    const m = new Map<string, string[]>();
+    if (analysisView !== "asin") return m;
+    for (const r of filteredRows) {
+      const k = r.asin || "—";
+      const list = m.get(k) ?? [];
+      const reason = (r.replacementReasonCode || "").trim();
+      if (reason && reason !== "—" && !list.includes(reason)) list.push(reason);
+      m.set(k, list);
+    }
+    return m;
+  }, [filteredRows, analysisView]);
+
+  const mskuByAsin = React.useMemo(() => {
+    const m = new Map<string, { msku: string; qty: number }[]>();
+    if (analysisView !== "asin") return m;
+    for (const r of filteredRows) {
+      const k = r.asin || "—";
+      const list = m.get(k) ?? [];
+      const existing = list.find((x) => x.msku === r.msku);
+      if (existing) existing.qty += r.quantity;
+      else list.push({ msku: r.msku, qty: r.quantity });
+      m.set(k, list);
+    }
+    return m;
+  }, [filteredRows, analysisView]);
+
+  // ASIN view aggregates the MSKU rows by ASIN. Worst status wins.
+  const asinRows = React.useMemo(() => {
+    if (analysisView !== "asin") return filteredRows;
+    const STATUS_RANK: Record<string, number> = {
+      TAKE_ACTION: 5,
+      PARTIAL: 4,
+      WAITING_RETURN: 3,
+      REIMBURSED: 2,
+      RETURNED: 1,
+      RESOLVED: 0,
+    };
+    const groups = new Map<string, ReplacementReconRow>();
+    for (const r of filteredRows) {
+      const k = r.asin || "—";
+      const prev = groups.get(k);
+      if (!prev) {
+        groups.set(k, { ...r });
+        continue;
+      }
+      prev.quantity += r.quantity;
+      prev.returnQty += r.returnQty;
+      prev.reimbQty += r.reimbQty;
+      prev.reimbAmount += r.reimbAmount;
+      prev.caseCount += r.caseCount;
+      prev.caseApprovedQty += r.caseApprovedQty;
+      prev.caseApprovedAmount += r.caseApprovedAmount;
+      prev.adjQty += r.adjQty;
+      prev.effectiveReimbQty += r.effectiveReimbQty;
+      prev.effectiveReimbAmount += r.effectiveReimbAmount;
+      const prevRank = STATUS_RANK[prev.status] ?? 0;
+      const curRank = STATUS_RANK[r.status] ?? 0;
+      if (curRank > prevRank) prev.status = r.status;
+      // Days: keep oldest (max days).
+      if (
+        r.daysSinceShipment !== null &&
+        (prev.daysSinceShipment === null || r.daysSinceShipment > prev.daysSinceShipment)
+      ) {
+        prev.daysSinceShipment = r.daysSinceShipment;
+        prev.shipmentDate = r.shipmentDate;
+      }
+    }
+    return Array.from(groups.values());
+  }, [filteredRows, analysisView]);
 
   function exportCsv() {
     const headers = [
@@ -163,6 +237,34 @@ export function ReplacementReconciliationClient({
       <div className="flex flex-col gap-4 p-4 md:p-6">
         <HeaderActions>
           {tab === "analysis" ? (
+            <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-semibold transition",
+                  analysisView === "msku"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setAnalysisView("msku")}
+              >
+                By MSKU
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-semibold transition",
+                  analysisView === "asin"
+                    ? "bg-white text-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+                onClick={() => setAnalysisView("asin")}
+              >
+                By ASIN
+              </button>
+            </div>
+          ) : null}
+          {tab === "analysis" ? (
             <ColumnsMenu
               columns={REPLACEMENT_ANALYSIS_COLUMNS}
               visibility={analysisVis}
@@ -197,7 +299,7 @@ export function ReplacementReconciliationClient({
               }}
             />
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
               <KpiCard
                 label="All Replacements"
                 border="blue"
@@ -226,6 +328,15 @@ export function ReplacementReconciliationClient({
                 onClick={() => setFilterCard("reimb")}
               />
               <KpiCard
+                label="Waiting for Return"
+                border="slate"
+                primary={stats.waitingReturnSkus}
+                secondary={stats.waitingReturnQty}
+                secLabel="Units"
+                active={filterCard === "waiting"}
+                onClick={() => setFilterCard("waiting")}
+              />
+              <KpiCard
                 label="Take Action"
                 border="red"
                 primary={stats.takeActionSkus}
@@ -241,7 +352,10 @@ export function ReplacementReconciliationClient({
             ) : (
               <AnalysisTable
                 visibility={analysisVis}
-                rows={filteredRows}
+                rows={asinRows}
+                view={analysisView}
+                reasonsByAsin={reasonsByAsin}
+                mskuByAsin={mskuByAsin}
                 onRaiseCase={(r) => { setCaseRow(r); setCaseOpen(true); }}
                 onAdjust={(r) => { setAdjRow(r); setAdjOpen(true); }}
               />
@@ -277,6 +391,7 @@ export function ReplacementReconciliationClient({
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "TAKE_ACTION", label: "⚠ Take Action" },
+  { value: "WAITING_RETURN", label: "⏳ Waiting for Return" },
   { value: "PARTIAL", label: "◐ Partial" },
   { value: "RETURNED", label: "↩ Returned" },
   { value: "REIMBURSED", label: "💰 Reimbursed" },

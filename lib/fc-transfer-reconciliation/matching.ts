@@ -36,6 +36,7 @@ export function buildFcCaseMap(
     if (!k) continue;
     const prev = map.get(k) ?? {
       count: 0,
+      openCount: 0,
       claimedQty: 0,
       approvedQty: 0,
       approvedAmount: 0,
@@ -48,6 +49,7 @@ export function buildFcCaseMap(
     prev.approvedAmount += r.amountApproved ? Number(r.amountApproved.toString()) : 0;
     if (r.referenceId && !prev.caseIds.includes(r.referenceId)) prev.caseIds.push(r.referenceId);
     const statusKey = (r.status ?? "").toUpperCase();
+    if (statusKey !== "CLOSED" && statusKey !== "REJECTED") prev.openCount++;
     const rank = CASE_STATUS_PRI[statusKey] ?? 0;
     const currentRank = CASE_STATUS_PRI[prev.topStatus.toUpperCase().replace(/ /g, "_")] ?? -1;
     if (rank > currentRank) {

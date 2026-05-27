@@ -99,11 +99,11 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col border-r border-white/10 bg-zinc-950 text-zinc-100 shadow-2xl transition-transform duration-200 ease-out lg:translate-x-0 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col border-r border-slate-800/60 bg-slate-900 text-slate-100 shadow-2xl transition-transform duration-200 ease-out lg:translate-x-0 lg:shadow-none",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
       >
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-white/10 px-4">
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-slate-800/60 px-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-inner">
             <Box className="size-[18px]" aria-hidden />
           </div>
@@ -111,7 +111,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
             <div className="truncate text-sm font-semibold tracking-tight text-white">
               InvenSync
             </div>
-            <div className="truncate text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+            <div className="truncate text-[10px] font-medium uppercase tracking-wider text-slate-400">
               FBA Inventory ERP
             </div>
           </div>
@@ -131,14 +131,14 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
                 className={cn(
                   "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
                   active
-                    ? "border-l-2 border-blue-500 bg-white/[0.08] text-white"
-                    : "border-l-2 border-transparent text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-100",
+                    ? "border-l-2 border-blue-400 bg-blue-500/15 text-white"
+                    : "border-l-2 border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-100",
                 )}
               >
                 <Icon
                   className={cn(
                     "size-[18px] shrink-0",
-                    active ? "text-blue-400" : "text-zinc-500",
+                    active ? "text-blue-400" : "text-slate-500",
                   )}
                   aria-hidden
                 />
@@ -148,11 +148,11 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
           })}
         </nav>
 
-        <div className="shrink-0 border-t border-white/10 px-3 py-3 text-[11px] text-zinc-500">
-          <div className="rounded-lg bg-white/[0.03] px-2.5 py-2 leading-relaxed">
-            <span className="font-medium text-zinc-400">Environment</span>
-            <span className="mx-1.5 text-zinc-600">·</span>
-            <span className="text-zinc-500">Local</span>
+        <div className="shrink-0 border-t border-slate-800/60 px-3 py-3 text-[11px] text-slate-500">
+          <div className="rounded-lg bg-slate-800/40 px-2.5 py-2 leading-relaxed">
+            <span className="font-medium text-slate-300">Environment</span>
+            <span className="mx-1.5 text-slate-600">·</span>
+            <span className="text-slate-400">Local</span>
           </div>
         </div>
       </aside>

@@ -23,6 +23,8 @@ export function serializeCaseTrackerRow(row: {
   resolvedDate: Date | null;
   notes: string | null;
   store: string | null;
+  caseUrl: string | null;
+  attachmentUrl: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;

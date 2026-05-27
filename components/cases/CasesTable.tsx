@@ -11,7 +11,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { Pencil, Trash2 } from "lucide-react";
+import { ExternalLink, FileText, Pencil, Trash2 } from "lucide-react";
 
 import type { CaseTrackerRow } from "@/actions/cases";
 import { Badge } from "@/components/ui/badge";
@@ -77,6 +77,58 @@ export function CasesTable({ data, onEdit, onDelete }: CasesTableProps) {
             {formatEnumLabel(row.original.reconType)}
           </Badge>
         ),
+      },
+      {
+        id: "caseId",
+        header: "Case ID",
+        cell: ({ row }) => {
+          const id = row.original.referenceId;
+          const url = row.original.caseUrl;
+          const attach = row.original.attachmentUrl;
+          if (!id && !url && !attach) {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          return (
+            <div className="flex items-center gap-1.5">
+              {id ? (
+                url ? (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 underline"
+                    title={url}
+                  >
+                    {id}
+                    <ExternalLink className="size-3" />
+                  </a>
+                ) : (
+                  <span className="font-mono text-xs">{id}</span>
+                )
+              ) : url ? (
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 underline"
+                >
+                  case <ExternalLink className="size-3" />
+                </a>
+              ) : null}
+              {attach ? (
+                <a
+                  href={attach}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="View PDF attachment"
+                  className="text-rose-600 hover:text-rose-700"
+                >
+                  <FileText className="size-3.5" />
+                </a>
+              ) : null}
+            </div>
+          );
+        },
       },
       {
         accessorKey: "caseReason",

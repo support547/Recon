@@ -13,7 +13,18 @@ import {
   buildReimbMap,
   buildSalesFnskuMap,
 } from "@/lib/returns-reconciliation/matching";
+import {
+  buildCatalogMap,
+  buildSalesOrderDetailMap,
+} from "@/lib/returns-reconciliation/asin-matching";
+import {
+  asinVerificationStats,
+  computeAsinVerificationRow,
+} from "@/lib/returns-reconciliation/asin-formula";
 import type {
+  AsinMatchStatus,
+  AsinVerificationRow,
+  AsinVerificationStats,
   ReturnsLogRow,
   ReturnsReconRow,
   ReturnsReconStats,
@@ -212,6 +223,132 @@ export async function saveReturnCaseAction(raw: unknown): Promise<MutationResult
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
   }
+}
+
+// ============================================================
+// ASIN Verification (additive — independent of getReturnsReconData)
+// ============================================================
+
+export type AsinVerificationFilters = ReturnsReconFilters & {
+  matchStatus?: string;
+};
+
+export type AsinVerificationPayload = {
+  rows: AsinVerificationRow[];
+  stats: AsinVerificationStats;
+};
+
+export async function getAsinVerificationData(
+  filters: AsinVerificationFilters = {},
+): Promise<AsinVerificationPayload> {
+  const where: Prisma.CustomerReturnWhereInput = { deletedAt: null };
+  if (filters.from) {
+    where.returnDate = {
+      ...(where.returnDate as object | undefined),
+      gte: new Date(filters.from),
+    };
+  }
+  if (filters.to) {
+    where.returnDate = {
+      ...(where.returnDate as object | undefined),
+      lte: new Date(filters.to + "T23:59:59"),
+    };
+  }
+  if (
+    filters.disposition &&
+    filters.disposition !== "all" &&
+    filters.disposition !== ""
+  ) {
+    where.disposition = { contains: filters.disposition, mode: "insensitive" };
+  }
+  if (filters.search?.trim()) {
+    const q = filters.search.trim();
+    where.OR = [
+      { msku: { contains: q, mode: "insensitive" } },
+      { fnsku: { contains: q, mode: "insensitive" } },
+      { asin: { contains: q, mode: "insensitive" } },
+      { orderId: { contains: q, mode: "insensitive" } },
+    ];
+  }
+
+  const [returns, sales, catalog, cases, reimbs] = await Promise.all([
+    prisma.customerReturn.findMany({
+      where,
+      select: {
+        orderId: true,
+        fnsku: true,
+        msku: true,
+        asin: true,
+        title: true,
+        quantity: true,
+        disposition: true,
+        reason: true,
+        returnDate: true,
+      },
+    }),
+    prisma.salesData.findMany({
+      where: { deletedAt: null },
+      select: { orderId: true, fnsku: true, asin: true, msku: true },
+    }),
+    prisma.shippedToFba.findMany({
+      where: { deletedAt: null },
+      select: {
+        fnsku: true,
+        msku: true,
+        asin: true,
+        title: true,
+        shipDate: true,
+      },
+    }),
+    prisma.caseTracker.findMany({
+      where: { deletedAt: null, reconType: ReconType.RETURN },
+      select: {
+        msku: true,
+        unitsClaimed: true,
+        unitsApproved: true,
+        amountApproved: true,
+        status: true,
+        referenceId: true,
+      },
+    }),
+    prisma.reimbursement.findMany({
+      where: { deletedAt: null },
+      select: { msku: true, reason: true, quantity: true, amount: true },
+    }),
+  ]);
+
+  const salesOrderMap = buildSalesOrderDetailMap(sales);
+  const catalogMap = buildCatalogMap(catalog);
+  const caseMap = buildCaseMap(cases);
+  const reimbMap = buildReimbMap(reimbs);
+
+  const aggs = aggregateReturns(returns);
+  let rows = aggs.map((agg) =>
+    computeAsinVerificationRow({
+      agg,
+      salesOrderMap,
+      catalogMap,
+      reimbMap,
+      caseMap,
+    }),
+  );
+
+  const ms = (filters.matchStatus ?? "").trim();
+  if (ms && ms !== "all") {
+    rows = rows.filter((r) => r.matchStatus === (ms as AsinMatchStatus));
+  }
+
+  // Default sort: worst score first; secondary by sellable mismatch.
+  rows.sort((a, b) => {
+    if (a.matchScore !== b.matchScore) return a.matchScore - b.matchScore;
+    if (a.isSellableMismatch !== b.isSellableMismatch) {
+      return a.isSellableMismatch ? -1 : 1;
+    }
+    return 0;
+  });
+
+  const stats = asinVerificationStats(rows);
+  return { rows, stats };
 }
 
 export async function saveReturnAdjustmentAction(raw: unknown): Promise<MutationResult<{ id: string }>> {

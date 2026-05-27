@@ -26,6 +26,7 @@ export const fcRaiseCaseSchema = z.object({
   asin: optStr,
   title: optStr,
   caseId: optStr,
+  caseUrl: optStr,
   caseReason: z.string().min(1),
   unitsClaimed: intLike,
   amountClaimed: numLike,

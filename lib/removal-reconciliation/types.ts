@@ -99,8 +99,27 @@ export type RemovalReceiptRow = {
   actionDate: string;
   finalStatus: string;
   caseId: string;
+  caseUrl: string;
+  caseStatus: string;
+  caseRemark: string;
   caseTrackerId: string | null;
+  // Extended receive-modal fields
+  lpnNumber: string;
+  binLocation: string;
+  itemTitle: string;
+  invoiceNumber: string;
+  bolAttachmentCount: number;
+  frontPhotoCount: number;
+  backPhotoCount: number;
+  packingListCount: number;
+  bolAttachmentUrls: string[];
+  frontPhotoUrls: string[];
+  backPhotoUrls: string[];
+  packingListUrls: string[];
+  requestDate: string;
 };
+
+
 
 export type RemovalReconStats = {
   totalOrders: number;
@@ -172,7 +191,22 @@ export type ReceiveActionInput = {
   unitsClaimed: number;
   amountClaimed: number;
   caseNotes: string | null;
+  caseId?: string | null;
+  caseUrl?: string | null;
   issueDate: string | null;
+  invoiceNumber?: string | null;
+  reshippedQty?: number;
+  itemTitle?: string | null;
+  binLocation?: string | null;
+  lpnNumber?: string | null;
+  bolAttachmentCount?: number;
+  frontPhotoCount?: number;
+  backPhotoCount?: number;
+  packingListCount?: number;
+  bolAttachmentUrls?: string[];
+  frontPhotoUrls?: string[];
+  backPhotoUrls?: string[];
+  packingListUrls?: string[];
 };
 
 export type ReimbursementInput = {
@@ -197,4 +231,5 @@ export type PostActionInput = {
   warehouseBilled: boolean;
   billedDate: string | null;
   billedAmount: number;
+  caseRemark?: string | null;
 };

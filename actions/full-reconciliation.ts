@@ -364,11 +364,20 @@ export async function saveFullReconRemark(
   if (!key) return { ok: false, error: "fnsku required" };
   const value = remarks != null ? String(remarks).trim() || null : null;
   try {
-    await prisma.fullReconRemark.upsert({
-      where: { fnsku: key },
-      create: { fnsku: key, remarks: value },
-      update: { remarks: value },
+    const existing = await prisma.fullReconRemark.findFirst({
+      where: { fnsku: key, store: null },
+      select: { id: true },
     });
+    if (existing) {
+      await prisma.fullReconRemark.update({
+        where: { id: existing.id },
+        data: { remarks: value },
+      });
+    } else {
+      await prisma.fullReconRemark.create({
+        data: { fnsku: key, store: null, remarks: value },
+      });
+    }
     revalidateAll();
     return { ok: true };
   } catch (e) {

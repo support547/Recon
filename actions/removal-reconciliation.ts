@@ -202,12 +202,56 @@ export async function getRemovalReconData(
   return { rows, receiptRows, stats };
 }
 
+const REMOVAL_RECEIPTS_LIMIT = 5000;
+
 export async function listRemovalReceipts(): Promise<RemovalReceiptRow[]> {
+  const total = await prisma.removalReceipt.count({
+    where: { deletedAt: null },
+  });
+  if (total > REMOVAL_RECEIPTS_LIMIT) {
+    console.warn(
+      `[removal-recon] listRemovalReceipts truncated: ${total} rows, returning ${REMOVAL_RECEIPTS_LIMIT}. TODO: add pagination.`,
+    );
+  }
   const rows = await prisma.removalReceipt.findMany({
     where: { deletedAt: null },
     orderBy: { createdAt: "desc" },
-    take: 5000,
+    take: REMOVAL_RECEIPTS_LIMIT,
   });
+  const orderIds = Array.from(
+    new Set(rows.map((r) => r.orderId).filter((x): x is string => Boolean(x))),
+  );
+  const removals = orderIds.length
+    ? await prisma.fbaRemoval.findMany({
+        where: { orderId: { in: orderIds }, deletedAt: null },
+        select: { orderId: true, requestDate: true },
+      })
+    : [];
+  const requestDateMap = new Map<string, Date | null>();
+  for (const x of removals) {
+    if (!x.orderId) continue;
+    const cur = requestDateMap.get(x.orderId);
+    if (!cur || (x.requestDate && cur < x.requestDate)) {
+      requestDateMap.set(x.orderId, x.requestDate ?? null);
+    }
+  }
+  const caseTrackerIds = Array.from(
+    new Set(rows.map((r) => r.caseTrackerId).filter((x): x is string => Boolean(x))),
+  );
+  const caseTrackers = caseTrackerIds.length
+    ? await prisma.caseTracker.findMany({
+        where: { id: { in: caseTrackerIds } },
+        select: { id: true, caseUrl: true, referenceId: true, status: true },
+      })
+    : [];
+  const caseUrlMap = new Map<string, string>();
+  const caseRefMap = new Map<string, string>();
+  const caseStatusMap = new Map<string, string>();
+  for (const c of caseTrackers) {
+    if (c.caseUrl) caseUrlMap.set(c.id, c.caseUrl);
+    if (c.referenceId) caseRefMap.set(c.id, c.referenceId);
+    if (c.status) caseStatusMap.set(c.id, String(c.status));
+  }
   return rows.map((r) => ({
     id: r.id,
     orderId: r.orderId ?? "",
@@ -241,9 +285,41 @@ export async function listRemovalReceipts(): Promise<RemovalReceiptRow[]> {
     actionRemarks: r.actionRemarks ?? "",
     actionDate: fmtDateIso(r.actionDate),
     finalStatus: String(r.finalStatus),
-    caseId: r.caseId ?? "",
+    caseId: r.caseId ?? (r.caseTrackerId ? caseRefMap.get(r.caseTrackerId) ?? "" : ""),
+    caseUrl: r.caseTrackerId ? caseUrlMap.get(r.caseTrackerId) ?? "" : "",
+    caseStatus: r.caseTrackerId ? caseStatusMap.get(r.caseTrackerId) ?? "" : "",
+    caseRemark: r.caseRemark ?? "",
     caseTrackerId: r.caseTrackerId,
+    lpnNumber: r.lpnNumber ?? "",
+    binLocation: r.binLocation ?? "",
+    itemTitle: r.itemTitle ?? "",
+    invoiceNumber: r.invoiceNumber ?? "",
+    bolAttachmentCount: r.bolAttachmentCount,
+    frontPhotoCount: r.frontPhotoCount,
+    backPhotoCount: r.backPhotoCount,
+    packingListCount: r.packingListCount,
+    ...extractAttachmentUrls(r.attachmentUrls),
+    requestDate: fmtDateIso(r.orderId ? requestDateMap.get(r.orderId) ?? null : null),
   }));
+}
+
+function extractAttachmentUrls(raw: unknown): {
+  bolAttachmentUrls: string[];
+  frontPhotoUrls: string[];
+  backPhotoUrls: string[];
+  packingListUrls: string[];
+} {
+  const obj = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) ?? {};
+  const arr = (k: string): string[] => {
+    const v = obj[k];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  };
+  return {
+    bolAttachmentUrls: arr("bol"),
+    frontPhotoUrls: arr("front"),
+    backPhotoUrls: arr("back"),
+    packingListUrls: arr("packing"),
+  };
 }
 
 export async function saveReceiveAction(raw: unknown): Promise<MutationResult<{ id: string }>> {
@@ -262,73 +338,92 @@ export async function saveReceiveAction(raw: unknown): Promise<MutationResult<{ 
     const status = conditionToStatus(v.receivedQty, v.expectedQty, v.unsellableQty);
 
     const result = await prisma.$transaction(async (tx) => {
-      // Upsert receipt by (orderId, fnsku, trackingNumber)
-      const existing = await tx.removalReceipt.findFirst({
+      const receivedDate = v.receivedDate ? new Date(v.receivedDate) : null;
+      // Upsert receipt by (orderId, fnsku, trackingNumber, receivedDate) — matches unique constraint.
+      // Fall back to (orderId, fnsku, trackingNumber) when no exact date match, to avoid creating
+      // a duplicate row when the user only changed the date.
+      let existing = await tx.removalReceipt.findFirst({
         where: {
           orderId: v.orderId,
           fnsku: v.fnsku,
           trackingNumber: v.trackingNumber ?? null,
+          receivedDate,
           deletedAt: null,
         },
       });
+      if (!existing) {
+        existing = await tx.removalReceipt.findFirst({
+          where: {
+            orderId: v.orderId,
+            fnsku: v.fnsku,
+            trackingNumber: v.trackingNumber ?? null,
+            deletedAt: null,
+          },
+          orderBy: { createdAt: "desc" },
+        });
+      }
 
-      const receivedDate = v.receivedDate ? new Date(v.receivedDate) : null;
+      const sharedData = {
+        msku: v.msku,
+        carrier: v.carrier,
+        expectedQty: v.expectedQty,
+        receivedDate,
+        receivedQty: v.receivedQty,
+        sellableQty: v.sellableQty,
+        unsellableQty: v.unsellableQty,
+        missingQty,
+        conditionReceived: v.conditionReceived,
+        notes: v.notes,
+        receivedBy: v.receivedBy,
+        status,
+        warehouseComment: v.warehouseComment,
+        transferTo: v.transferTo,
+        whStatus: whStatusToEnum(v.whStatus),
+        wrongItemReceived: v.wrongItemReceived,
+        wrongItemNotes: v.wrongItemNotes,
+        invoiceNumber: v.invoiceNumber,
+        reshippedQty: v.reshippedQty,
+        itemTitle: v.itemTitle,
+        binLocation: v.binLocation,
+        lpnNumber: v.lpnNumber,
+        bolAttachmentCount: v.bolAttachmentUrls?.length ?? v.bolAttachmentCount ?? 0,
+        frontPhotoCount: v.frontPhotoUrls?.length ?? v.frontPhotoCount ?? 0,
+        backPhotoCount: v.backPhotoUrls?.length ?? v.backPhotoCount ?? 0,
+        packingListCount: v.packingListUrls?.length ?? v.packingListCount ?? 0,
+        attachmentUrls: {
+          bol: v.bolAttachmentUrls ?? [],
+          front: v.frontPhotoUrls ?? [],
+          back: v.backPhotoUrls ?? [],
+          packing: v.packingListUrls ?? [],
+        },
+      };
+
+      // Also look for soft-deleted conflict — the unique constraint ignores deletedAt,
+      // so a soft-deleted row with the same key tuple would block create.
+      if (!existing) {
+        existing = await tx.removalReceipt.findFirst({
+          where: {
+            orderId: v.orderId,
+            fnsku: v.fnsku,
+            trackingNumber: v.trackingNumber ?? null,
+            receivedDate,
+          },
+        });
+      }
 
       let receipt;
       if (existing) {
         receipt = await tx.removalReceipt.update({
           where: { id: existing.id },
-          data: {
-            msku: v.msku,
-            carrier: v.carrier,
-            expectedQty: v.expectedQty,
-            receivedDate,
-            receivedQty: v.receivedQty,
-            sellableQty: v.sellableQty,
-            unsellableQty: v.unsellableQty,
-            missingQty,
-            conditionReceived: v.conditionReceived,
-            notes: v.notes,
-            receivedBy: v.receivedBy,
-            status,
-            warehouseComment: v.warehouseComment,
-            transferTo: v.transferTo,
-            whStatus: whStatusToEnum(v.whStatus),
-            wrongItemReceived: v.wrongItemReceived,
-            wrongItemNotes: v.wrongItemNotes,
-            invoiceNumber: v.invoiceNumber,
-            reshippedQty: v.reshippedQty,
-            itemTitle: v.itemTitle,
-            binLocation: v.binLocation,
-          },
+          data: { ...sharedData, deletedAt: null },
         });
       } else {
         receipt = await tx.removalReceipt.create({
           data: {
             orderId: v.orderId,
             fnsku: v.fnsku,
-            msku: v.msku,
             trackingNumber: v.trackingNumber,
-            carrier: v.carrier,
-            expectedQty: v.expectedQty,
-            receivedDate,
-            receivedQty: v.receivedQty,
-            sellableQty: v.sellableQty,
-            unsellableQty: v.unsellableQty,
-            missingQty,
-            conditionReceived: v.conditionReceived,
-            notes: v.notes,
-            receivedBy: v.receivedBy,
-            status,
-            warehouseComment: v.warehouseComment,
-            transferTo: v.transferTo,
-            whStatus: whStatusToEnum(v.whStatus),
-            wrongItemReceived: v.wrongItemReceived,
-            wrongItemNotes: v.wrongItemNotes,
-            invoiceNumber: v.invoiceNumber,
-            reshippedQty: v.reshippedQty,
-            itemTitle: v.itemTitle,
-            binLocation: v.binLocation,
+            ...sharedData,
           },
         });
       }
@@ -343,6 +438,7 @@ export async function saveReceiveAction(raw: unknown): Promise<MutationResult<{ 
             fnsku: v.fnsku,
             reconType: ReconType.REMOVAL,
             orderId: v.orderId,
+            referenceId: v.caseId,
             caseReason: v.caseReason ?? "Removal Issue",
             unitsClaimed: v.unitsClaimed,
             unitsApproved: 0,
@@ -353,12 +449,14 @@ export async function saveReceiveAction(raw: unknown): Promise<MutationResult<{ 
             issueDate,
             raisedDate: today,
             notes: v.caseNotes,
+            caseUrl: v.caseUrl,
           },
         });
 
         await tx.removalReceipt.update({
           where: { id: receipt.id },
           data: {
+            caseId: v.caseId,
             caseTrackerId: newCase.id,
             caseRaisedAt: today,
             caseType: v.caseReason,
@@ -400,6 +498,7 @@ export async function saveRemovalCaseRaise(
         fnsku: v.fnsku,
         reconType: ReconType.REMOVAL,
         orderId: v.orderId,
+        referenceId: v.caseId,
         caseReason: v.caseReason,
         unitsClaimed: v.unitsClaimed,
         unitsApproved: 0,
@@ -410,6 +509,7 @@ export async function saveRemovalCaseRaise(
         issueDate,
         raisedDate: today,
         notes: v.caseNotes,
+        caseUrl: v.caseUrl,
       },
     });
     revalidateAll();
@@ -516,6 +616,7 @@ export async function savePostAction(raw: unknown): Promise<MutationResult<{ id:
         billedAmount: new Prisma.Decimal(v.billedAmount),
         invoiceNumber: v.invoiceNumber,
         reshippedQty: v.reshippedQty,
+        caseRemark: v.caseRemark,
         ...(isReimb
           ? {
               reimbQty: v.reimbQty,
@@ -527,6 +628,29 @@ export async function savePostAction(raw: unknown): Promise<MutationResult<{ id:
               finalStatus: FinalStatus.RESOLVED,
             }),
       },
+    });
+    revalidateAll();
+    return { ok: true, data: { id: receipt.id } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
+export async function saveCaseRemark(
+  receiptId: string,
+  caseRemark: string | null,
+): Promise<MutationResult<{ id: string }>> {
+  try {
+    await requireAuth();
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+  }
+  if (!receiptId.trim()) return { ok: false, error: "receiptId required" };
+  try {
+    const receipt = await prisma.removalReceipt.update({
+      where: { id: receiptId },
+      data: { caseRemark: caseRemark?.trim() || null },
     });
     revalidateAll();
     return { ok: true, data: { id: receipt.id } };

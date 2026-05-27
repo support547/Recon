@@ -191,6 +191,14 @@ export function CaseRaisedCell({
           {statLabel}
         </div>
       ) : null}
+      {ca.case_ids.length > 0 ? (
+        <div
+          className="mt-0.5 max-w-[140px] truncate font-mono text-[9px] text-muted-foreground"
+          title={ca.case_ids.join(", ")}
+        >
+          {ca.case_ids.join(", ")}
+        </div>
+      ) : null}
     </div>
   );
 }

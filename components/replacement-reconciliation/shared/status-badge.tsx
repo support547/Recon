@@ -6,6 +6,7 @@ import type { ReplacementStatusKey } from "@/lib/replacement-reconciliation/type
 
 const LABEL: Record<ReplacementStatusKey, string> = {
   TAKE_ACTION: "⚠ Take Action",
+  WAITING_RETURN: "⏳ Waiting for Return",
   PARTIAL: "◐ Partial",
   RETURNED: "↩ Returned",
   REIMBURSED: "💰 Reimbursed",
@@ -14,6 +15,7 @@ const LABEL: Record<ReplacementStatusKey, string> = {
 
 const CLS: Record<ReplacementStatusKey, string> = {
   TAKE_ACTION: "border-red-200 bg-red-50 text-red-700",
+  WAITING_RETURN: "border-slate-200 bg-slate-50 text-slate-600",
   PARTIAL: "border-amber-200 bg-amber-50 text-amber-800",
   RETURNED: "border-blue-200 bg-blue-50 text-blue-700",
   REIMBURSED: "border-teal-200 bg-teal-50 text-teal-700",

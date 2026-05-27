@@ -53,14 +53,28 @@ export function trimCl(s: unknown): string {
     .replace(/['"]/g, "");
 }
 
+/**
+ * Map keys:
+ *   "<shipmentId>|<fnsku>" — scoped per shipment (preferred)
+ *   "<fnsku>"              — fallback aggregate, used only when a receipt row
+ *                            has no shipmentId. Lookup in computeReconRows tries
+ *                            the scoped key first, then falls back.
+ */
 export function buildReceiptQuantityMap(
-  rows: { fnsku: string | null; quantity: number }[],
+  rows: { shipmentId?: string | null; fnsku: string | null; quantity: number }[],
 ): Record<string, number> {
   const rcMap: Record<string, number> = {};
   for (const r of rows) {
-    const k = trimCl(r.fnsku);
-    if (!k) continue;
-    rcMap[k] = (rcMap[k] ?? 0) + (Number(r.quantity) || 0);
+    const fk = trimCl(r.fnsku);
+    if (!fk) continue;
+    const qty = Number(r.quantity) || 0;
+    const sid = trimCl(r.shipmentId ?? null);
+    if (sid) {
+      const scoped = `${sid}|${fk}`;
+      rcMap[scoped] = (rcMap[scoped] ?? 0) + qty;
+    } else {
+      rcMap[fk] = (rcMap[fk] ?? 0) + qty;
+    }
   }
   return rcMap;
 }
@@ -158,8 +172,14 @@ export function computeReconRows(args: {
     const st = meta?.status ?? "Unknown";
     const fk = trimCl(s.fnsku);
     const shipped_qty = Number(s.quantity) || 0;
-    const received_qty = fk ? rcMap[fk] ?? 0 : 0;
+    // Scoped lookup: prefer per-shipment receipt qty, fall back to fnsku-only
+    // for legacy rows that have no shipmentId.
+    const received_qty = fk
+      ? rcMap[`${sid}|${fk}`] ?? rcMap[fk] ?? 0
+      : 0;
     const shortage = Math.max(0, shipped_qty - received_qty);
+    // TODO: Reimbursement schema lacks shipmentId — Lost_Inbound reimb is
+    // matched fnsku-only. Multi-shipment FNSKUs will share the reimb pool.
     const reimb_qty = fk ? riMap[fk] ?? 0 : 0;
     const pending = Math.max(0, shortage - reimb_qty);
 
@@ -189,7 +209,7 @@ export function computeReconRows(args: {
         /* noop */
       }
     }
-    if (ship_date !== "—" && last_updated !== "—") {
+    if (ship_date !== "—" && last_updated !== "—" && st !== "Closed") {
       try {
         const diff =
           new Date(last_updated).getTime() - new Date(ship_date).getTime();

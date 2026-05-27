@@ -66,6 +66,8 @@ export const CaseTrackerSchema = z.object({
   resolvedDate: dateTimeNullableOptional,
   notes: optionalString(16000),
   store: optionalString(128),
+  caseUrl: optionalString(2048),
+  attachmentUrl: optionalString(2048),
   createdAt: z.coerce.date().optional(),
   updatedAt: z.coerce.date().optional(),
   deletedAt: z.union([z.coerce.date(), z.null()]).optional(),

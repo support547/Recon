@@ -1,2 +1,2 @@
-request-date,order-id,order-source,order-type,order-status,last-updated,sku,fnsku,disposition,requested-quantity,cancelled-quantity,disposed-quantity,shipped-quantity,in-process-quantity,removal-fee,currency
-2024-01-09,11-12345-67890,inventoryRemovalOrder,Removal,Completed,2024-01-10,MY-MSKU,X00FN,Sellable,10,0,0,8,0,0,USD
+request-date,order-id,order-source,order-type,order-status,last-updated-date,sku,fnsku,disposition,requested-quantity,cancelled-quantity,disposed-quantity,shipped-quantity,in-process-quantity,removal-fee,currency
+1/6/2026,PGU9+5rUGK,Seller-configured Automated Unfulfillable Removal System,Return,Completed,2026-05-12T20:47:28-07:00,amzn.gr.9780998785059-US-FBA-N-mT9fvN-PO,X004KO0G4N,Unsellable,1,0,,1,0,3.95,USD

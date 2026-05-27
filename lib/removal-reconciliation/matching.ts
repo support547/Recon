@@ -116,36 +116,33 @@ export function buildCaseMap(
   for (const r of rows) {
     const orderId = (r.orderId ?? "").trim();
     if (!orderId) continue;
-    // also key per (orderId|fnsku) so per-row matching works
-    const keys = [`${orderId}|${(r.fnsku ?? "").trim()}`, `${orderId}|`];
+    const fnsku = (r.fnsku ?? "").trim();
+    if (!fnsku) continue;
+    const k = `${orderId}|${fnsku}`;
     const statusKey = (r.status ?? "").toUpperCase();
     const rank = CASE_STATUS_PRI[statusKey] ?? 0;
-    for (const k of keys) {
-      const prev = map.get(k) ?? {
-        count: 0,
-        claimedQty: 0,
-        approvedQty: 0,
-        approvedAmount: 0,
-        caseIds: [] as string[],
-        topStatus: "No Case",
-      };
-      prev.count++;
-      prev.claimedQty += r.unitsClaimed || 0;
-      prev.approvedQty += r.unitsApproved || 0;
-      prev.approvedAmount += r.amountApproved ? Number(r.amountApproved.toString()) : 0;
-      if (r.referenceId && !prev.caseIds.includes(r.referenceId)) prev.caseIds.push(r.referenceId);
-      const currentRank = CASE_STATUS_PRI[prev.topStatus.toUpperCase().replace(/ /g, "_")] ?? -1;
-      if (rank > currentRank) {
-        prev.topStatus = CASE_STATUS_LABEL[statusKey] ?? "Pending";
-      }
-      map.set(k, prev);
+    const prev = map.get(k) ?? {
+      count: 0,
+      claimedQty: 0,
+      approvedQty: 0,
+      approvedAmount: 0,
+      caseIds: [] as string[],
+      topStatus: "No Case",
+    };
+    prev.count++;
+    prev.claimedQty += r.unitsClaimed || 0;
+    prev.approvedQty += r.unitsApproved || 0;
+    prev.approvedAmount += r.amountApproved ? Number(r.amountApproved.toString()) : 0;
+    if (r.referenceId && !prev.caseIds.includes(r.referenceId)) prev.caseIds.push(r.referenceId);
+    const currentRank = CASE_STATUS_PRI[prev.topStatus.toUpperCase().replace(/ /g, "_")] ?? -1;
+    if (rank > currentRank) {
+      prev.topStatus = CASE_STATUS_LABEL[statusKey] ?? "Pending";
     }
+    map.set(k, prev);
   }
   return map;
 }
 
 export function lookupCase(map: Map<string, CaseMeta>, orderId: string, fnsku: string): CaseMeta | undefined {
-  const specific = map.get(`${orderId.trim()}|${fnsku.trim()}`);
-  if (specific) return specific;
-  return map.get(`${orderId.trim()}|`);
+  return map.get(`${orderId.trim()}|${fnsku.trim()}`);
 }

@@ -324,17 +324,6 @@ function ReceivedCell({ row }: { row: RemovalReconRow }) {
   );
 }
 
-function carrierTrackingUrl(carrier: string, tracking: string): string | null {
-  const c = (carrier || "").toLowerCase();
-  const t = encodeURIComponent(tracking);
-  if (c.includes("ups")) return `https://www.ups.com/track?tracknum=${t}`;
-  if (c.includes("usps") || c.includes("ats")) return `https://tools.usps.com/go/TrackConfirmAction?tLabels=${t}`;
-  if (c.includes("fedex")) return `https://www.fedex.com/fedextrack/?trknbr=${t}`;
-  if (c.includes("dhl")) return `https://www.dhl.com/en/express/tracking.html?AWB=${t}`;
-  if (c.includes("amzn") || c.includes("amazon")) return `https://track.amazon.com/tracking/${t}`;
-  return `https://www.google.com/search?q=${t}+tracking`;
-}
-
 function TrackingCell({ row }: { row: RemovalReconRow }) {
   const raw = (row.trackingNumbers || "").trim();
   if (!raw) return <span className="text-muted-foreground">—</span>;
@@ -343,21 +332,8 @@ function TrackingCell({ row }: { row: RemovalReconRow }) {
     .map((s) => s.trim())
     .filter(Boolean);
   const first = list[0] ?? raw;
-  const carrier = (row.carriers || "").split(/[,\n]/)[0]?.trim() ?? "";
-  const firstUrl = carrierTrackingUrl(carrier, first);
   if (list.length <= 1) {
-    return firstUrl ? (
-      <a
-        href={firstUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block max-w-[140px] truncate text-blue-600 underline-offset-2 hover:underline"
-        title={`${first} — open ${carrier || "tracking"}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {first}
-      </a>
-    ) : (
+    return (
       <span className="block max-w-[140px] truncate" title={first}>
         {first}
       </span>
@@ -378,26 +354,11 @@ function TrackingCell({ row }: { row: RemovalReconRow }) {
       side="bottom"
       width={320}
     >
-      {list.map((t, i) => {
-        const url = carrierTrackingUrl(carrier, t);
-        return (
-          <div key={i} className="border-b border-border/60 px-2 py-1 last:border-b-0">
-            {url ? (
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-blue-600 hover:underline"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {t}
-              </a>
-            ) : (
-              <span className="font-mono">{t}</span>
-            )}
-          </div>
-        );
-      })}
+      {list.map((t, i) => (
+        <div key={i} className="border-b border-border/60 px-2 py-1 last:border-b-0">
+          <span className="font-mono">{t}</span>
+        </div>
+      ))}
     </CellHoverPopover>
   );
 }
@@ -447,25 +408,9 @@ function OrderIdCell({ row }: { row: RemovalReconRow }) {
 
 function MskuCell({ row }: { row: RemovalReconRow }) {
   return (
-    <CellHoverPopover
-      triggerClassName="block w-full max-w-[140px] truncate"
-      trigger={<span className="block truncate text-foreground">{row.msku}</span>}
-      title="SKU detail"
-      side="right"
-      width={340}
-    >
-      <CellHoverRow left="MSKU" right={row.msku} />
-      <CellHoverRow left="FNSKU" right={row.fnsku} />
-      <CellHoverRow left="Disposition" right={row.disposition} />
-      <CellHoverRow left="Requested" right={row.requestedQty} />
-      <CellHoverRow left="Received" right={row.receivedQty} />
-      <CellHoverRow
-        left="Sellable / Unsellable"
-        right={`${row.sellableQty} / ${row.unsellableQty}`}
-      />
-      <CellHoverRow left="Missing" right={row.missingQty} />
-      <CellHoverRow left="Wrong items" right={row.wrongItemCount} />
-    </CellHoverPopover>
+    <span className="block max-w-[140px] truncate text-foreground" title={row.msku}>
+      {row.msku}
+    </span>
   );
 }
 

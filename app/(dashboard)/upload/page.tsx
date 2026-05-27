@@ -19,17 +19,29 @@ export default function UploadReportsPage() {
   const [summaryRows, setSummaryRows] = React.useState<UploadSummaryRow[]>([]);
   const [historyRows, setHistoryRows] = React.useState<UploadHistoryRow[]>([]);
   const [uploadPending, setUploadPending] = React.useState(false);
+  const [isLoadingSummary, setIsLoadingSummary] = React.useState(true);
+  const [isLoadingHistory, setIsLoadingHistory] = React.useState(true);
 
   const meta = getReportTypeMeta(selectedType);
 
   const refreshHistory = React.useCallback(async (rt: ReportTypeValue) => {
-    const rows = await getUploadHistory(rt);
-    setHistoryRows(rows);
+    setIsLoadingHistory(true);
+    try {
+      const rows = await getUploadHistory(rt);
+      setHistoryRows(rows);
+    } finally {
+      setIsLoadingHistory(false);
+    }
   }, []);
 
   const refreshSummary = React.useCallback(async () => {
-    const rows = await getUploadSummaryByType();
-    setSummaryRows(rows);
+    setIsLoadingSummary(true);
+    try {
+      const rows = await getUploadSummaryByType();
+      setSummaryRows(rows);
+    } finally {
+      setIsLoadingSummary(false);
+    }
   }, []);
 
   React.useEffect(() => {
@@ -77,10 +89,18 @@ export default function UploadReportsPage() {
           onUploaded={onUploadedOrMutated}
           onPendingChange={setUploadPending}
         />
-        <UploadSummary summary={summaryForType} />
+        {isLoadingSummary && !summaryForType ? (
+          <div className="h-32 animate-pulse rounded-md border border-border bg-muted/40" />
+        ) : (
+          <UploadSummary summary={summaryForType} />
+        )}
       </div>
 
-      <UploadHistory rows={historyRows} onMutated={onUploadedOrMutated} />
+      {isLoadingHistory && historyRows.length === 0 ? (
+        <div className="h-48 animate-pulse rounded-md border border-border bg-muted/40" />
+      ) : (
+        <UploadHistory rows={historyRows} onMutated={onUploadedOrMutated} />
+      )}
     </main>
   );
 }

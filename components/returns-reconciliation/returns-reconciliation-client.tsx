@@ -4,6 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import {
+  getAsinVerificationData,
   getReturnsReconData,
   type ReturnsReconciliationPayload,
 } from "@/actions/returns-reconciliation";
@@ -35,7 +36,16 @@ import {
 } from "@/components/shared/columns-menu";
 import { RaiseCaseModal } from "@/components/returns-reconciliation/modals/raise-case-modal";
 import { AdjustModal } from "@/components/returns-reconciliation/modals/adjust-modal";
-import type { ReturnsReconRow } from "@/lib/returns-reconciliation/types";
+import {
+  ASIN_VERIFICATION_COLUMNS,
+  AsinVerificationTable,
+} from "@/components/returns-reconciliation/asin-verification-tab/asin-verification-table";
+import { ASIN_MATCH_STATUS_OPTIONS } from "@/components/returns-reconciliation/asin-verification-tab/asin-match-badge";
+import type {
+  AsinVerificationRow,
+  AsinVerificationStats,
+  ReturnsReconRow,
+} from "@/lib/returns-reconciliation/types";
 
 const ALL = "__all__";
 
@@ -55,7 +65,7 @@ export function ReturnsReconciliationClient({
 }: {
   initialPayload: ReturnsReconciliationPayload;
 }) {
-  const [tab, setTab] = React.useState<"analysis" | "log">("analysis");
+  const [tab, setTab] = React.useState<"analysis" | "log" | "asin">("analysis");
   const [analysisVis, setAnalysisVis] = useColumnVisibility(
     "returnsRecon.analysisCols",
     RETURNS_ANALYSIS_COLUMNS,
@@ -63,6 +73,10 @@ export function ReturnsReconciliationClient({
   const [logVis, setLogVis] = useColumnVisibility(
     "returnsRecon.logCols",
     RETURNS_LOG_COLUMNS,
+  );
+  const [asinVis, setAsinVis] = useColumnVisibility(
+    "returnsRecon.asinCols",
+    ASIN_VERIFICATION_COLUMNS,
   );
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
@@ -81,6 +95,30 @@ export function ReturnsReconciliationClient({
   const [caseOpen, setCaseOpen] = React.useState(false);
   const [adjRow, setAdjRow] = React.useState<ReturnsReconRow | null>(null);
   const [adjOpen, setAdjOpen] = React.useState(false);
+
+  // ASIN Verification state (lazy-loaded on first activation)
+  const [asinRows, setAsinRows] = React.useState<AsinVerificationRow[]>([]);
+  const [asinStats, setAsinStats] = React.useState<AsinVerificationStats>({
+    total: 0,
+    totalQty: 0,
+    verifiedCount: 0,
+    verifiedQty: 0,
+    asinMismatchCount: 0,
+    asinMismatchQty: 0,
+    mskuMismatchCount: 0,
+    mskuMismatchQty: 0,
+    multiMismatchCount: 0,
+    multiMismatchQty: 0,
+    notInCatalogCount: 0,
+    notInCatalogQty: 0,
+    orderNotFoundCount: 0,
+    orderNotFoundQty: 0,
+    sellableMismatchCount: 0,
+    sellableMismatchQty: 0,
+  });
+  const [asinLoading, setAsinLoading] = React.useState(false);
+  const [asinMatchStatus, setAsinMatchStatus] = React.useState(ALL);
+  const asinLoadedRef = React.useRef(false);
 
   const dispositionOptions = React.useMemo(() => {
     const set = new Set<string>();
@@ -116,6 +154,68 @@ export function ReturnsReconciliationClient({
     }
     void reload();
   }, [reload]);
+
+  const reloadAsin = React.useCallback(async () => {
+    setAsinLoading(true);
+    try {
+      const data = await getAsinVerificationData({
+        from: from || null,
+        to: to || null,
+        disposition: disposition === ALL ? "" : disposition,
+        search: debouncedSearch || undefined,
+        matchStatus: asinMatchStatus === ALL ? "" : asinMatchStatus,
+      });
+      setAsinRows(data.rows);
+      setAsinStats(data.stats);
+      asinLoadedRef.current = true;
+    } finally {
+      setAsinLoading(false);
+    }
+  }, [from, to, disposition, debouncedSearch, asinMatchStatus]);
+
+  // Lazy-load on first activation OR when filters change while tab is active.
+  React.useEffect(() => {
+    if (tab !== "asin") return;
+    void reloadAsin();
+  }, [tab, reloadAsin]);
+
+  function asinToReturnsRow(r: AsinVerificationRow): ReturnsReconRow {
+    // Adapter — modals only consume a subset of ReturnsReconRow fields.
+    // Map ASIN-tab status to the FNSKU-status enum the existing modal renders.
+    const fnskuStatus =
+      r.matchStatus === "ORDER_NOT_FOUND"
+        ? "ORDER_NOT_FOUND"
+        : r.matchStatus === "FULLY_VERIFIED"
+          ? "MATCHED_FNSKU"
+          : "FNSKU_MISMATCH";
+    return {
+      orderId: r.orderId,
+      returnFnsku: r.returnFnsku,
+      msku: r.returnMsku,
+      asin: r.returnAsin,
+      title: r.returnTitle,
+      totalReturned: r.returnedQty,
+      returnEvents: r.returnEvents,
+      dispositions: r.disposition,
+      reasons: r.reasons,
+      reimbQty: r.reimbQty,
+      reimbAmount: r.reimbAmount,
+      caseReimbQty: 0,
+      caseReimbAmount: 0,
+      adjQty: 0,
+      effReimbQty: r.reimbQty,
+      effReimbAmount: r.reimbAmount,
+      salesFnsku: r.salesFnsku,
+      salesMsku: r.salesMsku,
+      fnskuStatus,
+      caseCount: r.caseCount,
+      caseStatusTop: r.caseStatusTop,
+      caseIds: r.caseIds,
+      earliestReturn: r.earliestReturn,
+      latestReturn: r.latestReturn,
+      isSellable: r.isSellable,
+    };
+  }
 
   const filteredRows = React.useMemo(() => {
     if (filterCard === "all") return rows;
@@ -179,21 +279,28 @@ export function ReturnsReconciliationClient({
               visibility={analysisVis}
               onChange={setAnalysisVis}
             />
-          ) : (
+          ) : tab === "log" ? (
             <ColumnsMenu
               columns={RETURNS_LOG_COLUMNS}
               visibility={logVis}
               onChange={setLogVis}
+            />
+          ) : (
+            <ColumnsMenu
+              columns={ASIN_VERIFICATION_COLUMNS}
+              visibility={asinVis}
+              onChange={setAsinVis}
             />
           )}
           <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
         </HeaderActions>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "analysis" | "log")} className="gap-4">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "analysis" | "log" | "asin")} className="gap-4">
           <TabsList className="h-9 w-full justify-start sm:w-auto">
             <TabsTrigger value="analysis" className="text-xs">📊 Returns Analysis</TabsTrigger>
             <TabsTrigger value="log" className="text-xs">📋 Returns Log</TabsTrigger>
+            <TabsTrigger value="asin" className="text-xs">🔍 ASIN Verification</TabsTrigger>
           </TabsList>
 
           <TabsContent value="analysis" className="mt-0 space-y-4">
@@ -237,6 +344,159 @@ export function ReturnsReconciliationClient({
             )}
           </TabsContent>
 
+          <TabsContent value="asin" className="mt-0 space-y-4">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <span className="text-[11px] font-semibold text-muted-foreground">From</span>
+              <Input
+                type="date"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-8 w-[140px] text-xs"
+              />
+              <span className="text-[11px] font-semibold text-muted-foreground">To</span>
+              <Input
+                type="date"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="h-8 w-[140px] text-xs"
+              />
+              <span className="text-[11px] font-semibold text-muted-foreground">Disposition</span>
+              <Select value={disposition} onValueChange={setDisposition}>
+                <SelectTrigger className="h-8 w-[160px] text-xs">
+                  <SelectValue placeholder="All" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All</SelectItem>
+                  {dispositionOptions.map((d) => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-[11px] font-semibold text-muted-foreground">Match Status</span>
+              <Select value={asinMatchStatus} onValueChange={setAsinMatchStatus}>
+                <SelectTrigger className="h-8 w-[200px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Statuses</SelectItem>
+                  {ASIN_MATCH_STATUS_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="🔍 MSKU / FNSKU / ASIN / Order ID"
+                className="h-8 max-w-[260px] text-xs"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto text-xs"
+                onClick={() => {
+                  setFrom("");
+                  setTo("");
+                  setDisposition(ALL);
+                  setAsinMatchStatus(ALL);
+                  setSearch("");
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
+              <KpiCard
+                label="Total"
+                border="blue"
+                primary={asinStats.total}
+                secondary={asinStats.totalQty}
+                secLabel="Units"
+              />
+              <KpiCard
+                label="Verified"
+                border="green"
+                primary={asinStats.verifiedCount}
+                secondary={asinStats.verifiedQty}
+                secLabel="Units"
+              />
+              <KpiCard
+                label="ASIN Mismatch"
+                border="red"
+                primary={asinStats.asinMismatchCount}
+                secondary={asinStats.asinMismatchQty}
+                secLabel="Units"
+              />
+              <KpiCard
+                label="MSKU Mismatch"
+                border="amber"
+                primary={asinStats.mskuMismatchCount}
+                secondary={asinStats.mskuMismatchQty}
+                secLabel="Units"
+              />
+              <KpiCard
+                label="Multi Mismatch"
+                border="red"
+                primary={asinStats.multiMismatchCount}
+                secondary={asinStats.multiMismatchQty}
+                secLabel="Units"
+              />
+              <KpiCard
+                label="Not in Catalog"
+                border="slate"
+                primary={asinStats.notInCatalogCount}
+                secondary={asinStats.notInCatalogQty}
+                secLabel="Units"
+              />
+              <button
+                type="button"
+                onClick={() => setAsinMatchStatus(ALL)}
+                className={cn(
+                  "flex flex-col rounded-lg border border-red-300 bg-red-50 px-3 py-2.5 text-left shadow-sm transition border-t-[3px] border-t-red-600 hover:border-red-400",
+                )}
+              >
+                <div className="mb-1 text-center text-[8.5px] font-bold uppercase tracking-wide text-red-700">
+                  ⚠ Sellable Mismatch
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <div className="flex flex-col items-center">
+                    <span className="font-mono text-lg font-bold leading-none text-red-700">
+                      {asinStats.sellableMismatchCount.toLocaleString()}
+                    </span>
+                    <span className="mt-0.5 text-[8px] text-red-700/80">SKUs</span>
+                  </div>
+                  <div className="h-5 w-px bg-red-200" />
+                  <div className="flex flex-col items-center">
+                    <span className="font-mono text-sm font-bold leading-none text-red-700">
+                      {asinStats.sellableMismatchQty.toLocaleString()}
+                    </span>
+                    <span className="mt-0.5 text-[8px] text-red-700/80">Units</span>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {asinLoading ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <AsinVerificationTable
+                visibility={asinVis}
+                rows={asinRows}
+                onRaiseCase={(r) => {
+                  setCaseRow(asinToReturnsRow(r));
+                  setCaseOpen(true);
+                }}
+                onAdjust={(r) => {
+                  setAdjRow(asinToReturnsRow(r));
+                  setAdjOpen(true);
+                }}
+              />
+            )}
+          </TabsContent>
+
           <TabsContent value="log" className="mt-0 space-y-4">
             <FilterBar
               from={from} setFrom={setFrom}
@@ -259,8 +519,24 @@ export function ReturnsReconciliationClient({
           </TabsContent>
         </Tabs>
 
-        <RaiseCaseModal row={caseRow} open={caseOpen} onOpenChange={setCaseOpen} onSaved={() => void reload()} />
-        <AdjustModal row={adjRow} open={adjOpen} onOpenChange={setAdjOpen} onSaved={() => void reload()} />
+        <RaiseCaseModal
+          row={caseRow}
+          open={caseOpen}
+          onOpenChange={setCaseOpen}
+          onSaved={() => {
+            void reload();
+            if (asinLoadedRef.current) void reloadAsin();
+          }}
+        />
+        <AdjustModal
+          row={adjRow}
+          open={adjOpen}
+          onOpenChange={setAdjOpen}
+          onSaved={() => {
+            void reload();
+            if (asinLoadedRef.current) void reloadAsin();
+          }}
+        />
       </div>
     </TooltipProvider>
   );

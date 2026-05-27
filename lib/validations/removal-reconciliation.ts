@@ -53,12 +53,23 @@ export const receiveActionSchema = z
     unitsClaimed: intLike,
     amountClaimed: numLike,
     caseNotes: optStr,
+    caseId: optStr,
+    caseUrl: optStr,
     issueDate: optDate,
     // Extended fields (Task L)
     invoiceNumber: optStr,
     reshippedQty: intLike,
     itemTitle: optStr,
     binLocation: optStr,
+    lpnNumber: optStr,
+    bolAttachmentCount: intLike.optional(),
+    frontPhotoCount: intLike.optional(),
+    backPhotoCount: intLike.optional(),
+    packingListCount: intLike.optional(),
+    bolAttachmentUrls: z.array(z.string()).optional().default([]),
+    frontPhotoUrls: z.array(z.string()).optional().default([]),
+    backPhotoUrls: z.array(z.string()).optional().default([]),
+    packingListUrls: z.array(z.string()).optional().default([]),
   })
   .refine((v) => v.sellableQty + v.unsellableQty <= v.receivedQty + 0.001, {
     message: "Sellable + Unsellable cannot exceed Received qty",
@@ -94,6 +105,7 @@ export const postActionSchema = z.object({
   // Extended fields (Task L)
   invoiceNumber: optStr,
   reshippedQty: intLike,
+  caseRemark: optStr,
 });
 
 export type PostActionInputZ = z.infer<typeof postActionSchema>;
@@ -107,6 +119,8 @@ export const removalCaseRaiseSchema = z.object({
   unitsClaimed: intLike.refine((n) => n > 0, "Units claimed must be at least 1"),
   amountClaimed: numLike,
   caseNotes: optStr,
+  caseId: optStr,
+  caseUrl: optStr,
   issueDate: optDate,
 });
 

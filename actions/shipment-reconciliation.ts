@@ -191,9 +191,11 @@ export async function getShipmentReconciliationData(filters: {
       select: { shipmentId: true, status: true, lastUpdated: true },
     }),
     prisma.fbaReceipt.findMany({
-      select: { fnsku: true, quantity: true },
+      where: { deletedAt: null },
+      select: { shipmentId: true, fnsku: true, quantity: true },
     }),
     prisma.reimbursement.findMany({
+      where: { deletedAt: null },
       select: { fnsku: true, reason: true, quantity: true },
     }),
   ]);
@@ -305,6 +307,8 @@ export async function saveShipmentReconCaseAction(
     resolvedDate: undefined,
     notes: emptyToNull(d.notes),
     store: null,
+    caseUrl: emptyToNull(d.case_url ?? undefined),
+    attachmentUrl: emptyToNull(d.attachment_url ?? undefined),
   });
 }
 
@@ -383,6 +387,8 @@ export async function saveShipmentCaStandaloneCase(
     resolvedDate: parseOptionalDate(d.resolved_date),
     notes: emptyToNull(d.notes),
     store: null,
+    caseUrl: emptyToNull(d.case_url ?? undefined),
+    attachmentUrl: emptyToNull(d.attachment_url ?? undefined),
   };
   if (d.id) {
     const res = await updateCase(d.id, body);

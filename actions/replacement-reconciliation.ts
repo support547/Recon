@@ -207,6 +207,7 @@ export async function saveReplaceCaseAction(raw: unknown): Promise<MutationResul
         issueDate: today,
         raisedDate: today,
         notes: v.notes,
+        caseUrl: v.caseUrl,
       },
     });
     revalidateAll();

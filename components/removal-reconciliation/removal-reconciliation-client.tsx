@@ -222,16 +222,54 @@ export function RemovalReconciliationClient({
   }, [filteredRows]);
 
   function exportCsv() {
+    const esc = (v: unknown) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const download = (filename: string, lines: string[]) => {
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    if (tab === "receipts") {
+      const headers = [
+        "Order Date", "Order ID", "FNSKU", "MSKU", "Tracking", "Carrier",
+        "Rcvd Date", "LPN #", "Bin Location", "Item Title", "Expected", "Received",
+        "Sellable", "Unsellable", "Missing", "Book Condition", "Title Note",
+        "Wh. Comment", "Processed By", "Wrong Item", "Wh. Status", "Transfer To",
+        "Post-Action", "Seller Status", "Seller Comments",
+        "Case ID", "Case Status", "Case Remark",
+        "Reimb Qty", "Reimb $", "Wh. Billed", "Billed Date", "Billed Amt", "Remarks",
+      ];
+      const lines = [headers.join(",")];
+      for (const r of receiptRows) {
+        const x = r as any;
+        lines.push([
+          x.requestDate, r.orderId, r.fnsku, r.msku, r.trackingNumber, r.carrier,
+          r.receivedDate, x.lpnNumber, r.binLocation, r.itemTitle, r.expectedQty, r.receivedQty,
+          r.sellableQty, r.unsellableQty, r.missingQty, r.conditionReceived, r.notes,
+          r.warehouseComment, r.receivedBy, r.wrongItemReceived ? "YES" : "", r.whStatus, r.transferTo,
+          r.postAction, r.sellerStatus, r.sellerComments,
+          r.caseId, x.caseStatus ?? "", x.caseRemark ?? "",
+          r.reimbQty, r.reimbAmount.toFixed(2), r.warehouseBilled ? "YES" : "NO", r.billedDate, r.billedAmount.toFixed(2), r.actionRemarks,
+        ].map(esc).join(","));
+      }
+      download("removal_receipts.csv", lines);
+      toast.success(`✅ Exported ${receiptRows.length} receipts`);
+      return;
+    }
+
     const headers = [
       "Request Date", "Order ID", "MSKU", "FNSKU", "Type", "Order Status", "Disposition",
       "Carriers", "Tracking", "Requested", "Expected", "Shipped",
       "Received", "Sellable", "Unsellable", "Missing", "Wrong Item",
       "Reimb Qty", "Reimb $", "Fee", "Status", "Case Count", "Case IDs",
     ];
-    const esc = (v: unknown) => {
-      const s = v == null ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
     const lines = [headers.join(",")];
     for (const r of filteredRows) {
       lines.push([
@@ -242,13 +280,7 @@ export function RemovalReconciliationClient({
         r.caseCount, r.caseIds,
       ].map(esc).join(","));
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "removal_recon.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    download("removal_recon.csv", lines);
     toast.success("✅ CSV exported");
   }
 
@@ -393,6 +425,40 @@ export function RemovalReconciliationClient({
                   <SelectItem value="In Progress">In Progress</SelectItem>
                   <SelectItem value="Pending">Pending</SelectItem>
                   <SelectItem value="Cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+              <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">Disposition</span>
+              <Select value={disposition} onValueChange={setDisposition}>
+                <SelectTrigger className="h-8 w-[150px] shrink-0 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_DISP}>All</SelectItem>
+                  {dispositionOptions.length > 0 ? (
+                    dispositionOptions.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {d}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="Sellable">Sellable</SelectItem>
+                      <SelectItem value="Unsellable">Unsellable</SelectItem>
+                      <SelectItem value="Damaged">Damaged</SelectItem>
+                      <SelectItem value="Customer Damaged">Customer Damaged</SelectItem>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+              <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">Type</span>
+              <Select value={orderType} onValueChange={setOrderType}>
+                <SelectTrigger className="h-8 w-[120px] shrink-0 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_DISP}>All</SelectItem>
+                  <SelectItem value="Return">Return</SelectItem>
+                  <SelectItem value="Disposal">Disposal</SelectItem>
                 </SelectContent>
               </Select>
               <Input

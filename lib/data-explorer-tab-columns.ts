@@ -632,7 +632,7 @@ const FBA_SUMMARY_DETAILS: ExplorerColumnSpec[] = [
   },
   { accessorKey: "fnsku", header: "FNSKU", kind: "text", cell: "mono" },
   { accessorKey: "asin", header: "ASIN", kind: "text", cell: "mono" },
-  { accessorKey: "title", header: "Title", kind: "text" },
+  { accessorKey: "title", header: "Title", kind: "text", cell: "truncate180" },
   {
     accessorKey: "disposition",
     header: "Disposition",

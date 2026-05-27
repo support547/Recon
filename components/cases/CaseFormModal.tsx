@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import type { CaseTrackerRow } from "@/actions/cases";
 import { createCase, updateCase } from "@/actions/cases";
+import { uploadCaseAttachment } from "@/actions/case-attachments";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -64,6 +65,8 @@ function emptyCaseForm(): CaseFormValues {
     resolvedDate: "",
     notes: "",
     store: "",
+    caseUrl: "",
+    attachmentUrl: "",
   };
 }
 
@@ -89,6 +92,8 @@ function rowToFormValues(row: CaseTrackerRow): CaseFormValues {
     resolvedDate: toDatetimeLocalValue(row.resolvedDate),
     notes: row.notes ?? "",
     store: row.store ?? "",
+    caseUrl: row.caseUrl ?? "",
+    attachmentUrl: row.attachmentUrl ?? "",
   };
 }
 
@@ -492,6 +497,75 @@ export function CaseFormModal({
                   )}
                 />
 
+                <FormField
+                  control={form.control}
+                  name="caseUrl"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Amazon Case URL</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="url"
+                          {...field}
+                          value={String(field.value ?? "")}
+                          placeholder="https://sellercentral.amazon.com/cu/case-dashboard/view-case?caseID=..."
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="attachmentUrl"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Attachment (PDF)</FormLabel>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!file) return;
+                            const fd = new FormData();
+                            fd.append("file", file);
+                            const res = await uploadCaseAttachment(fd);
+                            if (!res.ok) {
+                              toast.error(res.error);
+                              return;
+                            }
+                            field.onChange(res.url);
+                            toast.success("📎 PDF attached");
+                          }}
+                          className="text-xs"
+                        />
+                        {field.value ? (
+                          <>
+                            <a
+                              href={String(field.value)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 underline"
+                            >
+                              View
+                            </a>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => field.onChange("")}
+                            >
+                              Remove
+                            </Button>
+                          </>
+                        ) : null}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={form.control}
                   name="notes"

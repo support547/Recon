@@ -55,7 +55,10 @@ export function RaiseCaseModal({
   if (!row) return null;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+      <DialogContent
+        className="max-h-[92vh] w-[95vw] overflow-y-auto sm:!max-w-3xl"
+        style={{ maxWidth: "min(95vw, 880px)" }}
+      >
         <DialogHeader>
           <DialogTitle>⚖️ Raise Case — FC Transfer</DialogTitle>
         </DialogHeader>
@@ -80,6 +83,7 @@ function ModalBody({
   onSaved?: () => void;
 }) {
   const [caseId, setCaseId] = React.useState("");
+  const [caseUrl, setCaseUrl] = React.useState("");
   const [caseReason, setCaseReason] = React.useState(REASON_OPTIONS[0]);
   const [unitsClaimed, setUnitsClaimed] = React.useState(Math.abs(row.netQty) || 1);
   const [amountClaimed, setAmountClaimed] = React.useState(0);
@@ -102,6 +106,7 @@ function ModalBody({
         asin: row.asin || null,
         title: row.title || null,
         caseId: caseId || null,
+        caseUrl: caseUrl || null,
         caseReason,
         unitsClaimed,
         amountClaimed,
@@ -139,9 +144,19 @@ function ModalBody({
         </div>
       </div>
 
-      <Field label="Case ID (Amazon Case #)">
-        <Input value={caseId} onChange={(e) => setCaseId(e.target.value)} placeholder="e.g. 12345678901" />
-      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Case ID (Amazon Case #)">
+          <Input value={caseId} onChange={(e) => setCaseId(e.target.value)} placeholder="e.g. 12345678901" />
+        </Field>
+        <Field label="Amazon Case URL">
+          <Input
+            type="url"
+            value={caseUrl}
+            onChange={(e) => setCaseUrl(e.target.value)}
+            placeholder="https://sellercentral.amazon.com/cu/case-dashboard/view-case?caseID=..."
+          />
+        </Field>
+      </div>
 
       <Field label="Case Reason *">
         <Select value={caseReason} onValueChange={setCaseReason}>

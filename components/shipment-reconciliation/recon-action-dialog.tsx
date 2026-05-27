@@ -6,6 +6,8 @@ import { useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
 import { saveShipmentReconAdjustmentAction, saveShipmentReconCaseAction } from "@/actions/shipment-reconciliation";
+import { createWrongLabelAdjustment } from "@/actions/adjustments";
+import { uploadCaseAttachment } from "@/actions/case-attachments";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -78,6 +80,8 @@ export function ReconActionDialog({
       notes: "",
       case_id: null,
       amount_claimed: null,
+      case_url: null,
+      attachment_url: null,
     },
   });
 
@@ -110,6 +114,8 @@ export function ReconActionDialog({
       status: "pending",
       issue_date: todayInput(),
       notes: "",
+      case_url: null,
+      attachment_url: null,
     });
     adjForm.reset({
       msku: row.msku,
@@ -129,7 +135,49 @@ export function ReconActionDialog({
 
   const qb = adjForm.watch("qty_before");
   const qa = adjForm.watch("qty_adjusted");
+  const adjType = adjForm.watch("adj_type");
   const qtyAfter = (Number(qb) || 0) + (Number(qa) || 0);
+  const isWrongLabel = adjType === "wrong_label";
+  const [receivedAsFnsku, setReceivedAsFnsku] = React.useState("");
+  const [uploadingPdf, setUploadingPdf] = React.useState(false);
+  const [attachmentName, setAttachmentName] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) {
+      setReceivedAsFnsku("");
+      setAttachmentName(null);
+      setUploadingPdf(false);
+    }
+  }, [open]);
+
+  async function handlePdfChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingPdf(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await uploadCaseAttachment(fd);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      caseForm.setValue("attachment_url", res.url, { shouldDirty: true });
+      setAttachmentName(res.filename);
+      toast.success("📎 PDF attached");
+    } finally {
+      setUploadingPdf(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (isWrongLabel) {
+      if (!adjForm.getValues("reason")) {
+        adjForm.setValue("reason", "WRONG_LABEL");
+      }
+    }
+  }, [isWrongLabel, adjForm]);
 
   async function submitCase(values: ShipmentReconCaseActionInput) {
     if (!row) return;
@@ -153,6 +201,36 @@ export function ReconActionDialog({
 
   async function submitAdj(values: ShipmentReconAdjActionInput) {
     if (!row) return;
+    if (values.adj_type === "wrong_label") {
+      const qty = Math.abs(Number(values.qty_adjusted) || 0);
+      if (!receivedAsFnsku.trim()) {
+        toast.error("Received-as FNSKU is required.");
+        return;
+      }
+      if (qty <= 0) {
+        toast.error("Quantity must be at least 1.");
+        return;
+      }
+      const res = await createWrongLabelAdjustment({
+        shipmentId: row.shipment_id,
+        msku: row.msku,
+        expectedFnsku: row.fnsku,
+        receivedAsFnsku: receivedAsFnsku.trim(),
+        quantity: qty,
+        notes: values.notes?.trim() || undefined,
+        asin: row.asin ?? null,
+        title: row.title ?? null,
+        skipCase: true,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("⚠ Wrong-label adjustment recorded");
+      onOpenChange(false);
+      await onSaved();
+      return;
+    }
     const payload = {
       ...values,
       msku: row.msku,
@@ -180,7 +258,7 @@ export function ReconActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <p className="text-xs text-muted-foreground">
@@ -189,42 +267,42 @@ export function ReconActionDialog({
         </DialogHeader>
 
         {row ? (
-          <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs">
-            <div className="flex justify-between py-1">
+          <div className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs">
+            <div className="flex justify-between">
               <span className="text-muted-foreground">MSKU</span>
-              <span className="font-mono font-semibold">{row.msku}</span>
+              <span className="ml-2 truncate font-mono font-semibold" title={row.msku}>{row.msku}</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex justify-between">
               <span className="text-muted-foreground">FNSKU</span>
               <span className="font-mono font-semibold">{row.fnsku}</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Shipment</span>
-              <span className="font-mono font-semibold">
-                {row.shipment_id} · {row.ship_date}
-              </span>
+              <span className="font-mono font-semibold">{row.shipment_id}</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Ship Date</span>
+              <span className="font-mono font-semibold">{row.ship_date}</span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Shipped</span>
               <span className="font-mono font-semibold">{row.shipped_qty}</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Received</span>
               <span className="font-mono font-semibold">{row.received_qty}</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Shortage</span>
-              <span className="font-mono font-semibold text-red-600">
-                -{row.shortage}
-              </span>
+              <span className="font-mono font-semibold text-red-600">-{row.shortage}</span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="flex justify-between">
               <span className="text-muted-foreground">Reimbursed</span>
               <span className="font-mono font-semibold text-emerald-600">
                 {row.reimb_qty > 0 ? `+${row.reimb_qty}` : "—"}
               </span>
             </div>
-            <div className="flex justify-between py-1">
+            <div className="col-span-2 mt-1 flex justify-between border-t border-blue-200 pt-1.5">
               <span className="text-muted-foreground">Pending Units</span>
               <span className="font-mono font-semibold text-red-600">
                 {row.pending} units need action
@@ -352,6 +430,66 @@ export function ReconActionDialog({
               />
               <FormField
                 control={caseForm.control}
+                name="case_url"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Amazon Case URL</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="url"
+                        value={field.value ?? ""}
+                        onChange={(e) =>
+                          field.onChange(
+                            e.target.value === "" ? null : e.target.value,
+                          )
+                        }
+                        placeholder="https://sellercentral.amazon.com/cu/case-dashboard/view-case?caseID=..."
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Attachment (PDF)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={handlePdfChange}
+                    disabled={uploadingPdf}
+                    className="text-xs"
+                  />
+                  {uploadingPdf ? (
+                    <span className="text-xs text-muted-foreground">Uploading…</span>
+                  ) : attachmentName ? (
+                    <a
+                      href={caseForm.getValues("attachment_url") ?? "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-xs text-blue-600 underline"
+                      title={attachmentName}
+                    >
+                      {attachmentName}
+                    </a>
+                  ) : null}
+                  {attachmentName ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        caseForm.setValue("attachment_url", null, { shouldDirty: true });
+                        setAttachmentName(null);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+              <FormField
+                control={caseForm.control}
                 name="status"
                 render={({ field }) => (
                   <FormItem>
@@ -457,6 +595,9 @@ export function ReconActionDialog({
                         <SelectItem value="donated">
                           Donated / Written off
                         </SelectItem>
+                        <SelectItem value="wrong_label">
+                          ⚠ Wrong Label (received under different FNSKU)
+                        </SelectItem>
                         <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
@@ -464,6 +605,27 @@ export function ReconActionDialog({
                   </FormItem>
                 )}
               />
+              {isWrongLabel ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label className="text-[11px]">Expected FNSKU</Label>
+                    <Input
+                      value={row?.fnsku ?? ""}
+                      readOnly
+                      className="h-9 bg-slate-50 font-mono text-xs"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[11px]">Received as FNSKU *</Label>
+                    <Input
+                      value={receivedAsFnsku}
+                      onChange={(e) => setReceivedAsFnsku(e.target.value)}
+                      placeholder="X004YWCZ77"
+                      className="h-9 font-mono text-xs uppercase"
+                    />
+                  </div>
+                </div>
+              ) : null}
               <FormField
                 control={adjForm.control}
                 name="qty_adjusted"
@@ -477,65 +639,73 @@ export function ReconActionDialog({
                   </FormItem>
                 )}
               />
-              <FormField
-                control={adjForm.control}
-                name="qty_before"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Qty Before</FormLabel>
-                    <FormControl>
-                      <Input type="number" readOnly className="bg-slate-50" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="space-y-2">
-                <Label>Qty After (auto)</Label>
-                <Input readOnly className="bg-slate-50" value={qtyAfter} />
+              {!isWrongLabel ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={adjForm.control}
+                    name="qty_before"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Qty Before</FormLabel>
+                        <FormControl>
+                          <Input type="number" readOnly className="bg-slate-50" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="space-y-2">
+                    <Label>Qty After (auto)</Label>
+                    <Input readOnly className="bg-slate-50" value={qtyAfter} />
+                  </div>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={adjForm.control}
+                  name="adj_date"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Adj Date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={adjForm.control}
+                  name="verified_by"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Verified By</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Your name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
-              <FormField
-                control={adjForm.control}
-                name="adj_date"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Adj Date</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={adjForm.control}
-                name="verified_by"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Verified By</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="Your name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={adjForm.control}
-                name="reason"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Reason / Root Cause *</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Why is this adjustment being made?"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {!isWrongLabel ? (
+                <FormField
+                  control={adjForm.control}
+                  name="reason"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reason / Root Cause *</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="Why is this adjustment being made?"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
               <FormField
                 control={adjForm.control}
                 name="notes"

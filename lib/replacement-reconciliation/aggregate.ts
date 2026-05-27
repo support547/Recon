@@ -10,6 +10,8 @@ export function summaryStats(rows: ReplacementReconRow[]): ReplacementReconStats
   let reimbAmount = 0;
   let takeActionSkus = 0;
   let takeActionQty = 0;
+  let waitingReturnSkus = 0;
+  let waitingReturnQty = 0;
 
   for (const r of rows) {
     totalQty += r.quantity;
@@ -26,6 +28,10 @@ export function summaryStats(rows: ReplacementReconRow[]): ReplacementReconStats
       takeActionSkus++;
       takeActionQty += Math.max(0, r.quantity - r.returnQty - r.effectiveReimbQty);
     }
+    if (r.status === "WAITING_RETURN") {
+      waitingReturnSkus++;
+      waitingReturnQty += Math.max(0, r.quantity - r.returnQty - r.effectiveReimbQty);
+    }
   }
 
   return {
@@ -38,5 +44,7 @@ export function summaryStats(rows: ReplacementReconRow[]): ReplacementReconStats
     reimbAmount,
     takeActionSkus,
     takeActionQty,
+    waitingReturnSkus,
+    waitingReturnQty,
   };
 }

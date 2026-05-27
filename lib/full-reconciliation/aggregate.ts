@@ -2,6 +2,7 @@ import type { FullReconRow, FullReconStats } from "./types";
 
 export function summaryStats(rows: FullReconRow[]): FullReconStats {
   const totalFnskus = rows.length;
+  const mskuSet = new Set<string>();
   let totalShipped = 0;
   let totalReceived = 0;
   let totalShortage = 0;
@@ -13,6 +14,7 @@ export function summaryStats(rows: FullReconRow[]): FullReconStats {
   let noSnapshot = 0;
   let takeActionVariance = 0;
   for (const r of rows) {
+    if (r.msku) mskuSet.add(r.msku);
     totalShipped += r.shippedQty;
     totalReceived += r.receiptQty;
     totalShortage += r.shortageQty;
@@ -32,6 +34,7 @@ export function summaryStats(rows: FullReconRow[]): FullReconStats {
   }
   return {
     totalFnskus,
+    totalMskus: mskuSet.size,
     totalShipped,
     totalReceived,
     totalShortage,
