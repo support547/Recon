@@ -23,11 +23,3 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
-.claude/
-
-# Local scripts and uploads
-scripts/
-public/removal-attachments/
-
-# Large local artifacts
-audit.zip
