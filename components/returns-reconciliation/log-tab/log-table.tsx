@@ -11,7 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Pagination } from "@/components/shared/Pagination";
 import { cn } from "@/lib/utils";
-import type { ReturnsLogRow } from "@/lib/returns-reconciliation/types";
+import type { ReturnsLogRow } from "@/lib/returns-reconciliation/legacy-types";
 
 export function LogTable({
   rows,

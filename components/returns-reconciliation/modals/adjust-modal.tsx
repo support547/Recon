@@ -22,7 +22,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FnskuStatusBadge } from "@/components/returns-reconciliation/shared/fnsku-status-badge";
 import type { ReturnsReconRow } from "@/lib/returns-reconciliation/types";
 
 const ADJ_TYPES = [
@@ -112,8 +111,8 @@ export function AdjustModal({
           <Info label="MSKU">{row.msku}</Info>
           <Info label="Return FNSKU">{row.returnFnsku}</Info>
           <div className="flex items-center gap-2 py-1">
-            <span className="text-[10px] uppercase text-muted-foreground">FNSKU Status</span>
-            <FnskuStatusBadge status={row.fnskuStatus} />
+            <span className="text-[10px] uppercase text-muted-foreground">Status</span>
+            <span className="font-mono text-[11px] font-semibold">{row.finalStatus}</span>
           </div>
         </div>
 

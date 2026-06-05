@@ -5,12 +5,18 @@ import type {
   AsinVerificationRow,
   AsinVerificationStats,
   CaseMeta,
-  CatalogMeta,
   ReimbMeta,
   SalesOrderDetailMeta,
 } from "./types";
+import type { CatalogMeta } from "./legacy-types";
 
-const EMPTY_REIMB: ReimbMeta = { qty: 0, amount: 0 };
+const EMPTY_REIMB: ReimbMeta = {
+  qty: 0,
+  qtyCash: 0,
+  qtyInventory: 0,
+  amount: 0,
+  reimbType: "NONE",
+};
 const EMPTY_CASE: CaseMeta = {
   count: 0,
   claimedQty: 0,

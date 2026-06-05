@@ -1,5 +1,6 @@
 import { trimStr } from "./matching";
-import type { CatalogMeta, SalesOrderDetailMeta } from "./types";
+import type { SalesOrderDetailMeta } from "./types";
+import type { CatalogMeta } from "./legacy-types";
 
 /** Normalize for case-insensitive comparison. */
 export function norm(s: string | null | undefined): string {

@@ -22,10 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  AnalysisTable,
-  RETURNS_ANALYSIS_COLUMNS,
-} from "@/components/returns-reconciliation/analysis-tab/analysis-table";
+import { ActionQueuePanel } from "@/components/returns-reconciliation/analysis-tab/action-queue-panel";
 import {
   LogTable,
   RETURNS_LOG_COLUMNS,
@@ -49,8 +46,6 @@ import type {
 
 const ALL = "__all__";
 
-type CardKey = "all" | "matched" | "mismatch" | "notFound" | "reimbursed" | "case";
-
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
   React.useEffect(() => {
@@ -66,10 +61,6 @@ export function ReturnsReconciliationClient({
   initialPayload: ReturnsReconciliationPayload;
 }) {
   const [tab, setTab] = React.useState<"analysis" | "log" | "asin">("analysis");
-  const [analysisVis, setAnalysisVis] = useColumnVisibility(
-    "returnsRecon.analysisCols",
-    RETURNS_ANALYSIS_COLUMNS,
-  );
   const [logVis, setLogVis] = useColumnVisibility(
     "returnsRecon.logCols",
     RETURNS_LOG_COLUMNS,
@@ -84,7 +75,6 @@ export function ReturnsReconciliationClient({
   const [fnskuStatus, setFnskuStatus] = React.useState(ALL);
   const [search, setSearch] = React.useState("");
   const debouncedSearch = useDebounced(search, 280);
-  const [filterCard, setFilterCard] = React.useState<CardKey>("all");
 
   const [rows, setRows] = React.useState(initialPayload.rows);
   const [logRows, setLogRows] = React.useState(initialPayload.logRows);
@@ -93,8 +83,27 @@ export function ReturnsReconciliationClient({
 
   const [caseRow, setCaseRow] = React.useState<ReturnsReconRow | null>(null);
   const [caseOpen, setCaseOpen] = React.useState(false);
+  // Pre-filled case reason from the Action Queue. NOTE: RaiseCaseModal does not
+  // yet accept a reason prop, so the value is plumbed but has no visible effect
+  // until the modal exposes one. Only the setter is consumed for now (the value
+  // getter is intentionally dropped to stay lint-clean without a modal edit).
+  const [, setPrefillCaseReason] = React.useState("");
   const [adjRow, setAdjRow] = React.useState<ReturnsReconRow | null>(null);
   const [adjOpen, setAdjOpen] = React.useState(false);
+
+  const handleRaiseCase = React.useCallback(
+    (row: ReturnsReconRow, prefillReason?: string) => {
+      setCaseRow(row);
+      setPrefillCaseReason(prefillReason ?? "");
+      setCaseOpen(true);
+    },
+    [],
+  );
+
+  const handleAdjust = React.useCallback((row: ReturnsReconRow) => {
+    setAdjRow(row);
+    setAdjOpen(true);
+  }, []);
 
   // ASIN Verification state (lazy-loaded on first activation)
   const [asinRows, setAsinRows] = React.useState<AsinVerificationRow[]>([]);
@@ -135,7 +144,7 @@ export function ReturnsReconciliationClient({
         from: from || null,
         to: to || null,
         disposition: disposition === ALL ? "" : disposition,
-        fnskuStatus: fnskuStatus === ALL ? "" : cardToFnskuStatus(filterCard, fnskuStatus),
+        fnskuStatus: fnskuStatus === ALL ? "" : fnskuStatus,
         search: debouncedSearch || undefined,
       });
       setRows(data.rows);
@@ -144,7 +153,7 @@ export function ReturnsReconciliationClient({
     } finally {
       setLoading(false);
     }
-  }, [from, to, disposition, fnskuStatus, filterCard, debouncedSearch]);
+  }, [from, to, disposition, fnskuStatus, debouncedSearch]);
 
   const skipFirst = React.useRef(true);
   React.useEffect(() => {
@@ -181,67 +190,57 @@ export function ReturnsReconciliationClient({
 
   function asinToReturnsRow(r: AsinVerificationRow): ReturnsReconRow {
     // Adapter — modals only consume a subset of ReturnsReconRow fields.
-    // Map ASIN-tab status to the FNSKU-status enum the existing modal renders.
-    const fnskuStatus =
-      r.matchStatus === "ORDER_NOT_FOUND"
-        ? "ORDER_NOT_FOUND"
-        : r.matchStatus === "FULLY_VERIFIED"
-          ? "MATCHED_FNSKU"
-          : "FNSKU_MISMATCH";
+    // Map ASIN-tab match status onto the new ownership/final status model.
+    const ownershipStatus =
+      r.matchStatus === "ORDER_NOT_FOUND" ? "ORDER_NOT_FOUND" : "CONFIRMED";
     return {
       orderId: r.orderId,
       returnFnsku: r.returnFnsku,
+      lpn: "",
       msku: r.returnMsku,
       asin: r.returnAsin,
       title: r.returnTitle,
       totalReturned: r.returnedQty,
+      sellableQty: r.isSellable ? r.returnedQty : 0,
+      unsellableQty: r.isSellable ? 0 : r.returnedQty,
       returnEvents: r.returnEvents,
       dispositions: r.disposition,
       reasons: r.reasons,
+      isSellable: r.isSellable,
+      isGnrMsku: false,
+      amazonStatus: "",
+      ownershipStatus,
+      salesMsku: r.salesMsku,
+      gnrStatus: "",
+      inventoryStatus: "NOT_APPLICABLE",
+      fbaSummaryConfirmedQty: 0,
+      fbaSummaryExpectedQty: 0,
+      reimbStatus: "NOT_APPLICABLE",
       reimbQty: r.reimbQty,
+      reimbCashQty: 0,
+      reimbInventoryQty: 0,
       reimbAmount: r.reimbAmount,
+      caseCount: r.caseCount,
       caseReimbQty: 0,
       caseReimbAmount: 0,
+      caseStatusTop: r.caseStatusTop,
+      caseIds: r.caseIds,
       adjQty: 0,
       effReimbQty: r.reimbQty,
       effReimbAmount: r.reimbAmount,
-      salesFnsku: r.salesFnsku,
-      salesMsku: r.salesMsku,
-      fnskuStatus,
-      caseCount: r.caseCount,
-      caseStatusTop: r.caseStatusTop,
-      caseIds: r.caseIds,
       earliestReturn: r.earliestReturn,
       latestReturn: r.latestReturn,
-      isSellable: r.isSellable,
+      daysSinceReturn: -1,
+      isWithinWindow: false,
+      finalStatus: "INVESTIGATE",
     };
   }
-
-  const filteredRows = React.useMemo(() => {
-    if (filterCard === "all") return rows;
-    return rows.filter((r) => {
-      switch (filterCard) {
-        case "matched":
-          return r.fnskuStatus === "MATCHED_FNSKU";
-        case "mismatch":
-          return r.fnskuStatus === "FNSKU_MISMATCH";
-        case "notFound":
-          return r.fnskuStatus === "ORDER_NOT_FOUND";
-        case "reimbursed":
-          return r.effReimbAmount > 0;
-        case "case":
-          return r.caseCount > 0;
-        default:
-          return true;
-      }
-    });
-  }, [rows, filterCard]);
 
   function exportCsv() {
     const headers = [
       "Order ID", "Return FNSKU", "MSKU", "ASIN", "Title",
       "Returned Qty", "Events", "Dispositions", "Reasons",
-      "Reimb Qty", "Reimb $", "Sales FNSKU", "FNSKU Status",
+      "Reimb Qty", "Reimb $", "Sales MSKU", "Ownership", "Final Status",
       "Case Status", "Case Count", "Earliest Return", "Latest Return",
     ];
     const esc = (v: unknown) => {
@@ -249,12 +248,12 @@ export function ReturnsReconciliationClient({
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const lines = [headers.join(",")];
-    for (const r of filteredRows) {
+    for (const r of rows) {
       lines.push(
         [
           r.orderId, r.returnFnsku, r.msku, r.asin, r.title,
           r.totalReturned, r.returnEvents, r.dispositions, r.reasons,
-          r.effReimbQty, r.effReimbAmount.toFixed(2), r.salesFnsku, r.fnskuStatus,
+          r.effReimbQty, r.effReimbAmount.toFixed(2), r.salesMsku, r.ownershipStatus, r.finalStatus,
           r.caseStatusTop, r.caseCount, r.earliestReturn, r.latestReturn,
         ].map(esc).join(","),
       );
@@ -273,13 +272,7 @@ export function ReturnsReconciliationClient({
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
         <HeaderActions>
-          {tab === "analysis" ? (
-            <ColumnsMenu
-              columns={RETURNS_ANALYSIS_COLUMNS}
-              visibility={analysisVis}
-              onChange={setAnalysisVis}
-            />
-          ) : tab === "log" ? (
+          {tab === "analysis" ? null : tab === "log" ? (
             <ColumnsMenu
               columns={RETURNS_LOG_COLUMNS}
               visibility={logVis}
@@ -313,33 +306,77 @@ export function ReturnsReconciliationClient({
               dispositionOptions={dispositionOptions}
               onClear={() => {
                 setFrom(""); setTo(""); setDisposition(ALL); setFnskuStatus(ALL);
-                setSearch(""); setFilterCard("all");
+                setSearch("");
               }}
             />
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              <KpiCard label="Total Returns" border="blue" primary={stats.totalRows} secondary={stats.totalQty} secLabel="Units"
-                active={filterCard === "all"} onClick={() => setFilterCard("all")} />
-              <KpiCard label="Matched FNSKU" border="green" primary={stats.matchedSkus} secondary={stats.matchedQty} secLabel="Units"
-                active={filterCard === "matched"} onClick={() => setFilterCard("matched")} />
-              <KpiCard label="FNSKU Mismatch" border="red" primary={stats.mismatchSkus} secondary={stats.mismatchQty} secLabel="Units"
-                active={filterCard === "mismatch"} onClick={() => setFilterCard("mismatch")} />
-              <KpiCard label="Order Not Found" border="amber" primary={stats.notFoundSkus} secondary={stats.notFoundQty} secLabel="Units"
-                active={filterCard === "notFound"} onClick={() => setFilterCard("notFound")} />
-              <KpiCard label="Reimbursed" border="teal" primary={stats.reimbSkus} secondary={Number(stats.reimbAmount.toFixed(0))} secLabel="$"
-                active={filterCard === "reimbursed"} onClick={() => setFilterCard("reimbursed")} />
-              <KpiCard label="With Cases" border="slate" primary={stats.withCaseSkus} secondary={stats.sellableSkus} secLabel="Sellable"
-                active={filterCard === "case"} onClick={() => setFilterCard("case")} />
+            {/* Compact summary bar */}
+            <div className="mb-3 grid grid-cols-6 gap-2">
+              {[
+                {
+                  label: "Total Returns",
+                  value: stats.totalRows,
+                  sub: `${stats.totalQty.toLocaleString()} units`,
+                  color: "text-foreground",
+                },
+                {
+                  label: "Need Action",
+                  value: stats.caseNeededRows + stats.unknownGnrCaseRows,
+                  sub:
+                    `${stats.notInInventoryRows} not in inventory · ` +
+                    `${stats.unknownGnrCaseRows} unknown GNR`,
+                  color: "text-red-600",
+                },
+                {
+                  label: "Investigate",
+                  value: stats.investigateRows,
+                  sub: "order not in sales / reimb unverified",
+                  color: "text-amber-600",
+                },
+                {
+                  label: "GNR Tracking",
+                  value: stats.gnrTrackingRows + stats.transferredToGnrRows,
+                  sub:
+                    `${stats.gnrTrackingRows} by FNSKU match · ` +
+                    `${stats.transferredToGnrRows} by LPN transfer`,
+                  color: "text-purple-600",
+                },
+                {
+                  label: "Pending",
+                  value: stats.pendingRows,
+                  sub: "within 60-day Amazon SLA",
+                  color: "text-slate-500",
+                },
+                {
+                  label: "Resolved",
+                  value: stats.resolvedRows,
+                  sub: `${stats.inInventoryRows} in inventory · ${stats.reimbursedRows} reimbursed`,
+                  color: "text-emerald-600",
+                },
+              ].map((s) => (
+                <div
+                  key={s.label}
+                  className="rounded-lg border border-border bg-card px-3 py-2.5"
+                >
+                  <div className={cn("font-mono text-xl font-semibold tabular-nums", s.color)}>
+                    {s.value.toLocaleString()}
+                  </div>
+                  <div className="text-[11px] font-medium text-foreground">{s.label}</div>
+                  <div className="text-[10px] text-muted-foreground">{s.sub}</div>
+                </div>
+              ))}
             </div>
 
             {loading ? (
               <Skeleton className="h-64 w-full" />
             ) : (
-              <AnalysisTable
-                visibility={analysisVis}
-                rows={filteredRows}
-                onRaiseCase={(r) => { setCaseRow(r); setCaseOpen(true); }}
-                onAdjust={(r) => { setAdjRow(r); setAdjOpen(true); }}
+              <ActionQueuePanel
+                rows={rows}
+                externalDisposition={disposition === ALL ? "" : disposition}
+                externalSearch={debouncedSearch}
+                externalFnskuStatus={fnskuStatus === ALL ? "" : fnskuStatus}
+                onRaiseCase={(row, caseReason) => handleRaiseCase(row, caseReason)}
+                onAdjust={(row) => handleAdjust(row)}
               />
             )}
           </TabsContent>
@@ -542,13 +579,6 @@ export function ReturnsReconciliationClient({
   );
 }
 
-function cardToFnskuStatus(card: CardKey, current: string): string {
-  if (card === "matched") return "MATCHED_FNSKU";
-  if (card === "mismatch") return "FNSKU_MISMATCH";
-  if (card === "notFound") return "ORDER_NOT_FOUND";
-  return current;
-}
-
 function FilterBar({
   from, setFrom, to, setTo,
   disposition, setDisposition,
@@ -590,9 +620,16 @@ function FilterBar({
             <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All Statuses</SelectItem>
-              <SelectItem value="MATCHED_FNSKU">✓ Matched FNSKU</SelectItem>
-              <SelectItem value="FNSKU_MISMATCH">⚠ FNSKU Mismatch</SelectItem>
-              <SelectItem value="ORDER_NOT_FOUND">✕ Order Not Found</SelectItem>
+              <SelectItem value="CONFIRMED">✓ Confirmed</SelectItem>
+              <SelectItem value="GNR_TRACKING">↻ GNR Tracking</SelectItem>
+              <SelectItem value="TRANSFERRED_TO_GNR">
+                ↻ Transferred to GNR (LPN)
+              </SelectItem>
+              <SelectItem value="UNKNOWN_GNR">✕ Unknown GNR</SelectItem>
+              <SelectItem value="ORDER_NOT_FOUND">? Order Not Found</SelectItem>
+              <SelectItem value="CASE_NEEDED">⚠ Case Needed</SelectItem>
+              <SelectItem value="PENDING">⏱ Pending</SelectItem>
+              <SelectItem value="RESOLVED">✓ Resolved</SelectItem>
             </SelectContent>
           </Select>
         </>
@@ -612,7 +649,7 @@ function KpiCard({
   label, border, primary, secondary, secLabel, active, onClick,
 }: {
   label: string;
-  border: "blue" | "green" | "red" | "amber" | "slate" | "teal";
+  border: "blue" | "green" | "red" | "amber" | "slate" | "teal" | "purple" | "orange";
   primary: number;
   secondary: number;
   secLabel: string;
@@ -624,13 +661,17 @@ function KpiCard({
     border === "green" ? "border-t-emerald-500" :
     border === "red" ? "border-t-red-500" :
     border === "amber" ? "border-t-amber-500" :
-    border === "teal" ? "border-t-teal-500" : "border-t-slate-400";
+    border === "teal" ? "border-t-teal-500" :
+    border === "purple" ? "border-t-purple-500" :
+    border === "orange" ? "border-t-orange-500" : "border-t-slate-400";
   const c =
     border === "blue" ? "text-blue-600" :
     border === "green" ? "text-emerald-700" :
     border === "red" ? "text-red-600" :
     border === "amber" ? "text-amber-800" :
-    border === "teal" ? "text-teal-700" : "text-slate-600";
+    border === "teal" ? "text-teal-700" :
+    border === "purple" ? "text-purple-700" :
+    border === "orange" ? "text-orange-700" : "text-slate-600";
   return (
     <button
       type="button"

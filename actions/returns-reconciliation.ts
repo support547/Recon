@@ -10,8 +10,12 @@ import { aggregateReturns, computeReturnRow } from "@/lib/returns-reconciliation
 import {
   buildAdjMap,
   buildCaseMap,
+  buildFbaSummaryMap,
+  buildGnrBridgeMap,
+  buildGnrLpnMap,
   buildReimbMap,
-  buildSalesFnskuMap,
+  buildSalesMap,
+  norm,
 } from "@/lib/returns-reconciliation/matching";
 import {
   buildCatalogMap,
@@ -25,10 +29,10 @@ import type {
   AsinMatchStatus,
   AsinVerificationRow,
   AsinVerificationStats,
-  ReturnsLogRow,
   ReturnsReconRow,
   ReturnsReconStats,
 } from "@/lib/returns-reconciliation/types";
+import type { ReturnsLogRow } from "@/lib/returns-reconciliation/legacy-types";
 import {
   adjustmentSchema,
   raiseCaseSchema,
@@ -104,61 +108,137 @@ export async function getReturnsReconData(
     ];
   }
 
-  const [returns, sales, reimbs, cases, adjs] = await Promise.all([
-    prisma.customerReturn.findMany({
-      where,
-      select: {
-        id: true,
-        orderId: true,
-        fnsku: true,
-        msku: true,
-        asin: true,
-        title: true,
-        quantity: true,
-        disposition: true,
-        detailedDisposition: true,
-        reason: true,
-        returnDate: true,
-        status: true,
-        fulfillmentCenter: true,
-        licensePlateNumber: true,
-      },
-    }),
-    prisma.salesData.findMany({
-      where: { deletedAt: null },
-      select: { orderId: true, fnsku: true, msku: true },
-    }),
-    prisma.reimbursement.findMany({
-      where: { deletedAt: null },
-      select: { msku: true, reason: true, quantity: true, amount: true },
-    }),
-    prisma.caseTracker.findMany({
-      where: { deletedAt: null, reconType: ReconType.RETURN },
-      select: {
-        msku: true,
-        unitsClaimed: true,
-        unitsApproved: true,
-        amountApproved: true,
-        status: true,
-        referenceId: true,
-      },
-    }),
-    prisma.manualAdjustment.findMany({
-      where: { deletedAt: null, reconType: ReconType.RETURN },
-      select: { orderId: true, fnsku: true, qtyAdjusted: true, reason: true },
-    }),
-  ]);
+  const [returns, sales, reimbs, cases, adjs, gnrRows, fbaSummaryRows] =
+    await Promise.all([
+      prisma.customerReturn.findMany({
+        where,
+        select: {
+          id: true,
+          orderId: true,
+          fnsku: true,
+          msku: true,
+          asin: true,
+          title: true,
+          quantity: true,
+          disposition: true,
+          detailedDisposition: true,
+          reason: true,
+          returnDate: true,
+          status: true,
+          fulfillmentCenter: true,
+          licensePlateNumber: true,
+        },
+      }),
+      prisma.salesData.findMany({
+        where: { deletedAt: null },
+        select: { orderId: true, fnsku: true, msku: true, asin: true },
+      }),
+      prisma.reimbursement.findMany({
+        where: { deletedAt: null },
+        select: {
+          msku: true,
+          reason: true,
+          quantity: true,
+          amount: true,
+          qtyCash: true,
+          qtyInventory: true,
+          amazonOrderId: true,
+        },
+      }),
+      prisma.caseTracker.findMany({
+        where: { deletedAt: null, reconType: ReconType.RETURN },
+        select: {
+          msku: true,
+          unitsClaimed: true,
+          unitsApproved: true,
+          amountApproved: true,
+          status: true,
+          referenceId: true,
+        },
+      }),
+      prisma.manualAdjustment.findMany({
+        where: { deletedAt: null, reconType: ReconType.RETURN },
+        select: { orderId: true, fnsku: true, qtyAdjusted: true, reason: true },
+      }),
+      prisma.gnrReport.findMany({
+        where: { deletedAt: null },
+        select: {
+          orderId: true,
+          fnsku: true,
+          msku: true,
+          usedFnsku: true,
+          usedMsku: true,
+          unitStatus: true,
+          lpn: true,
+        },
+      }),
+      prisma.fbaSummary.findMany({
+        where: { deletedAt: null },
+        select: {
+          msku: true,
+          customerReturns: true,
+          summaryDate: true,
+        },
+      }),
+    ]);
 
-  const salesMap = buildSalesFnskuMap(sales);
-  const reimbMap = buildReimbMap(reimbs);
+  const salesMap = buildSalesMap(sales);
+  const gnrBridge = buildGnrBridgeMap(gnrRows);
+  const gnrByLpnMap = buildGnrLpnMap(
+    gnrRows.map((r) => ({
+      lpn:        r.lpn ?? null,
+      orderId:    r.orderId ?? null,
+      fnsku:      r.fnsku ?? null,
+      msku:       r.msku ?? null,
+      usedFnsku:  r.usedFnsku ?? null,
+      usedMsku:   r.usedMsku ?? null,
+      unitStatus: r.unitStatus ?? null,
+    })),
+  );
+  const fbaSummaryMap = buildFbaSummaryMap(fbaSummaryRows);
+  const reimbMaps = buildReimbMap(reimbs);
   const caseMap = buildCaseMap(cases);
   const adjMap = buildAdjMap(adjs);
+  const now = new Date();
 
-  const aggs = aggregateReturns(returns);
-  let rows = aggs.map((agg) => computeReturnRow({ agg, salesMap, reimbMap, caseMap, adjMap }));
+  const aggregated = aggregateReturns(returns);
 
+  // Pre-compute total SELLABLE "Unit returned to inventory" qty per MSKU
+  // Used for FbaSummary summation comparison.
+  const mskuSellableTotals = new Map<string, number>();
+  for (const agg of aggregated) {
+    const isSellable = Array.from(agg.dispositions).some((d) =>
+      d.toUpperCase().includes("SELLABLE"),
+    );
+    const isUnitReturned = agg.amazonStatus === "Unit returned to inventory";
+    if (isSellable && isUnitReturned && !agg.msku.toLowerCase().startsWith("amzn.gr.")) {
+      const mk = norm(agg.msku);
+      if (mk) mskuSellableTotals.set(mk, (mskuSellableTotals.get(mk) ?? 0) + agg.totalReturned);
+    }
+  }
+
+  let rows = aggregated.map((agg) =>
+    computeReturnRow({
+      agg,
+      salesMap,
+      gnrBridge,
+      gnrByLpnMap,
+      fbaSummaryMap,
+      mskuSellableTotals,
+      reimbMaps,
+      caseMap,
+      adjMap,
+      now,
+    }),
+  );
+
+  // FNSKU Status filter now matches ownership OR final status values
   if (filters.fnskuStatus && filters.fnskuStatus !== "all" && filters.fnskuStatus !== "") {
-    rows = rows.filter((r) => r.fnskuStatus === filters.fnskuStatus);
+    rows = rows.filter(
+      (r) =>
+        r.ownershipStatus === filters.fnskuStatus ||
+        r.finalStatus === filters.fnskuStatus,
+    );
   }
 
   const stats = summaryStats(rows);
@@ -283,7 +363,9 @@ export async function getAsinVerificationData(
         quantity: true,
         disposition: true,
         reason: true,
+        status: true,
         returnDate: true,
+        licensePlateNumber: true,
       },
     }),
     prisma.salesData.findMany({
@@ -313,14 +395,22 @@ export async function getAsinVerificationData(
     }),
     prisma.reimbursement.findMany({
       where: { deletedAt: null },
-      select: { msku: true, reason: true, quantity: true, amount: true },
+      select: {
+        msku: true,
+        reason: true,
+        quantity: true,
+        amount: true,
+        qtyCash: true,
+        qtyInventory: true,
+        amazonOrderId: true,
+      },
     }),
   ]);
 
   const salesOrderMap = buildSalesOrderDetailMap(sales);
   const catalogMap = buildCatalogMap(catalog);
   const caseMap = buildCaseMap(cases);
-  const reimbMap = buildReimbMap(reimbs);
+  const reimbMaps = buildReimbMap(reimbs);
 
   const aggs = aggregateReturns(returns);
   let rows = aggs.map((agg) =>
@@ -328,7 +418,7 @@ export async function getAsinVerificationData(
       agg,
       salesOrderMap,
       catalogMap,
-      reimbMap,
+      reimbMap: reimbMaps.byMsku,
       caseMap,
     }),
   );

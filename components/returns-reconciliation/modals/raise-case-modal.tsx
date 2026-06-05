@@ -22,7 +22,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FnskuStatusBadge } from "@/components/returns-reconciliation/shared/fnsku-status-badge";
 import type { ReturnsReconRow } from "@/lib/returns-reconciliation/types";
 
 const REASON_OPTIONS = [
@@ -66,10 +65,10 @@ export function RaiseCaseModal({
     if (!open || !row) return;
     setCaseId("");
     setCaseReason(
-      row.fnskuStatus === "FNSKU_MISMATCH"
-        ? "Wrong item returned by customer"
-        : row.fnskuStatus === "ORDER_NOT_FOUND"
-          ? "Order not found in sales data"
+      row.ownershipStatus === "ORDER_NOT_FOUND"
+        ? "Order not found in sales data"
+        : row.finalStatus === "UNKNOWN_GNR_CASE"
+          ? "GNR MSKU not matched to our account"
           : "",
     );
     setUnitsClaimed(row.totalReturned || 1);
@@ -123,11 +122,9 @@ export function RaiseCaseModal({
           <Info label="Order ID">{row.orderId}</Info>
           <Info label="MSKU">{row.msku}</Info>
           <Info label="Return FNSKU">{row.returnFnsku}</Info>
-          <Info label="Sales FNSKU">{row.salesFnsku || "Not in Sales"}</Info>
-          <div className="flex items-center gap-2 py-1">
-            <span className="text-[10px] uppercase text-muted-foreground">FNSKU Status</span>
-            <FnskuStatusBadge status={row.fnskuStatus} />
-          </div>
+          <Info label="Sales MSKU">{row.salesMsku || "Not in Sales"}</Info>
+          <Info label="Ownership">{row.ownershipStatus}</Info>
+          <Info label="Status">{row.finalStatus}</Info>
           <Info label="Returned Qty">{row.totalReturned}</Info>
         </div>
 
