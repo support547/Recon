@@ -9,11 +9,16 @@ import { summaryStats } from "@/lib/returns-reconciliation/aggregate";
 import { aggregateReturns, computeReturnRow } from "@/lib/returns-reconciliation/formula";
 import {
   buildAdjMap,
+  buildAsinReturnSummary,
   buildCaseMap,
+  buildFbaSummaryByAsinMap,
+  buildFbaSummaryDailyMap,
   buildFbaSummaryMap,
   buildGnrBridgeMap,
   buildGnrLpnMap,
+  buildGnrLpnQtyMap,
   buildReimbMap,
+  buildReimbOrderMskuMap,
   buildSalesMap,
   norm,
 } from "@/lib/returns-reconciliation/matching";
@@ -27,6 +32,7 @@ import {
 } from "@/lib/returns-reconciliation/asin-formula";
 import type {
   AsinMatchStatus,
+  AsinReturnRow,
   AsinVerificationRow,
   AsinVerificationStats,
   ReturnsReconRow,
@@ -44,6 +50,7 @@ export type MutationResult<T = void> =
 
 export type ReturnsReconciliationPayload = {
   rows: ReturnsReconRow[];
+  asinRows: AsinReturnRow[];
   logRows: ReturnsLogRow[];
   stats: ReturnsReconStats;
 };
@@ -73,6 +80,7 @@ function adjTypeToEnum(s: string): AdjType {
   if (v === "QUANTITY" || v === "RECOUNT") return AdjType.QUANTITY;
   if (v === "FINANCIAL" || v === "CREDIT") return AdjType.FINANCIAL;
   if (v === "STATUS" || v === "TRANSFER") return AdjType.STATUS;
+  if (v === "RETURN_NEW_MSKU" || v === "RETURN_NEW") return AdjType.RETURN_NEW_MSKU;
   if (v === "OTHER" || v === "WRITE-OFF" || v === "WRITE_OFF") return AdjType.OTHER;
   return AdjType.OTHER;
 }
@@ -81,7 +89,6 @@ export type ReturnsReconFilters = {
   from?: string | null;
   to?: string | null;
   disposition?: string;
-  fnskuStatus?: string;
   search?: string;
 };
 
@@ -105,6 +112,8 @@ export async function getReturnsReconData(
       { fnsku: { contains: q, mode: "insensitive" } },
       { asin: { contains: q, mode: "insensitive" } },
       { orderId: { contains: q, mode: "insensitive" } },
+      { licensePlateNumber: { contains: q, mode: "insensitive" } },
+      { fulfillmentCenter: { contains: q, mode: "insensitive" } },
     ];
   }
 
@@ -143,17 +152,24 @@ export async function getReturnsReconData(
           qtyCash: true,
           qtyInventory: true,
           amazonOrderId: true,
+          reimbursementId: true,
+          originalReimbId: true,
+          approvalDate: true,
+          caseId: true,
         },
       }),
       prisma.caseTracker.findMany({
         where: { deletedAt: null, reconType: ReconType.RETURN },
         select: {
+          orderId: true,
+          fnsku: true,
           msku: true,
           unitsClaimed: true,
           unitsApproved: true,
           amountApproved: true,
           status: true,
           referenceId: true,
+          notes: true,
         },
       }),
       prisma.manualAdjustment.findMany({
@@ -170,12 +186,15 @@ export async function getReturnsReconData(
           usedMsku: true,
           unitStatus: true,
           lpn: true,
+          quantity: true,
         },
       }),
       prisma.fbaSummary.findMany({
         where: { deletedAt: null },
         select: {
           msku: true,
+          asin: true,
+          disposition: true,
           customerReturns: true,
           summaryDate: true,
         },
@@ -195,13 +214,34 @@ export async function getReturnsReconData(
       unitStatus: r.unitStatus ?? null,
     })),
   );
+  const gnrByLpnQtyMap = buildGnrLpnQtyMap(
+    gnrRows.map((r) => ({ lpn: r.lpn ?? null, quantity: r.quantity })),
+  );
   const fbaSummaryMap = buildFbaSummaryMap(fbaSummaryRows);
+  const fbaSummaryDailyMap = buildFbaSummaryDailyMap(fbaSummaryRows);
   const reimbMaps = buildReimbMap(reimbs);
+  const reimbOrderMskuMap = buildReimbOrderMskuMap(reimbs);
   const caseMap = buildCaseMap(cases);
   const adjMap = buildAdjMap(adjs);
   const now = new Date();
 
-  const aggregated = aggregateReturns(returns);
+  const aggregated = aggregateReturns(
+    returns.map((r) => ({
+      orderId: r.orderId,
+      fnsku: r.fnsku,
+      msku: r.msku,
+      asin: r.asin,
+      title: r.title,
+      quantity: r.quantity,
+      disposition: r.disposition,
+      detailedDisposition: r.detailedDisposition,
+      reason: r.reason,
+      status: r.status,
+      returnDate: r.returnDate,
+      licensePlateNumber: r.licensePlateNumber,
+      fulfillmentCenterId: r.fulfillmentCenter,
+    })),
+  );
 
   // Pre-compute total SELLABLE "Unit returned to inventory" qty per MSKU
   // Used for FbaSummary summation comparison.
@@ -223,7 +263,10 @@ export async function getReturnsReconData(
       salesMap,
       gnrBridge,
       gnrByLpnMap,
+      gnrByLpnQtyMap,
       fbaSummaryMap,
+      fbaSummaryDailyMap,
+      reimbOrderMskuMap,
       mskuSellableTotals,
       reimbMaps,
       caseMap,
@@ -232,16 +275,14 @@ export async function getReturnsReconData(
     }),
   );
 
-  // FNSKU Status filter now matches ownership OR final status values
-  if (filters.fnskuStatus && filters.fnskuStatus !== "all" && filters.fnskuStatus !== "") {
-    rows = rows.filter(
-      (r) =>
-        r.ownershipStatus === filters.fnskuStatus ||
-        r.finalStatus === filters.fnskuStatus,
-    );
-  }
+  // Status filtering is done client-side (the By-MSKU cards + Status dropdown
+  // share one filter and the table scopes itself). The server returns the full
+  // date/disposition/search set so the cards stay global.
 
   const stats = summaryStats(rows);
+
+  const fbaSummaryByAsin = buildFbaSummaryByAsinMap(fbaSummaryRows);
+  const asinRows = buildAsinReturnSummary(rows, fbaSummaryByAsin);
 
   const logRows: ReturnsLogRow[] = returns.map((r) => ({
     id: r.id,
@@ -260,7 +301,7 @@ export async function getReturnsReconData(
     caseId: "",
   }));
 
-  return { rows, logRows, stats };
+  return { rows, asinRows, logRows, stats };
 }
 
 export async function saveReturnCaseAction(raw: unknown): Promise<MutationResult<{ id: string }>> {
@@ -294,6 +335,7 @@ export async function saveReturnCaseAction(raw: unknown): Promise<MutationResult
         status: statusToEnum(v.status),
         issueDate: today,
         raisedDate: today,
+        caseUrl: v.caseUrl ?? null,
         notes: v.notes,
       },
     });
@@ -366,6 +408,7 @@ export async function getAsinVerificationData(
         status: true,
         returnDate: true,
         licensePlateNumber: true,
+        fulfillmentCenter: true,
       },
     }),
     prisma.salesData.findMany({
@@ -385,12 +428,15 @@ export async function getAsinVerificationData(
     prisma.caseTracker.findMany({
       where: { deletedAt: null, reconType: ReconType.RETURN },
       select: {
+        orderId: true,
+        fnsku: true,
         msku: true,
         unitsClaimed: true,
         unitsApproved: true,
         amountApproved: true,
         status: true,
         referenceId: true,
+        notes: true,
       },
     }),
     prisma.reimbursement.findMany({
@@ -412,7 +458,22 @@ export async function getAsinVerificationData(
   const caseMap = buildCaseMap(cases);
   const reimbMaps = buildReimbMap(reimbs);
 
-  const aggs = aggregateReturns(returns);
+  const aggs = aggregateReturns(
+    returns.map((r) => ({
+      orderId: r.orderId,
+      fnsku: r.fnsku,
+      msku: r.msku,
+      asin: r.asin,
+      title: r.title,
+      quantity: r.quantity,
+      disposition: r.disposition,
+      reason: r.reason,
+      status: r.status,
+      returnDate: r.returnDate,
+      licensePlateNumber: r.licensePlateNumber,
+      fulfillmentCenterId: r.fulfillmentCenter,
+    })),
+  );
   let rows = aggs.map((agg) =>
     computeAsinVerificationRow({
       agg,
@@ -462,6 +523,7 @@ export async function saveReturnAdjustmentAction(raw: unknown): Promise<Mutation
         reconType: ReconType.RETURN,
         orderId: v.orderId,
         adjType: adjTypeToEnum(v.adjType),
+        originalMsku: v.originalMsku ?? null,
         qtyBefore: 0,
         qtyAdjusted: v.qtyAdjusted,
         qtyAfter: v.qtyAdjusted,

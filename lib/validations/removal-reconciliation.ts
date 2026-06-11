@@ -110,6 +110,16 @@ export const postActionSchema = z.object({
 
 export type PostActionInputZ = z.infer<typeof postActionSchema>;
 
+/** Focused warehouse-billing update — independent of post-action / reimbursement. */
+export const warehouseBillingSchema = z.object({
+  receiptId: z.string().min(1),
+  warehouseBilled: z.boolean().default(false),
+  billedDate: optDate,
+  billedAmount: numLike,
+});
+
+export type WarehouseBillingInputZ = z.infer<typeof warehouseBillingSchema>;
+
 /** Stand-alone removal recon case (no receipt row required). Shows in Cases & Adjustments. */
 export const removalCaseRaiseSchema = z.object({
   orderId: z.string().min(1),

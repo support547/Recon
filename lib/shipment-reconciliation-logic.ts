@@ -10,6 +10,22 @@ export type ReconStatus =
   | "excess"
   | "shortage";
 
+export type ReceiptDetail = {
+  /** yyyy-mm-dd from receiptDate (fallback receiptDatetime), or "—" */
+  date: string;
+  fulfillmentCenter: string;
+  quantity: number;
+};
+
+export type ReimbDetail = {
+  /** yyyy-mm-dd from approvalDate, or "—" */
+  date: string;
+  reimbursementId: string;
+  caseId: string;
+  amount: number;
+  quantity: number;
+};
+
 export type ShipmentReconRow = {
   shipment_id: string;
   shipment_status: string;
@@ -22,10 +38,20 @@ export type ShipmentReconRow = {
   days_open: number | "—";
   shipped_qty: number;
   received_qty: number;
+  received_details: ReceiptDetail[];
   shortage: number;
   reimb_qty: number;
+  reimb_details: ReimbDetail[];
   pending: number;
   status: ReconStatus;
+};
+
+export type AdjDetail = {
+  /** referenceId on the adjustment = root-cause type (found/lost/damaged/…) */
+  rootCause: string;
+  reason: string;
+  notes: string;
+  qty: number;
 };
 
 export type ActionCacheEntry = {
@@ -33,6 +59,7 @@ export type ActionCacheEntry = {
   case_approved: number;
   case_amount: number;
   adj_qty: number;
+  adj_details?: AdjDetail[];
   case_status: string | null;
   case_count: number;
   case_ids: string[];
@@ -79,6 +106,46 @@ export function buildReceiptQuantityMap(
   return rcMap;
 }
 
+/**
+ * Per-receipt line details (date, FC, qty) for hover/tooltip display.
+ * Keyed identically to `buildReceiptQuantityMap`:
+ *   "<shipmentId>|<fnsku>" when shipmentId present, else "<fnsku>".
+ */
+export function buildReceiptDetailMap(
+  rows: {
+    shipmentId?: string | null;
+    fnsku: string | null;
+    quantity: number;
+    receiptDate: Date | null;
+    receiptDatetime?: Date | null;
+    fulfillmentCenter: string | null;
+  }[],
+): Record<string, ReceiptDetail[]> {
+  const map: Record<string, ReceiptDetail[]> = {};
+  for (const r of rows) {
+    const fk = trimCl(r.fnsku);
+    if (!fk) continue;
+    const sid = trimCl(r.shipmentId ?? null);
+    const key = sid ? `${sid}|${fk}` : fk;
+    let date = "—";
+    const dsrc = r.receiptDate ?? r.receiptDatetime ?? null;
+    if (dsrc) {
+      try {
+        const d = new Date(dsrc);
+        if (!Number.isNaN(d.getTime())) date = d.toISOString().split("T")[0];
+      } catch {
+        /* noop */
+      }
+    }
+    (map[key] ??= []).push({
+      date,
+      fulfillmentCenter: trimCl(r.fulfillmentCenter) || "—",
+      quantity: Number(r.quantity) || 0,
+    });
+  }
+  return map;
+}
+
 /** Lost_Inbound reimbursements only — matches legacy `reason.trim() === 'Lost_Inbound'` */
 export function buildLostInboundReimbMap(
   rows: { fnsku: string | null; reason: string | null; quantity: number }[],
@@ -91,6 +158,46 @@ export function buildLostInboundReimbMap(
     riMap[k] = (riMap[k] ?? 0) + (Number(r.quantity) || 0);
   }
   return riMap;
+}
+
+/**
+ * Per-fnsku Lost_Inbound reimbursement line details (date, id, amount, qty)
+ * for hover/tooltip display. Same filter as `buildLostInboundReimbMap`.
+ */
+export function buildLostInboundReimbDetailMap(
+  rows: {
+    fnsku: string | null;
+    reason: string | null;
+    quantity: number;
+    amount: number | null;
+    reimbursementId: string | null;
+    caseId: string | null;
+    approvalDate: Date | null;
+  }[],
+): Record<string, ReimbDetail[]> {
+  const map: Record<string, ReimbDetail[]> = {};
+  for (const r of rows) {
+    if (String(r.reason ?? "").trim() !== "Lost_Inbound") continue;
+    const k = trimCl(r.fnsku);
+    if (!k) continue;
+    let date = "—";
+    if (r.approvalDate) {
+      try {
+        const d = new Date(r.approvalDate);
+        if (!Number.isNaN(d.getTime())) date = d.toISOString().split("T")[0];
+      } catch {
+        /* noop */
+      }
+    }
+    (map[k] ??= []).push({
+      date,
+      reimbursementId: trimCl(r.reimbursementId) || "—",
+      caseId: trimCl(r.caseId) || "—",
+      amount: Number(r.amount) || 0,
+      quantity: Number(r.quantity) || 0,
+    });
+  }
+  return map;
 }
 
 export type ShipmentMeta = {
@@ -139,7 +246,9 @@ export function computeReconRows(args: {
     shipDate: Date | null;
   }[];
   rcMap: Record<string, number>;
+  rcDetailMap?: Record<string, ReceiptDetail[]>;
   riMap: Record<string, number>;
+  riDetailMap?: Record<string, ReimbDetail[]>;
   shipMap: Record<string, ShipmentMeta>;
   filterShipmentStatus: string;
   filterShipmentId: string;
@@ -147,7 +256,9 @@ export function computeReconRows(args: {
   const {
     shippedRows,
     rcMap,
+    rcDetailMap,
     riMap,
+    riDetailMap,
     shipMap,
     filterShipmentStatus,
     filterShipmentId,
@@ -177,10 +288,14 @@ export function computeReconRows(args: {
     const received_qty = fk
       ? rcMap[`${sid}|${fk}`] ?? rcMap[fk] ?? 0
       : 0;
+    const received_details = fk
+      ? rcDetailMap?.[`${sid}|${fk}`] ?? rcDetailMap?.[fk] ?? []
+      : [];
     const shortage = Math.max(0, shipped_qty - received_qty);
     // TODO: Reimbursement schema lacks shipmentId — Lost_Inbound reimb is
     // matched fnsku-only. Multi-shipment FNSKUs will share the reimb pool.
     const reimb_qty = fk ? riMap[fk] ?? 0 : 0;
+    const reimb_details = fk ? riDetailMap?.[fk] ?? [] : [];
     const pending = Math.max(0, shortage - reimb_qty);
 
     let status: ReconStatus = "matched";
@@ -231,8 +346,10 @@ export function computeReconRows(args: {
       days_open,
       shipped_qty,
       received_qty,
+      received_details,
       shortage,
       reimb_qty,
+      reimb_details,
       pending,
       status,
     };
@@ -317,6 +434,9 @@ export function tableRowDerived(r: ShipmentReconRow, ca: ActionCacheEntry) {
     statusBadgeKind = r.status === "excess" ? "excess" : "matched";
   } else if (r.shortage === 0) {
     statusBadgeKind = "matched";
+  } else if (r.reimb_qty >= r.shortage) {
+    // Lost_Inbound reimbursement fully covers the shortage → Reimbursed.
+    statusBadgeKind = "reimbursed";
   } else if (approvedAmt > 0 || approvedQty >= r.shortage) {
     statusBadgeKind = "reimbursed";
   } else if (effectivePending <= 0) {
@@ -435,6 +555,7 @@ export function summaryStats(
   let pendingUnits = 0;
   let totalQty = 0;
   let reimbQty = 0;
+  let reimbSkus = 0;
   let caseRaisedSkus = 0;
   let caseRaisedQty = 0;
   let caseApprovedQty = 0;
@@ -444,6 +565,7 @@ export function summaryStats(
   for (const r of allRows) {
     totalQty += r.shipped_qty;
     reimbQty += r.reimb_qty;
+    if (r.reimb_qty > 0) reimbSkus++;
 
     const fk = trimCl(r.fnsku);
     const ca = overlay[fk] ?? EMPTY_CA;
@@ -490,6 +612,7 @@ export function summaryStats(
     shortQty,
     caseQty: caseNeededQty,
     reimbQty,
+    reimbSkus,
     caseRaisedSkus,
     caseRaisedQty,
     caseApprovedQty,

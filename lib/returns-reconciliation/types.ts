@@ -43,6 +43,26 @@ export type ReimbMeta = {
   reimbType: "CASH" | "INVENTORY" | "BOTH" | "NONE";
 };
 
+// One reimbursement line for the By-MSKU "Reimb Qty" hover detail.
+export type ReimbDetail = {
+  date: string;        // approvalDate → YYYY-MM-DD ("" if none)
+  reimbId: string;     // reimbursementId
+  caseId: string;      // caseId
+  reason: string;      // reason (e.g. CustomerReturn, Reimbursement_Reversal)
+  qty: number;         // qtyCash (signed — reversals are negative)
+  amount: number;      // amount (signed — reversals are negative)
+  isReversal: boolean; // true when originalReimbId is set (clawback row)
+};
+
+// Reimbursements aggregated by orderId + MSKU (all reasons).
+// Net of reversals: reversal rows carry negative qtyCash/amount and are
+// bucketed into the ORIGINAL reimbursement's order+MSKU via originalReimbId.
+export type ReimbOrderMskuMeta = {
+  qty: number;            // net qtyCash (reversals subtract)
+  netAmount: number;      // net signed amount (reversals subtract)
+  details: ReimbDetail[]; // one entry per reimbursement row
+};
+
 export type CaseMeta = {
   count: number;
   claimedQty: number;
@@ -50,6 +70,7 @@ export type CaseMeta = {
   approvedAmount: number;
   caseIds: string[];
   topStatus: string;
+  remarks: string[];
 };
 
 export type AdjMeta = {
@@ -72,11 +93,19 @@ export type FbaSummaryMeta = {
 export type ReturnsReconRow = {
   orderId: string;
   returnFnsku: string;
-  lpn: string;
+  lpn: string;              // primary LPN
+  lpnAll: string[];         // all LPNs for this order+msku
+  fc: string;               // primary fulfillment center
+  dispositionAll: string[]; // all dispositions (for tooltip)
   msku: string;
   asin: string;
   title: string;
   totalReturned: number;
+  inventoryQty: number;   // matched from FbaSummary daily (MSKU + disposition + date ±1)
+  reimbOrderMskuQty: number; // NET reimbursement qty (cash) matched on orderId + MSKU
+  reimbNetAmount: number;    // NET reimbursement amount (signed, reversals subtract)
+  reimbDetails: ReimbDetail[]; // per-reimbursement lines for the Reimb Qty hover
+  gnrLpnQty: number;         // GnrReport.quantity summed across LPNs matching this order+msku
   sellableQty: number;
   unsellableQty: number;
   returnEvents: number;
@@ -97,11 +126,14 @@ export type ReturnsReconRow = {
   reimbInventoryQty: number;
   reimbAmount: number;
   caseCount: number;
+  caseClaimedQty: number;
   caseReimbQty: number;
   caseReimbAmount: number;
   caseStatusTop: string;
   caseIds: string;
+  caseRemarks: string;
   adjQty: number;
+  adjReasons: string;
   effReimbQty: number;
   effReimbAmount: number;
   earliestReturn: string;
@@ -184,4 +216,31 @@ export type AsinVerificationStats = {
 
 export type SalesOrderDetailMeta = {
   fnskuSet: Set<string>; asinSet: Set<string>; mskuSet: Set<string>;
+};
+
+export type AsinReturnRow = {
+  asin: string;
+  title: string;
+
+  // Quantity columns — reconciling returnedQty
+  returnedQty: number;         // total returned for this ASIN
+
+  // Inventory = back in FBA. Total = FBA summary + GNR (regular + LPN transfer).
+  inventoryQty: number;        // inventoryFbaQty + gnrQty + transferredGnrQty
+  inventoryFbaQty: number;     // FbaSummary.customerReturns (CUST RETURNS) summed by ASIN
+  gnrQty: number;              // finalStatus = GNR_TRACKING rows (part of inventory)
+  transferredGnrQty: number;   // finalStatus = TRANSFERRED_TO_GNR rows (part of inventory)
+
+  reimbursedQty: number;       // reimbursed rows (REIMBURSED_CASH or REIMBURSED_INVENTORY)
+  adjustedQty: number;         // SUM(row.adjQty) across all rows for this ASIN
+
+  // Reconciliation shortfall: max(0, returned − inventory − reimbursed − adjusted).
+  // Shown in the Pending column; > 0 means action needed.
+  pendingQty: number;
+
+  // Final derived status: RESOLVED when reconciled, CASE_NEEDED when shortfall remains.
+  asinStatus: "RESOLVED" | "PENDING" | "CASE_NEEDED" | "INVESTIGATE";
+
+  // For popup drill-down
+  rows: ReturnsReconRow[];
 };

@@ -53,6 +53,7 @@ function emptyCaseForm(): CaseFormValues {
     shipmentId: "",
     orderId: "",
     referenceId: "",
+    reimbursementId: "",
     caseReason: "",
     unitsClaimed: 0,
     unitsApproved: 0,
@@ -80,6 +81,7 @@ function rowToFormValues(row: CaseTrackerRow): CaseFormValues {
     shipmentId: row.shipmentId ?? "",
     orderId: row.orderId ?? "",
     referenceId: row.referenceId ?? "",
+    reimbursementId: row.reimbursementId ?? "",
     caseReason: row.caseReason ?? "",
     unitsClaimed: row.unitsClaimed,
     unitsApproved: row.unitsApproved,
@@ -315,6 +317,24 @@ export function CaseFormModal({
                           value={String(field.value ?? "")}
                         />
                       </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="reimbursementId"
+                  render={({ field }) => (
+                    <FormItem className="sm:col-span-2">
+                      <FormLabel>Reimbursement ID</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={String(field.value ?? "")}
+                          placeholder="Amazon reimbursement ID"
+                        />
+                      </FormControl>
+                      <FormMessage />
                     </FormItem>
                   )}
                 />

@@ -6,20 +6,28 @@ import { AdjType, CaseStatus, Prisma, ReconType } from "@prisma/client";
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
 import {
-  aggregateFcAnalysis,
-  aggregateFcSummary,
-  fcStats,
-} from "@/lib/fc-transfer-reconciliation/aggregate";
-import {
   buildFcAdjMap,
   buildFcCaseMap,
 } from "@/lib/fc-transfer-reconciliation/matching";
+import {
+  aggregateFcFullRecon,
+  fcFullStats,
+} from "@/lib/fc-transfer-reconciliation/full-recon";
+import {
+  aggregateFcByFc,
+  fcByFcDetails,
+  fcByFcStats,
+} from "@/lib/fc-transfer-reconciliation/by-fc";
+import type { FcLogRow } from "@/lib/fc-transfer-reconciliation/types";
 import type {
-  FcAnalysisRow,
-  FcLogRow,
-  FcReconStats,
-  FcSummaryRow,
-} from "@/lib/fc-transfer-reconciliation/types";
+  FcFullReconRow,
+  FcFullStats,
+} from "@/lib/fc-transfer-reconciliation/full-recon-types";
+import type {
+  FcByFcDetail,
+  FcByFcRow,
+  FcByFcStats,
+} from "@/lib/fc-transfer-reconciliation/by-fc-types";
 import {
   fcAdjustmentSchema,
   fcRaiseCaseSchema,
@@ -28,13 +36,6 @@ import {
 export type MutationResult<T = void> =
   | { ok: true; data?: T }
   | { ok: false; error: string };
-
-export type FcTransferReconPayload = {
-  summary: FcSummaryRow[];
-  analysis: FcAnalysisRow[];
-  logRows: FcLogRow[];
-  stats: FcReconStats;
-};
 
 export type FcTransferReconFilters = {
   from?: string | null;
@@ -71,9 +72,23 @@ function revalidateAll() {
   revalidatePath("/cases-adjustments");
 }
 
-export async function getFcTransferReconData(
+export type FcFullReconPayload = {
+  rows: FcFullReconRow[];
+  stats: FcFullStats;
+  // Raw transfer ledger for the Transfer Log tab (+ MSKU log drill-down). Built
+  // from the same `transfers` query, so the Log tab no longer needs the legacy
+  // engine and the Full tab's rows/stats are unaffected.
+  logRows: FcLogRow[];
+};
+
+/**
+ * Data feed for the FC Transfer page: the Full Reconciliation tab (rows + stats
+ * with embedded leg-detail groups) AND the Transfer Log tab (logRows). Single
+ * deletedAt:null query, same filter shape.
+ */
+export async function getFcTransferFullRecon(
   filters: FcTransferReconFilters = {},
-): Promise<FcTransferReconPayload> {
+): Promise<FcFullReconPayload> {
   const where: Prisma.FcTransferWhereInput = { deletedAt: null };
   if (filters.from) {
     where.transferDate = { ...(where.transferDate as object | undefined), gte: new Date(filters.from) };
@@ -111,6 +126,7 @@ export async function getFcTransferReconData(
         fulfillmentCenter: true,
         disposition: true,
         reason: true,
+        referenceId: true,
       },
       orderBy: { transferDate: "desc" },
     }),
@@ -118,25 +134,28 @@ export async function getFcTransferReconData(
       where: { deletedAt: null, reconType: ReconType.FC_TRANSFER },
       select: {
         msku: true,
+        fnsku: true,
+        asin: true,
         unitsClaimed: true,
         unitsApproved: true,
         amountApproved: true,
         status: true,
         referenceId: true,
+        raisedDate: true,
+        issueDate: true,
       },
     }),
     prisma.manualAdjustment.findMany({
       where: { deletedAt: null, reconType: ReconType.FC_TRANSFER },
-      select: { msku: true, qtyAdjusted: true, reason: true },
+      select: { msku: true, fnsku: true, asin: true, qtyAdjusted: true, reason: true, adjDate: true },
     }),
   ]);
 
   const caseMap = buildFcCaseMap(cases);
   const adjMap = buildFcAdjMap(adjs);
 
-  const summary = aggregateFcSummary(transfers, caseMap);
-  const analysis = aggregateFcAnalysis(transfers, caseMap, adjMap);
-  const stats = fcStats(summary, analysis);
+  const rows = aggregateFcFullRecon(transfers, caseMap, adjMap);
+  const stats = fcFullStats(rows);
 
   const logRows: FcLogRow[] = transfers.map((r) => ({
     id: r.id,
@@ -152,7 +171,71 @@ export async function getFcTransferReconData(
     reason: r.reason ?? "",
   }));
 
-  return { summary, analysis, logRows, stats };
+  return { rows, stats, logRows };
+}
+
+export type FcByFcPayload = {
+  rows: FcByFcRow[];
+  stats: FcByFcStats;
+  // Per-FC drill-down detail keyed by FC code: the MSKUs at each FC (with their
+  // in/out/net AT THAT FC) and the underlying legs. Serialized as an array of
+  // [fc, detail] entries (Maps don't survive the server→client boundary).
+  details: Array<[string, FcByFcDetail]>;
+};
+
+/**
+ * Data feed for the "By FC" view — an FC-WISE ANALYSIS SUMMARY (descriptive
+ * only; no status/coverage/episodes). Fetches the SAME fcTransfer rows as
+ * getFcTransferFullRecon (deletedAt:null + the From/To/FC/search filters), then
+ * runs the analysis aggregation. Does NOT touch the full-recon engine or its
+ * cases/adjustments overlay — pure transfer-ledger flow per node.
+ */
+export async function getFcByFcSummary(
+  filters: FcTransferReconFilters = {},
+): Promise<FcByFcPayload> {
+  const where: Prisma.FcTransferWhereInput = { deletedAt: null };
+  if (filters.from) {
+    where.transferDate = { ...(where.transferDate as object | undefined), gte: new Date(filters.from) };
+  }
+  if (filters.to) {
+    where.transferDate = {
+      ...(where.transferDate as object | undefined),
+      lte: new Date(filters.to + "T23:59:59"),
+    };
+  }
+  if (filters.fc?.trim()) {
+    where.fulfillmentCenter = { contains: filters.fc.trim(), mode: "insensitive" };
+  }
+  if (filters.search?.trim()) {
+    const q = filters.search.trim();
+    where.OR = [
+      { msku: { contains: q, mode: "insensitive" } },
+      { fnsku: { contains: q, mode: "insensitive" } },
+      { asin: { contains: q, mode: "insensitive" } },
+    ];
+  }
+
+  const transfers = await prisma.fcTransfer.findMany({
+    where,
+    select: {
+      id: true,
+      msku: true,
+      fnsku: true,
+      asin: true,
+      title: true,
+      quantity: true,
+      transferDate: true,
+      fulfillmentCenter: true,
+      disposition: true,
+    },
+    orderBy: { transferDate: "desc" },
+  });
+
+  const rows = aggregateFcByFc(transfers);
+  const stats = fcByFcStats(transfers);
+  const details = Array.from(fcByFcDetails(transfers).entries());
+
+  return { rows, stats, details };
 }
 
 export async function saveFcCaseAction(

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Lock, Package, ScrollText, Unlock } from "lucide-react";
+import { ChevronRight, Lock, Package, ScrollText, Unlock } from "lucide-react";
 
 import {
   TableBody,
@@ -21,7 +21,9 @@ import {
 } from "@/components/removal-reconciliation/shared/status-badge";
 import { cn } from "@/lib/utils";
 import { Pagination } from "@/components/shared/Pagination";
-import type { RemovalReconRow } from "@/lib/removal-reconciliation/types";
+import type { RemovalReconRow, TrackingDetail } from "@/lib/removal-reconciliation/types";
+
+type OrderTrackingAgg = { tracking: string; count: number; fee: number };
 
 export type RemovalColTotalKey =
   | "requestedQty"
@@ -68,6 +70,38 @@ export function OrdersTable({
     return { requestedQty, actualShipped, receivedQty, reimbQty, reimbAmount, removalFee };
   }, [rows]);
 
+  // Per-order tracking breakdown: unique tracking # → line count + summed fee,
+  // aggregated across every row sharing the same orderId.
+  const orderTrackingMap = React.useMemo(() => {
+    const map = new Map<string, OrderTrackingAgg[]>();
+    const byOrder = new Map<string, Map<string, { count: number; fee: number }>>();
+    for (const r of rows) {
+      if (!r.orderId) continue;
+      let trackMap = byOrder.get(r.orderId);
+      if (!trackMap) {
+        trackMap = new Map();
+        byOrder.set(r.orderId, trackMap);
+      }
+      const trackings = (r.trackingNumbers || "")
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const keys = trackings.length > 0 ? trackings : ["—"];
+      for (const t of keys) {
+        const prev = trackMap.get(t) ?? { count: 0, fee: 0 };
+        prev.count += 1;
+        prev.fee += r.removalFee;
+        trackMap.set(t, prev);
+      }
+    }
+    for (const [orderId, trackMap] of byOrder) {
+      const aggs = Array.from(trackMap, ([tracking, v]) => ({ tracking, ...v }));
+      aggs.sort((a, b) => b.count - a.count || b.fee - a.fee);
+      map.set(orderId, aggs);
+    }
+    return map;
+  }, [rows]);
+
   const totalsMap: Record<RemovalColTotalKey, { value: number; currency?: boolean }> = {
     requestedQty: { value: totals.requestedQty },
     actualShipped: { value: totals.actualShipped },
@@ -104,7 +138,20 @@ export function OrdersTable({
 
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(15);
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+  const toggleExpand = React.useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
   React.useEffect(() => { setPage(1); }, [rows]);
+  const visibleColCount = React.useMemo(
+    () => ORDERS_TABLE_COLUMNS.filter((c) => show(c.id)).length + 1,
+    [visibility],
+  );
   const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
 
   if (rows.length === 0) {
@@ -122,6 +169,7 @@ export function OrdersTable({
       <table className="w-full caption-bottom text-sm">
         <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
+            <TableHead className="h-11 w-8 px-1" aria-label="Expand" />
             {ORDERS_TABLE_COLUMNS.filter((c) => show(c.id)).map((c) => {
               const hasTotal = c.id in totalsMap;
               const alignItems =
@@ -153,15 +201,38 @@ export function OrdersTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {pagedRows.map((r) => (
+          {pagedRows.map((r) => {
+            const details = r.trackingDetails ?? [];
+            const canExpand = details.length > 1;
+            const isOpen = expanded.has(r.removalId);
+            return (
+            <React.Fragment key={r.removalId}>
             <TableRow
-              key={r.removalId}
-              className="cursor-default hover:bg-slate-50/40"
+              className={cn(
+                "cursor-default hover:bg-slate-50/40",
+                isOpen && "bg-slate-50/60",
+              )}
             >
+              <TableCell className="w-8 px-1 align-middle">
+                {canExpand ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(r.removalId)}
+                    className="flex size-5 items-center justify-center rounded text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                    title={isOpen ? "Collapse trackings" : "Show trackings"}
+                    aria-expanded={isOpen}
+                  >
+                    <ChevronRight
+                      className={cn("size-3.5 transition-transform", isOpen && "rotate-90")}
+                      aria-hidden
+                    />
+                  </button>
+                ) : null}
+              </TableCell>
               {show("request_date") && <TableCell className="font-mono text-[11px] text-muted-foreground">{r.requestDate}</TableCell>}
               {show("order_id") && (
                 <TableCell className="font-mono text-[11px]">
-                  <OrderIdCell row={r} />
+                  <OrderIdCell row={r} trackings={orderTrackingMap.get(r.orderId) ?? []} />
                 </TableCell>
               )}
               {show("msku") && (
@@ -241,7 +312,16 @@ export function OrdersTable({
                 </TableCell>
               )}
             </TableRow>
-          ))}
+            {isOpen && canExpand ? (
+              <TableRow className="bg-slate-50/40 hover:bg-slate-50/40">
+                <TableCell colSpan={visibleColCount} className="p-0">
+                  <TrackingDetailRows details={details} />
+                </TableCell>
+              </TableRow>
+            ) : null}
+            </React.Fragment>
+          );
+          })}
         </TableBody>
       </table>
     </div>
@@ -271,6 +351,55 @@ export const ORDERS_TABLE_COLUMNS = [
   { id: "status", label: "Status", align: "center" as const },
   { id: "actions", label: "Actions", align: "left" as const },
 ];
+
+function TrackingDetailRows({ details }: { details: TrackingDetail[] }) {
+  return (
+    <div className="border-l-2 border-blue-200 bg-slate-50/60 px-4 py-2">
+      <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+        Per-tracking breakdown ({details.length})
+      </div>
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="text-[9px] uppercase tracking-wider text-slate-400">
+            <th className="px-2 py-1 text-left font-semibold">Tracking #</th>
+            <th className="px-2 py-1 text-left font-semibold">Carrier</th>
+            <th className="px-2 py-1 text-right font-semibold">Shipped</th>
+            <th className="px-2 py-1 text-right font-semibold">Rcvd</th>
+            <th className="px-2 py-1 text-right font-semibold">Sellable</th>
+            <th className="px-2 py-1 text-right font-semibold">Unsellable</th>
+            <th className="px-2 py-1 text-right font-semibold">Missing</th>
+          </tr>
+        </thead>
+        <tbody>
+          {details.map((d) => (
+            <tr key={d.tracking} className="border-t border-slate-200/70">
+              <td className="px-2 py-1 font-mono text-foreground">{d.tracking}</td>
+              <td className="px-2 py-1 text-muted-foreground">{d.carrier || "—"}</td>
+              <td className="px-2 py-1 text-right font-mono font-bold text-emerald-700">
+                {d.shipped > 0 ? d.shipped : "—"}
+              </td>
+              <td className="px-2 py-1 text-right font-mono">
+                {d.received > 0 ? <span className="font-bold text-blue-700">{d.received}</span> : "—"}
+              </td>
+              <td className="px-2 py-1 text-right font-mono text-emerald-700">
+                {d.sellable > 0 ? d.sellable : "—"}
+              </td>
+              <td className="px-2 py-1 text-right font-mono text-amber-700">
+                {d.unsellable > 0 ? d.unsellable : "—"}
+              </td>
+              <td className="px-2 py-1 text-right font-mono text-red-600">
+                {d.missing > 0 ? d.missing : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-1 text-[9px] italic text-slate-400">
+        Removal fee is billed per order, not per tracking — see the Fee column on the parent row.
+      </p>
+    </div>
+  );
+}
 
 function OrderStatusChip({ status }: { status: string }) {
   const cls =
@@ -328,7 +457,7 @@ function TrackingCell({ row }: { row: RemovalReconRow }) {
   const raw = (row.trackingNumbers || "").trim();
   if (!raw) return <span className="text-muted-foreground">—</span>;
   const list = raw
-    .split(/[,\n]/)
+    .split(/[|,\n]/)
     .map((s) => s.trim())
     .filter(Boolean);
   const first = list[0] ?? raw;
@@ -363,11 +492,19 @@ function TrackingCell({ row }: { row: RemovalReconRow }) {
   );
 }
 
-function OrderIdCell({ row }: { row: RemovalReconRow }) {
+function OrderIdCell({
+  row,
+  trackings,
+}: {
+  row: RemovalReconRow;
+  trackings: OrderTrackingAgg[];
+}) {
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
     void navigator.clipboard.writeText(row.orderId).catch(() => {});
   };
+  const totalCount = trackings.reduce((s, t) => s + t.count, 0);
+  const totalFee = trackings.reduce((s, t) => s + t.fee, 0);
   return (
     <CellHoverPopover
       trigger={
@@ -375,26 +512,48 @@ function OrderIdCell({ row }: { row: RemovalReconRow }) {
           {row.orderId}
         </span>
       }
-      title="Order detail"
+      title="Tracking breakdown"
+      count={trackings.length}
       side="right"
-      width={340}
+      width={360}
     >
       <CellHoverRow left="Order ID" right={row.orderId} />
-      <CellHoverRow left="Removal ID" right={row.removalId} />
-      <CellHoverRow left="Type" right={row.orderType} />
-      <CellHoverRow left="Status" right={row.orderStatus} />
-      <CellHoverRow left="Disposition" right={row.disposition} />
-      <CellHoverRow left="Request Date" right={row.requestDate} />
-      <CellHoverRow left="Last Updated" right={row.lastUpdated || "—"} />
-      <CellHoverRow left="Requested" right={row.requestedQty} />
-      <CellHoverRow left="Expected" right={row.expectedShipped} />
-      <CellHoverRow left="Shipped" right={row.actualShipped} />
-      <CellHoverRow left="Received" right={row.receivedQty} />
-      <CellHoverRow left="Missing" right={row.missingQty} />
-      <CellHoverRow left="Fee" right={`$${row.removalFee.toFixed(2)}`} />
-      {row.caseIds ? (
-        <CellHoverRow left="Case IDs" right={row.caseIds} />
-      ) : null}
+      <div className="mt-1 grid grid-cols-[1fr_auto_auto] gap-x-3 border-b border-border/60 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span>Tracking #</span>
+        <span className="text-right">Count</span>
+        <span className="text-right">Fee</span>
+      </div>
+      {trackings.length === 0 ? (
+        <div className="px-2 py-2 text-center text-[11px] text-muted-foreground">
+          No tracking data
+        </div>
+      ) : (
+        trackings.map((t) => (
+          <div
+            key={t.tracking}
+            className="grid grid-cols-[1fr_auto_auto] items-baseline gap-x-3 border-b border-border/60 px-2 py-1 last:border-b-0"
+          >
+            <span className="truncate font-mono text-foreground" title={t.tracking}>
+              {t.tracking}
+            </span>
+            <span className="text-right font-mono tabular-nums text-muted-foreground">
+              {t.count}×
+            </span>
+            <span className="text-right font-mono tabular-nums text-muted-foreground">
+              ${t.fee.toFixed(2)}
+            </span>
+          </div>
+        ))
+      )}
+      <div className="grid grid-cols-[1fr_auto_auto] items-baseline gap-x-3 border-t-2 border-border px-2 py-1 font-semibold">
+        <span className="text-foreground">Total</span>
+        <span className="text-right font-mono tabular-nums text-foreground">
+          {totalCount}×
+        </span>
+        <span className="text-right font-mono tabular-nums text-foreground">
+          ${totalFee.toFixed(2)}
+        </span>
+      </div>
       <button
         type="button"
         onClick={copy}

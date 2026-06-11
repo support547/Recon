@@ -5,7 +5,8 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useForm, type Resolver } from "react-hook-form";
 import { toast } from "sonner";
 
-import type { CaseTrackerRow, ManualAdjustmentRow } from "@/actions/cases";
+import type { CaseTrackerRow } from "@/actions/cases";
+import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
 import {
   saveShipmentCaStandaloneAdjustment,
   saveShipmentCaStandaloneCase,

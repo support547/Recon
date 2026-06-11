@@ -81,6 +81,9 @@ export type ReimbRow = {
   reason: string | null;
   amazonOrderId: string | null;
   caseId: string | null;
+  reimbursementId: string | null;
+  originalReimbId: string | null;
+  originalReimbType: string | null;
 };
 
 export type RemovalReceiptRow = {
@@ -289,7 +292,9 @@ export function aggregateReturns(rows: ReturnRow[]): Map<string, ReturnAgg> {
 type ReimbAgg = { qty: number; amount: number; details: ReimbDetail[] };
 
 export function aggregateReimbursements(rows: ReimbRow[]): Map<string, ReimbAgg> {
-  // Filter to Lost/Damaged reasons; group by fnsku+reason+orderId+caseId
+  // Include only reasons in REIMB_REASON_FILTER. For Reimbursement_Reversal rows,
+  // include (with negated qty/amount) only when the original reimbursement's reason
+  // is also in the filter — resolved via originalReimbType first, else originalReimbId lookup.
   type GroupBucket = {
     qty: number;
     amount: number;
@@ -297,15 +302,43 @@ export function aggregateReimbursements(rows: ReimbRow[]): Map<string, ReimbAgg>
     orderId: string;
     caseId: string;
   };
+
+  const idToReason = new Map<string, string>();
+  for (const r of rows) {
+    const id = trimStr(r.reimbursementId);
+    if (!id) continue;
+    const reason = trimStr(r.reason);
+    if (reason) idToReason.set(id, reason);
+  }
+
   const groups = new Map<string, Map<string, GroupBucket>>();
   for (const r of rows) {
-    if (!matchesReimbFilter(r.reason)) continue;
     const fnsku = trimStr(r.fnsku);
     if (!fnsku) continue;
-    const reason = trimStr(r.reason) || "—";
+    const rawReason = trimStr(r.reason);
+    const reasonLc = rawReason.toLowerCase();
+    const isReversal = reasonLc === "reimbursement_reversal";
+
+    let effectiveReason: string;
+    let negate: boolean;
+
+    if (isReversal) {
+      const origType = trimStr(r.originalReimbType);
+      const origId = trimStr(r.originalReimbId);
+      const resolved = origType || (origId ? idToReason.get(origId) ?? "" : "");
+      if (!resolved || !matchesReimbFilter(resolved)) continue;
+      effectiveReason = resolved;
+      negate = true;
+    } else if (matchesReimbFilter(rawReason)) {
+      effectiveReason = rawReason;
+      negate = false;
+    } else {
+      continue;
+    }
+
     const orderId = trimStr(r.amazonOrderId) || "—";
     const caseId = trimStr(r.caseId) || "—";
-    const subKey = `${reason}|${orderId}|${caseId}`;
+    const subKey = `${effectiveReason}|${orderId}|${caseId}`;
     let outer = groups.get(fnsku);
     if (!outer) {
       outer = new Map<string, GroupBucket>();
@@ -313,14 +346,13 @@ export function aggregateReimbursements(rows: ReimbRow[]): Map<string, ReimbAgg>
     }
     let bucket = outer.get(subKey);
     if (!bucket) {
-      bucket = { qty: 0, amount: 0, reason, orderId, caseId };
+      bucket = { qty: 0, amount: 0, reason: effectiveReason, orderId, caseId };
       outer.set(subKey, bucket);
     }
-    const isReversal = (r.reason ?? "").toLowerCase().includes("reversal");
     const qty = r.quantity || 0;
     const amt = r.amount ? Number(r.amount.toString()) : 0;
-    bucket.qty += isReversal ? -qty : qty;
-    bucket.amount += isReversal ? -amt : amt;
+    bucket.qty += negate ? -qty : qty;
+    bucket.amount += negate ? -amt : amt;
   }
   const out = new Map<string, ReimbAgg>();
   for (const [fnsku, sub] of groups) {

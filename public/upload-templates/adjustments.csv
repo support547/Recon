@@ -1,0 +1,4 @@
+Date,FNSKU,ASIN,MSKU,Title,Event Type,Reference ID,Quantity,Fulfillment Center,Disposition,Reason,Country,Reconciled,Unreconciled,Date and Time,Store
+5/26/2026,X0054UEISAMPLE,1785929836,amzn.gr.97-sample,A Complete Sample Title,Adjustment,20078151785114,1,IND8,SELLABLE,P,US,,,2026-05-26T00:00:00,
+5/26/2026,X0054UEISAMPLE,1785929836,amzn.gr.97-sample,A Complete Sample Title,Adjustment,20078153167196,1,IND8,CUSTOMER_DAMAGED,3,US,,,2026-05-26T00:00:00,
+5/26/2026,X0054UEISAMPLE,1785929836,amzn.gr.97-sample,A Complete Sample Title,Adjustment,20078151785111,-1,IND8,CUSTOMER_DAMAGED,Q,US,,,2026-05-26T00:00:00,

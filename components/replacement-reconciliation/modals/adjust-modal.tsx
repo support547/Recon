@@ -29,6 +29,7 @@ const ADJ_TYPES = [
   { value: "QUANTITY", label: "Quantity / Recount" },
   { value: "FINANCIAL", label: "Financial / Credit" },
   { value: "STATUS", label: "Status / Transfer" },
+  { value: "RETURN_NEW_MSKU", label: "Both Returned" },
   { value: "OTHER", label: "Other / Write-off" },
 ];
 
@@ -57,7 +58,7 @@ export function AdjustModal({
   React.useEffect(() => {
     if (!open || !row) return;
     setAdjType("");
-    const pending = Math.max(0, row.quantity - row.returnQty - row.effectiveReimbQty);
+    const pending = Math.max(0, row.quantity - row.coveredQty);
     setQtyAdjusted(pending || 0);
     setReason("");
     setAdjDate(todayIso());
@@ -108,7 +109,7 @@ export function AdjustModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>🔧 Manual Adjustment — Replacement</DialogTitle>
         </DialogHeader>

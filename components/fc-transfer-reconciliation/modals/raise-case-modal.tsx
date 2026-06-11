@@ -22,8 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ActionStatusBadge } from "@/components/fc-transfer-reconciliation/shared/action-status-badge";
-import type { FcAnalysisRow } from "@/lib/fc-transfer-reconciliation/types";
+import type { FcModalTarget } from "@/lib/fc-transfer-reconciliation/modal-target";
 
 const REASON_OPTIONS = [
   "FC Transfer Discrepancy — units sent but not received",
@@ -47,7 +46,7 @@ export function RaiseCaseModal({
   onOpenChange,
   onSaved,
 }: {
-  row: FcAnalysisRow | null;
+  row: FcModalTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
@@ -78,7 +77,7 @@ function ModalBody({
   onClose,
   onSaved,
 }: {
-  row: FcAnalysisRow;
+  row: FcModalTarget;
   onClose: () => void;
   onSaved?: () => void;
 }) {
@@ -138,10 +137,6 @@ function ModalBody({
           </span>
         </Info>
         <Info label="Days Pending">{row.daysPending}</Info>
-        <div className="flex items-center gap-2 py-1">
-          <span className="text-[10px] uppercase text-muted-foreground">Status</span>
-          <ActionStatusBadge status={row.actionStatus} />
-        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">

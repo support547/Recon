@@ -1,4 +1,5 @@
-import type { CaseTrackerRow, ManualAdjustmentRow } from "@/actions/cases";
+import type { CaseTrackerRow } from "@/actions/cases";
+import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
 import { CaseStatus, type ReconType } from "@prisma/client";
 
 /** Lowercase snake recon label for badges / CSV parity with legacy HTML */

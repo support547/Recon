@@ -18,6 +18,7 @@ import {
   receiveActionSchema,
   reimbursementSchema,
   removalCaseRaiseSchema,
+  warehouseBillingSchema,
 } from "@/lib/validations/removal-reconciliation";
 
 export type MutationResult<T = void> =
@@ -94,14 +95,8 @@ export async function getRemovalReconData(
   if (filters.to) {
     where.requestDate = { ...(where.requestDate as object | undefined), lte: new Date(filters.to + "T23:59:59") };
   }
-  if (filters.search?.trim()) {
-    const q = filters.search.trim();
-    where.OR = [
-      { msku: { contains: q, mode: "insensitive" } },
-      { fnsku: { contains: q, mode: "insensitive" } },
-      { orderId: { contains: q, mode: "insensitive" } },
-    ];
-  }
+  // NOTE: search is applied post-computation (below) so it can also match
+  // trackingNumbers, which live on removalShipment — not on FbaRemoval.
 
   const [removals, shipments, receipts, cases] = await Promise.all([
     prisma.fbaRemoval.findMany({
@@ -141,6 +136,7 @@ export async function getRemovalReconData(
       select: {
         orderId: true,
         fnsku: true,
+        trackingNumber: true,
         receivedQty: true,
         sellableQty: true,
         unsellableQty: true,
@@ -194,6 +190,15 @@ export async function getRemovalReconData(
       rows = rows.filter((r) => r.receiptStatus === rs);
     }
   }
+  if (filters.search?.trim()) {
+    const q = filters.search.trim().toLowerCase();
+    rows = rows.filter((r) =>
+      r.msku.toLowerCase().includes(q) ||
+      r.fnsku.toLowerCase().includes(q) ||
+      r.orderId.toLowerCase().includes(q) ||
+      r.trackingNumbers.toLowerCase().includes(q),
+    );
+  }
 
   const stats = summaryStats(rows);
 
@@ -224,16 +229,20 @@ export async function listRemovalReceipts(): Promise<RemovalReceiptRow[]> {
   const removals = orderIds.length
     ? await prisma.fbaRemoval.findMany({
         where: { orderId: { in: orderIds }, deletedAt: null },
-        select: { orderId: true, requestDate: true },
+        select: { orderId: true, requestDate: true, removalFee: true },
       })
     : [];
   const requestDateMap = new Map<string, Date | null>();
+  // Order-level total removal fee (summed across the order's removal lines).
+  const feeMap = new Map<string, number>();
   for (const x of removals) {
     if (!x.orderId) continue;
     const cur = requestDateMap.get(x.orderId);
     if (!cur || (x.requestDate && cur < x.requestDate)) {
       requestDateMap.set(x.orderId, x.requestDate ?? null);
     }
+    const fee = x.removalFee ? Number(x.removalFee.toString()) : 0;
+    feeMap.set(x.orderId, (feeMap.get(x.orderId) ?? 0) + fee);
   }
   const caseTrackerIds = Array.from(
     new Set(rows.map((r) => r.caseTrackerId).filter((x): x is string => Boolean(x))),
@@ -281,6 +290,7 @@ export async function listRemovalReceipts(): Promise<RemovalReceiptRow[]> {
     billedAmount: r.billedAmount ? Number(r.billedAmount.toString()) : 0,
     reimbQty: r.reimbQty,
     reimbAmount: r.reimbAmount ? Number(r.reimbAmount.toString()) : 0,
+    reshippedQty: r.reshippedQty,
     postAction: r.postAction ?? "",
     actionRemarks: r.actionRemarks ?? "",
     actionDate: fmtDateIso(r.actionDate),
@@ -300,6 +310,7 @@ export async function listRemovalReceipts(): Promise<RemovalReceiptRow[]> {
     packingListCount: r.packingListCount,
     ...extractAttachmentUrls(r.attachmentUrls),
     requestDate: fmtDateIso(r.orderId ? requestDateMap.get(r.orderId) ?? null : null),
+    removalFee: r.orderId ? feeMap.get(r.orderId) ?? 0 : 0,
   }));
 }
 
@@ -651,6 +662,37 @@ export async function saveCaseRemark(
     const receipt = await prisma.removalReceipt.update({
       where: { id: receiptId },
       data: { caseRemark: caseRemark?.trim() || null },
+    });
+    revalidateAll();
+    return { ok: true, data: { id: receipt.id } };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+}
+
+export async function saveWarehouseBilling(
+  raw: unknown,
+): Promise<MutationResult<{ id: string }>> {
+  try {
+    await requireAuth();
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+  }
+  const parsed = warehouseBillingSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+  const v = parsed.data;
+  try {
+    // Write only the billing fields — leaves postAction / reimbursement / lock untouched.
+    const receipt = await prisma.removalReceipt.update({
+      where: { id: v.receiptId },
+      data: {
+        warehouseBilled: v.warehouseBilled,
+        billedDate: v.warehouseBilled && v.billedDate ? new Date(v.billedDate) : null,
+        billedAmount: new Prisma.Decimal(v.warehouseBilled ? v.billedAmount : 0),
+      },
     });
     revalidateAll();
     return { ok: true, data: { id: receipt.id } };

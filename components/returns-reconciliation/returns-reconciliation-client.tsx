@@ -4,7 +4,6 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import {
-  getAsinVerificationData,
   getReturnsReconData,
   type ReturnsReconciliationPayload,
 } from "@/actions/returns-reconciliation";
@@ -19,30 +18,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { ActionQueuePanel } from "@/components/returns-reconciliation/analysis-tab/action-queue-panel";
+import { MskuReturnTable } from "@/components/returns-reconciliation/analysis-tab/msku-return-table";
+import { dispositionLabel } from "@/lib/returns-reconciliation/disposition-labels";
 import {
-  LogTable,
-  RETURNS_LOG_COLUMNS,
-} from "@/components/returns-reconciliation/log-tab/log-table";
-import {
-  ColumnsMenu,
-  useColumnVisibility,
-} from "@/components/shared/columns-menu";
+  returnActionStatus,
+  RETURN_ACTION_BADGE,
+  RETURN_ACTION_STATUS_ORDER,
+  SETTLED_STATUSES,
+  tallyReturnActionStatus,
+  type StatusCardFilter,
+  type ReturnActionStatus,
+} from "@/lib/returns-reconciliation/return-action-status";
+import { AsinSummaryTable } from "@/components/returns-reconciliation/asin-tab/asin-summary-table";
 import { RaiseCaseModal } from "@/components/returns-reconciliation/modals/raise-case-modal";
 import { AdjustModal } from "@/components/returns-reconciliation/modals/adjust-modal";
-import {
-  ASIN_VERIFICATION_COLUMNS,
-  AsinVerificationTable,
-} from "@/components/returns-reconciliation/asin-verification-tab/asin-verification-table";
-import { ASIN_MATCH_STATUS_OPTIONS } from "@/components/returns-reconciliation/asin-verification-tab/asin-match-badge";
-import type {
-  AsinVerificationRow,
-  AsinVerificationStats,
-  ReturnsReconRow,
-} from "@/lib/returns-reconciliation/types";
+import type { ReturnsReconRow } from "@/lib/returns-reconciliation/types";
 
 const ALL = "__all__";
 
@@ -60,26 +52,30 @@ export function ReturnsReconciliationClient({
 }: {
   initialPayload: ReturnsReconciliationPayload;
 }) {
-  const [tab, setTab] = React.useState<"analysis" | "log" | "asin">("analysis");
-  const [logVis, setLogVis] = useColumnVisibility(
-    "returnsRecon.logCols",
-    RETURNS_LOG_COLUMNS,
-  );
-  const [asinVis, setAsinVis] = useColumnVisibility(
-    "returnsRecon.asinCols",
-    ASIN_VERIFICATION_COLUMNS,
-  );
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
   const [disposition, setDisposition] = React.useState(ALL);
-  const [fnskuStatus, setFnskuStatus] = React.useState(ALL);
+  // Status filter shared by the cards + the Status dropdown. "__all__" = no
+  // filter; otherwise a card group ("SETTLED") or an individual status.
+  const [fnskuStatus, setFnskuStatus] = React.useState<string>(ALL);
   const [search, setSearch] = React.useState("");
   const debouncedSearch = useDebounced(search, 280);
 
+  // Normalised value handed to the table ("__all__" → "ALL").
+  const statusFilter = (fnskuStatus === ALL ? "ALL" : fnskuStatus) as
+    | StatusCardFilter
+    | ReturnActionStatus;
+
+  // Toggle a card group: click active card (or Total) clears back to ALL.
+  const onCard = (value: StatusCardFilter) =>
+    setFnskuStatus((cur) =>
+      cur === value || (value === "ALL" && cur === ALL) ? ALL : value,
+    );
+
   const [rows, setRows] = React.useState(initialPayload.rows);
-  const [logRows, setLogRows] = React.useState(initialPayload.logRows);
-  const [stats, setStats] = React.useState(initialPayload.stats);
+  const [byAsinRows, setByAsinRows] = React.useState(initialPayload.asinRows);
   const [loading, setLoading] = React.useState(false);
+  const [view, setView] = React.useState<"msku" | "asin">("msku");
 
   const [caseRow, setCaseRow] = React.useState<ReturnsReconRow | null>(null);
   const [caseOpen, setCaseOpen] = React.useState(false);
@@ -105,29 +101,6 @@ export function ReturnsReconciliationClient({
     setAdjOpen(true);
   }, []);
 
-  // ASIN Verification state (lazy-loaded on first activation)
-  const [asinRows, setAsinRows] = React.useState<AsinVerificationRow[]>([]);
-  const [asinStats, setAsinStats] = React.useState<AsinVerificationStats>({
-    total: 0,
-    totalQty: 0,
-    verifiedCount: 0,
-    verifiedQty: 0,
-    asinMismatchCount: 0,
-    asinMismatchQty: 0,
-    mskuMismatchCount: 0,
-    mskuMismatchQty: 0,
-    multiMismatchCount: 0,
-    multiMismatchQty: 0,
-    notInCatalogCount: 0,
-    notInCatalogQty: 0,
-    orderNotFoundCount: 0,
-    orderNotFoundQty: 0,
-    sellableMismatchCount: 0,
-    sellableMismatchQty: 0,
-  });
-  const [asinLoading, setAsinLoading] = React.useState(false);
-  const [asinMatchStatus, setAsinMatchStatus] = React.useState(ALL);
-  const asinLoadedRef = React.useRef(false);
 
   const dispositionOptions = React.useMemo(() => {
     const set = new Set<string>();
@@ -137,6 +110,10 @@ export function ReturnsReconciliationClient({
     return Array.from(set).sort();
   }, [initialPayload.logRows]);
 
+  // Global status tally for the stat cards (full date/disposition/search scope,
+  // unaffected by the active status filter — only the table below reacts).
+  const tally = React.useMemo(() => tallyReturnActionStatus(rows), [rows]);
+
   const reload = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -144,16 +121,14 @@ export function ReturnsReconciliationClient({
         from: from || null,
         to: to || null,
         disposition: disposition === ALL ? "" : disposition,
-        fnskuStatus: fnskuStatus === ALL ? "" : fnskuStatus,
         search: debouncedSearch || undefined,
       });
       setRows(data.rows);
-      setLogRows(data.logRows);
-      setStats(data.stats);
+      setByAsinRows(data.asinRows);
     } finally {
       setLoading(false);
     }
-  }, [from, to, disposition, fnskuStatus, debouncedSearch]);
+  }, [from, to, disposition, debouncedSearch]);
 
   const skipFirst = React.useRef(true);
   React.useEffect(() => {
@@ -164,397 +139,236 @@ export function ReturnsReconciliationClient({
     void reload();
   }, [reload]);
 
-  const reloadAsin = React.useCallback(async () => {
-    setAsinLoading(true);
-    try {
-      const data = await getAsinVerificationData({
-        from: from || null,
-        to: to || null,
-        disposition: disposition === ALL ? "" : disposition,
-        search: debouncedSearch || undefined,
-        matchStatus: asinMatchStatus === ALL ? "" : asinMatchStatus,
-      });
-      setAsinRows(data.rows);
-      setAsinStats(data.stats);
-      asinLoadedRef.current = true;
-    } finally {
-      setAsinLoading(false);
-    }
-  }, [from, to, disposition, debouncedSearch, asinMatchStatus]);
+  const esc = (v: unknown) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
 
-  // Lazy-load on first activation OR when filters change while tab is active.
-  React.useEffect(() => {
-    if (tab !== "asin") return;
-    void reloadAsin();
-  }, [tab, reloadAsin]);
-
-  function asinToReturnsRow(r: AsinVerificationRow): ReturnsReconRow {
-    // Adapter — modals only consume a subset of ReturnsReconRow fields.
-    // Map ASIN-tab match status onto the new ownership/final status model.
-    const ownershipStatus =
-      r.matchStatus === "ORDER_NOT_FOUND" ? "ORDER_NOT_FOUND" : "CONFIRMED";
-    return {
-      orderId: r.orderId,
-      returnFnsku: r.returnFnsku,
-      lpn: "",
-      msku: r.returnMsku,
-      asin: r.returnAsin,
-      title: r.returnTitle,
-      totalReturned: r.returnedQty,
-      sellableQty: r.isSellable ? r.returnedQty : 0,
-      unsellableQty: r.isSellable ? 0 : r.returnedQty,
-      returnEvents: r.returnEvents,
-      dispositions: r.disposition,
-      reasons: r.reasons,
-      isSellable: r.isSellable,
-      isGnrMsku: false,
-      amazonStatus: "",
-      ownershipStatus,
-      salesMsku: r.salesMsku,
-      gnrStatus: "",
-      inventoryStatus: "NOT_APPLICABLE",
-      fbaSummaryConfirmedQty: 0,
-      fbaSummaryExpectedQty: 0,
-      reimbStatus: "NOT_APPLICABLE",
-      reimbQty: r.reimbQty,
-      reimbCashQty: 0,
-      reimbInventoryQty: 0,
-      reimbAmount: r.reimbAmount,
-      caseCount: r.caseCount,
-      caseReimbQty: 0,
-      caseReimbAmount: 0,
-      caseStatusTop: r.caseStatusTop,
-      caseIds: r.caseIds,
-      adjQty: 0,
-      effReimbQty: r.reimbQty,
-      effReimbAmount: r.reimbAmount,
-      earliestReturn: r.earliestReturn,
-      latestReturn: r.latestReturn,
-      daysSinceReturn: -1,
-      isWithinWindow: false,
-      finalStatus: "INVESTIGATE",
-    };
-  }
-
-  function exportCsv() {
-    const headers = [
-      "Order ID", "Return FNSKU", "MSKU", "ASIN", "Title",
-      "Returned Qty", "Events", "Dispositions", "Reasons",
-      "Reimb Qty", "Reimb $", "Sales MSKU", "Ownership", "Final Status",
-      "Case Status", "Case Count", "Earliest Return", "Latest Return",
-    ];
-    const esc = (v: unknown) => {
-      const s = v == null ? "" : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = [headers.join(",")];
-    for (const r of rows) {
-      lines.push(
-        [
-          r.orderId, r.returnFnsku, r.msku, r.asin, r.title,
-          r.totalReturned, r.returnEvents, r.dispositions, r.reasons,
-          r.effReimbQty, r.effReimbAmount.toFixed(2), r.salesMsku, r.ownershipStatus, r.finalStatus,
-          r.caseStatusTop, r.caseCount, r.earliestReturn, r.latestReturn,
-        ].map(esc).join(","),
-      );
-    }
+  function downloadCsv(lines: string[], filename: string) {
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "returns_recon.csv";
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("✅ CSV exported");
+  }
+
+  function exportMskuCsv() {
+    // Columns mirror the on-screen By-MSKU table, in display order.
+    const headers = [
+      "Order ID", "Return Date", "FNSKU", "ASIN", "Title", "MSKU",
+      "LPN", "FC", "Disposition",
+      "Return Qty", "Inv Qty", "Reimb Qty", "GNR Qty",
+      "Case Qty", "Case Status", "Adjustment Qty", "Status",
+    ];
+    const lines = [headers.join(",")];
+    for (const r of rows) {
+      const { status } = returnActionStatus(r);
+      lines.push(
+        [
+          r.orderId,
+          r.latestReturn || r.earliestReturn,
+          r.returnFnsku,
+          r.asin,
+          r.title,
+          r.msku,
+          r.lpnAll.length ? r.lpnAll.join(" | ") : r.lpn,
+          r.fc,
+          r.dispositions
+            .split(",")
+            .map((d) => dispositionLabel(d))
+            .join(" | "),
+          r.totalReturned,
+          r.inventoryQty,
+          r.reimbOrderMskuQty,
+          r.gnrLpnQty,
+          r.caseCount > 0 ? r.caseClaimedQty : "",
+          r.caseCount > 0 ? r.caseStatusTop : "",
+          r.adjQty !== 0 ? r.adjQty : "",
+          RETURN_ACTION_BADGE[status].label,
+        ].map(esc).join(","),
+      );
+    }
+    downloadCsv(lines, "returns_recon_by_msku.csv");
+  }
+
+  function exportAsinCsv() {
+    const headers = [
+      "ASIN", "Title", "Returned", "Inventory Qty",
+      "Inventory (FBA Summary)", "Inventory (GNR)", "Inventory (Transfer GNR)",
+      "Reimbursed", "Adjusted", "Pending", "Status",
+    ];
+    const lines = [headers.join(",")];
+    for (const r of byAsinRows) {
+      lines.push(
+        [
+          r.asin, r.title, r.returnedQty, r.inventoryQty,
+          r.inventoryFbaQty, r.gnrQty, r.transferredGnrQty,
+          r.reimbursedQty, r.adjustedQty, r.pendingQty, r.asinStatus,
+        ].map(esc).join(","),
+      );
+    }
+    downloadCsv(lines, "returns_recon_by_asin.csv");
+  }
+
+  function exportCsv() {
+    if (view === "asin") exportAsinCsv();
+    else exportMskuCsv();
   }
 
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
         <HeaderActions>
-          {tab === "analysis" ? null : tab === "log" ? (
-            <ColumnsMenu
-              columns={RETURNS_LOG_COLUMNS}
-              visibility={logVis}
-              onChange={setLogVis}
-            />
-          ) : (
-            <ColumnsMenu
-              columns={ASIN_VERIFICATION_COLUMNS}
-              visibility={asinVis}
-              onChange={setAsinVis}
-            />
-          )}
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/30 p-0.5">
+            <button
+              type="button"
+              onClick={() => setView("msku")}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                view === "msku"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              By MSKU
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("asin")}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                view === "asin"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              By ASIN
+            </button>
+          </div>
           <Button variant="outline" size="sm" onClick={exportCsv}>⬇ Export CSV</Button>
           <Button variant="outline" size="sm" onClick={() => void reload()}>↻ Refresh</Button>
         </HeaderActions>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "analysis" | "log" | "asin")} className="gap-4">
-          <TabsList className="h-9 w-full justify-start sm:w-auto">
-            <TabsTrigger value="analysis" className="text-xs">📊 Returns Analysis</TabsTrigger>
-            <TabsTrigger value="log" className="text-xs">📋 Returns Log</TabsTrigger>
-            <TabsTrigger value="asin" className="text-xs">🔍 ASIN Verification</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="analysis" className="mt-0 space-y-4">
-            <FilterBar
-              from={from} setFrom={setFrom}
-              to={to} setTo={setTo}
-              disposition={disposition} setDisposition={setDisposition}
-              fnskuStatus={fnskuStatus} setFnskuStatus={setFnskuStatus}
-              search={search} setSearch={setSearch}
-              dispositionOptions={dispositionOptions}
-              onClear={() => {
-                setFrom(""); setTo(""); setDisposition(ALL); setFnskuStatus(ALL);
-                setSearch("");
-              }}
-            />
-
-            {/* Compact summary bar */}
-            <div className="mb-3 grid grid-cols-6 gap-2">
-              {[
-                {
-                  label: "Total Returns",
-                  value: stats.totalRows,
-                  sub: `${stats.totalQty.toLocaleString()} units`,
-                  color: "text-foreground",
-                },
-                {
-                  label: "Need Action",
-                  value: stats.caseNeededRows + stats.unknownGnrCaseRows,
-                  sub:
-                    `${stats.notInInventoryRows} not in inventory · ` +
-                    `${stats.unknownGnrCaseRows} unknown GNR`,
-                  color: "text-red-600",
-                },
-                {
-                  label: "Investigate",
-                  value: stats.investigateRows,
-                  sub: "order not in sales / reimb unverified",
-                  color: "text-amber-600",
-                },
-                {
-                  label: "GNR Tracking",
-                  value: stats.gnrTrackingRows + stats.transferredToGnrRows,
-                  sub:
-                    `${stats.gnrTrackingRows} by FNSKU match · ` +
-                    `${stats.transferredToGnrRows} by LPN transfer`,
-                  color: "text-purple-600",
-                },
-                {
-                  label: "Pending",
-                  value: stats.pendingRows,
-                  sub: "within 60-day Amazon SLA",
-                  color: "text-slate-500",
-                },
-                {
-                  label: "Resolved",
-                  value: stats.resolvedRows,
-                  sub: `${stats.inInventoryRows} in inventory · ${stats.reimbursedRows} reimbursed`,
-                  color: "text-emerald-600",
-                },
-              ].map((s) => (
-                <div
-                  key={s.label}
-                  className="rounded-lg border border-border bg-card px-3 py-2.5"
-                >
-                  <div className={cn("font-mono text-xl font-semibold tabular-nums", s.color)}>
-                    {s.value.toLocaleString()}
-                  </div>
-                  <div className="text-[11px] font-medium text-foreground">{s.label}</div>
-                  <div className="text-[10px] text-muted-foreground">{s.sub}</div>
-                </div>
-              ))}
-            </div>
-
-            {loading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (
-              <ActionQueuePanel
-                rows={rows}
-                externalDisposition={disposition === ALL ? "" : disposition}
-                externalSearch={debouncedSearch}
-                externalFnskuStatus={fnskuStatus === ALL ? "" : fnskuStatus}
-                onRaiseCase={(row, caseReason) => handleRaiseCase(row, caseReason)}
-                onAdjust={(row) => handleAdjust(row)}
-              />
-            )}
-          </TabsContent>
-
-          <TabsContent value="asin" className="mt-0 space-y-4">
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-              <span className="text-[11px] font-semibold text-muted-foreground">From</span>
-              <Input
-                type="date"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                className="h-8 w-[140px] text-xs"
-              />
-              <span className="text-[11px] font-semibold text-muted-foreground">To</span>
-              <Input
-                type="date"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className="h-8 w-[140px] text-xs"
-              />
-              <span className="text-[11px] font-semibold text-muted-foreground">Disposition</span>
-              <Select value={disposition} onValueChange={setDisposition}>
-                <SelectTrigger className="h-8 w-[160px] text-xs">
-                  <SelectValue placeholder="All" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All</SelectItem>
-                  {dispositionOptions.map((d) => (
-                    <SelectItem key={d} value={d}>{d}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <span className="text-[11px] font-semibold text-muted-foreground">Match Status</span>
-              <Select value={asinMatchStatus} onValueChange={setAsinMatchStatus}>
-                <SelectTrigger className="h-8 w-[200px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">All Statuses</SelectItem>
-                  {ASIN_MATCH_STATUS_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="🔍 MSKU / FNSKU / ASIN / Order ID"
-                className="h-8 max-w-[260px] text-xs"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="ml-auto text-xs"
-                onClick={() => {
-                  setFrom("");
-                  setTo("");
-                  setDisposition(ALL);
-                  setAsinMatchStatus(ALL);
+        <div className="space-y-4">
+            {/* Filter bar is MSKU-view chrome — hidden in the By ASIN view */}
+            {view !== "asin" && (
+              <FilterBar
+                from={from} setFrom={setFrom}
+                to={to} setTo={setTo}
+                disposition={disposition} setDisposition={setDisposition}
+                fnskuStatus={fnskuStatus} setFnskuStatus={setFnskuStatus}
+                search={search} setSearch={setSearch}
+                dispositionOptions={dispositionOptions}
+                onClear={() => {
+                  setFrom(""); setTo(""); setDisposition(ALL); setFnskuStatus(ALL);
                   setSearch("");
                 }}
-              >
-                Clear
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
-              <KpiCard
-                label="Total"
-                border="blue"
-                primary={asinStats.total}
-                secondary={asinStats.totalQty}
-                secLabel="Units"
-              />
-              <KpiCard
-                label="Verified"
-                border="green"
-                primary={asinStats.verifiedCount}
-                secondary={asinStats.verifiedQty}
-                secLabel="Units"
-              />
-              <KpiCard
-                label="ASIN Mismatch"
-                border="red"
-                primary={asinStats.asinMismatchCount}
-                secondary={asinStats.asinMismatchQty}
-                secLabel="Units"
-              />
-              <KpiCard
-                label="MSKU Mismatch"
-                border="amber"
-                primary={asinStats.mskuMismatchCount}
-                secondary={asinStats.mskuMismatchQty}
-                secLabel="Units"
-              />
-              <KpiCard
-                label="Multi Mismatch"
-                border="red"
-                primary={asinStats.multiMismatchCount}
-                secondary={asinStats.multiMismatchQty}
-                secLabel="Units"
-              />
-              <KpiCard
-                label="Not in Catalog"
-                border="slate"
-                primary={asinStats.notInCatalogCount}
-                secondary={asinStats.notInCatalogQty}
-                secLabel="Units"
-              />
-              <button
-                type="button"
-                onClick={() => setAsinMatchStatus(ALL)}
-                className={cn(
-                  "flex flex-col rounded-lg border border-red-300 bg-red-50 px-3 py-2.5 text-left shadow-sm transition border-t-[3px] border-t-red-600 hover:border-red-400",
-                )}
-              >
-                <div className="mb-1 text-center text-[8.5px] font-bold uppercase tracking-wide text-red-700">
-                  ⚠ Sellable Mismatch
-                </div>
-                <div className="flex items-center justify-center gap-2">
-                  <div className="flex flex-col items-center">
-                    <span className="font-mono text-lg font-bold leading-none text-red-700">
-                      {asinStats.sellableMismatchCount.toLocaleString()}
-                    </span>
-                    <span className="mt-0.5 text-[8px] text-red-700/80">SKUs</span>
-                  </div>
-                  <div className="h-5 w-px bg-red-200" />
-                  <div className="flex flex-col items-center">
-                    <span className="font-mono text-sm font-bold leading-none text-red-700">
-                      {asinStats.sellableMismatchQty.toLocaleString()}
-                    </span>
-                    <span className="mt-0.5 text-[8px] text-red-700/80">Units</span>
-                  </div>
-                </div>
-              </button>
-            </div>
-
-            {asinLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : (
-              <AsinVerificationTable
-                visibility={asinVis}
-                rows={asinRows}
-                onRaiseCase={(r) => {
-                  setCaseRow(asinToReturnsRow(r));
-                  setCaseOpen(true);
-                }}
-                onAdjust={(r) => {
-                  setAdjRow(asinToReturnsRow(r));
-                  setAdjOpen(true);
-                }}
               />
             )}
-          </TabsContent>
 
-          <TabsContent value="log" className="mt-0 space-y-4">
-            <FilterBar
-              from={from} setFrom={setFrom}
-              to={to} setTo={setTo}
-              disposition={disposition} setDisposition={setDisposition}
-              fnskuStatus={fnskuStatus} setFnskuStatus={setFnskuStatus}
-              search={search} setSearch={setSearch}
-              dispositionOptions={dispositionOptions}
-              hideFnskuStatus
-              onClear={() => {
-                setFrom(""); setTo(""); setDisposition(ALL); setSearch("");
-              }}
-            />
+            {view === "asin" ? (
+              loading ? (
+                <Skeleton className="h-64 w-full" />
+              ) : (
+                <AsinSummaryTable
+                  asinRows={byAsinRows}
+                  onRaiseCase={handleRaiseCase}
+                  onAdjust={handleAdjust}
+                />
+              )
+            ) : (
+            <>
+            {/* Summary cards — SKUs | Units dual metric (matches Shipment Recon).
+                The first four click to filter the table by status group; numbers
+                stay global, only the table reacts. The trailing Cases and
+                Adjustment cards are display-only cross-cuts. */}
+            <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              {(
+                [
+                  {
+                    value: "ALL",
+                    label: "Total Returns",
+                    tly: tally.total,
+                    border: "blue",
+                  },
+                  {
+                    value: "SETTLED",
+                    label: "Settled",
+                    tly: tally.settled,
+                    border: "green",
+                  },
+                  {
+                    value: "TAKE_ACTION",
+                    label: "Take Action",
+                    tly: tally.takeAction,
+                    border: "red",
+                  },
+                  {
+                    value: "NOT_FOUND",
+                    label: "Not Found",
+                    tly: tally.notFound,
+                    border: "amber",
+                  },
+                ] as {
+                  value: StatusCardFilter;
+                  label: string;
+                  tly: { rows: number; units: number };
+                  border: "blue" | "green" | "red" | "amber";
+                }[]
+              ).map((c) => {
+                const active =
+                  fnskuStatus === c.value ||
+                  (c.value === "ALL" && fnskuStatus === ALL) ||
+                  (c.value === "SETTLED" &&
+                    (SETTLED_STATUSES as string[]).includes(fnskuStatus));
+                return (
+                  <KpiCard
+                    key={c.label}
+                    label={c.label}
+                    border={c.border}
+                    primary={c.tly.rows}
+                    secondary={c.tly.units}
+                    secLabel="Units"
+                    active={active}
+                    onClick={() => onCard(c.value)}
+                  />
+                );
+              })}
+
+              {/* Adjustment & Cases — display-only cross-cuts (do not filter). */}
+              <KpiCard
+                label="Adjustment"
+                border="teal"
+                primary={tally.adjustments.rows}
+                secondary={tally.adjustments.units}
+                secLabel="Units"
+              />
+              <KpiCard
+                label="Cases"
+                border="purple"
+                primary={tally.cases.rows}
+                secondary={tally.cases.units}
+                secLabel="Units"
+              />
+            </div>
 
             {loading ? (
               <Skeleton className="h-64 w-full" />
             ) : (
-              <LogTable visibility={logVis} rows={logRows} />
+              <MskuReturnTable
+                rows={rows}
+                searchQuery={search}
+                statusFilter={statusFilter}
+                onRaiseCase={handleRaiseCase}
+                onAdjust={handleAdjust}
+              />
             )}
-          </TabsContent>
-        </Tabs>
+            </>
+            )}
+        </div>
 
         <RaiseCaseModal
           row={caseRow}
@@ -562,7 +376,6 @@ export function ReturnsReconciliationClient({
           onOpenChange={setCaseOpen}
           onSaved={() => {
             void reload();
-            if (asinLoadedRef.current) void reloadAsin();
           }}
         />
         <AdjustModal
@@ -571,7 +384,6 @@ export function ReturnsReconciliationClient({
           onOpenChange={setAdjOpen}
           onSaved={() => {
             void reload();
-            if (asinLoadedRef.current) void reloadAsin();
           }}
         />
       </div>
@@ -609,27 +421,23 @@ function FilterBar({
         <SelectContent>
           <SelectItem value="__all__">All</SelectItem>
           {dispositionOptions.map((d) => (
-            <SelectItem key={d} value={d}>{d}</SelectItem>
+            <SelectItem key={d} value={d}>{dispositionLabel(d)}</SelectItem>
           ))}
         </SelectContent>
       </Select>
       {!hideFnskuStatus ? (
         <>
-          <span className="text-[11px] font-semibold text-muted-foreground">FNSKU Status</span>
+          <span className="text-[11px] font-semibold text-muted-foreground">Status</span>
           <Select value={fnskuStatus} onValueChange={setFnskuStatus}>
             <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All Statuses</SelectItem>
-              <SelectItem value="CONFIRMED">✓ Confirmed</SelectItem>
-              <SelectItem value="GNR_TRACKING">↻ GNR Tracking</SelectItem>
-              <SelectItem value="TRANSFERRED_TO_GNR">
-                ↻ Transferred to GNR (LPN)
-              </SelectItem>
-              <SelectItem value="UNKNOWN_GNR">✕ Unknown GNR</SelectItem>
-              <SelectItem value="ORDER_NOT_FOUND">? Order Not Found</SelectItem>
-              <SelectItem value="CASE_NEEDED">⚠ Case Needed</SelectItem>
-              <SelectItem value="PENDING">⏱ Pending</SelectItem>
-              <SelectItem value="RESOLVED">✓ Resolved</SelectItem>
+              <SelectItem value="SETTLED">Settled (no action)</SelectItem>
+              {RETURN_ACTION_STATUS_ORDER.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {RETURN_ACTION_BADGE[s].label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </>
@@ -637,8 +445,8 @@ function FilterBar({
       <Input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        placeholder="🔍 MSKU / FNSKU / ASIN / Order ID"
-        className="h-8 max-w-[260px] text-xs"
+        placeholder="🔍 MSKU / FNSKU / ASIN / Order ID / LPN / FC"
+        className="h-8 max-w-[280px] text-xs"
       />
       <Button variant="outline" size="sm" className="ml-auto text-xs" onClick={onClear}>Clear</Button>
     </div>

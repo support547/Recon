@@ -73,7 +73,7 @@ export function RaiseCaseModal({
           ? "Replacement shipped but no reimbursement"
           : "",
     );
-    const pending = Math.max(0, row.quantity - row.returnQty - row.effectiveReimbQty);
+    const pending = Math.max(0, row.quantity - row.coveredQty);
     setUnitsClaimed(pending || row.quantity || 1);
     setAmountClaimed(0);
     setStatus("OPEN");

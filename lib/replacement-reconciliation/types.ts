@@ -4,6 +4,7 @@ export type ReplacementStatusKey =
   | "PARTIAL"
   | "RETURNED"
   | "REIMBURSED"
+  | "ADJUSTED"
   | "RESOLVED";
 
 export type ReplacementReconRow = {
@@ -29,18 +30,31 @@ export type ReplacementReconRow = {
   reimbAmount: number;
   reimbReason: string;
   reimbIds: string;
+  reimbOrderIds: string;
   reimbApprovalDate: string;
+  // refund qty (from PaymentRepository, lineType=Refund) — display only
+  refundQty: number;
+  refundLines: RefundLine[];
   // case overlay
   caseCount: number;
+  caseClaimedQty: number;
   caseApprovedQty: number;
   caseApprovedAmount: number;
   caseTopStatus: string;
   caseIds: string;
+  caseRemarks: string;
   // adj overlay
   adjQty: number;
   // computed
   effectiveReimbQty: number;
   effectiveReimbAmount: number;
+  /** Coverage clamped to `quantity`: min(quantity, returnQty + effectiveReimbQty).
+   *  A replacement can be matched to returns on BOTH its replacement order and
+   *  its original order (and separately reimbursed), which can sum past the
+   *  units actually shipped. Status and KPI pending math use this clamped value
+   *  so a single replacement is never counted as over-covered. Raw returnQty /
+   *  effectiveReimbQty stay un-clamped for display + drill-down. */
+  coveredQty: number;
   status: ReplacementStatusKey;
 };
 
@@ -65,6 +79,8 @@ export type ReplacementReconStats = {
   reimbSkus: number;
   reimbQty: number;
   reimbAmount: number;
+  adjSkus: number;
+  adjQty: number;
   takeActionSkus: number;
   takeActionQty: number;
   waitingReturnSkus: number;
@@ -85,15 +101,31 @@ export type ReimbMeta = {
   amount: number;
   reasons: string[];
   reimbIds: string[];
+  orderIds: string[];
   approvalDate: Date | null;
+};
+
+export type RefundLine = {
+  orderId: string;
+  qty: number;
+  amount: number;
+  settlementId: string;
+  date: string;
+};
+
+export type RefundMeta = {
+  qty: number;
+  lines: RefundLine[];
 };
 
 export type CaseMeta = {
   count: number;
+  claimedQty: number;
   approvedQty: number;
   approvedAmount: number;
   topStatus: string;
   caseIds: string[];
+  remarks: string[];
 };
 
 export type AdjMeta = {

@@ -218,8 +218,9 @@ export function AdjQtyCell({
     );
   }
   const pos = ca.adj_qty > 0;
-  return (
-    <div className="text-center">
+  const details = ca.adj_details ?? [];
+  const cell = (
+    <div className="cursor-help text-center">
       <span
         className={cn(
           "font-mono text-xs font-bold",
@@ -231,6 +232,58 @@ export function AdjQtyCell({
       </span>
       <div className="text-[10px] text-muted-foreground">adjusted</div>
     </div>
+  );
+  if (details.length === 0) {
+    return cell;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{cell}</TooltipTrigger>
+      <TooltipContent side="top" align="center" className="w-72">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-300">Adjustments</span>
+            <span className="font-mono text-[10px] text-slate-400">
+              {details.length} line{details.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          <div className="my-1 h-px bg-slate-700" />
+          {details.map((d, i) => (
+            <div
+              key={`${d.rootCause}-${i}`}
+              className="space-y-0.5 border-l-2 border-violet-500/40 pl-2"
+            >
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Root Cause</span>
+                <span className="font-mono font-semibold capitalize">
+                  {d.rootCause.replace(/_/g, " ")}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="shrink-0 text-slate-300">Reason</span>
+                <span className="text-right font-semibold">{d.reason}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="shrink-0 text-slate-300">Notes</span>
+                <span className="text-right font-semibold">{d.notes}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Qty</span>
+                <span
+                  className={cn(
+                    "font-mono font-semibold",
+                    d.qty >= 0 ? "text-emerald-300" : "text-red-300",
+                  )}
+                >
+                  {d.qty >= 0 ? "+" : ""}
+                  {d.qty}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -251,8 +304,10 @@ export function ReimbCell({
       <span className="font-mono text-[11px] text-muted-foreground">—</span>
     );
   }
-  return (
-    <div className="text-right">
+  const details = row.reimb_details ?? [];
+  const totalAmount = details.reduce((s, d) => s + d.amount, 0);
+  const cell = (
+    <div className="cursor-help text-right">
       <span className="font-mono text-xs font-bold text-blue-600">
         +{reimbDisplayQty}
       </span>
@@ -260,6 +315,69 @@ export function ReimbCell({
         <div className="mt-0.5 text-[9px] text-blue-400">📋 case</div>
       ) : null}
     </div>
+  );
+  if (details.length === 0) {
+    return cell;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{cell}</TooltipTrigger>
+      <TooltipContent side="top" align="end" className="w-64">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-slate-300">Lost_Inbound Reimb.</span>
+            <span className="font-mono text-[10px] text-slate-400">
+              {details.length} line{details.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          <div className="my-1 h-px bg-slate-700" />
+          {details.map((d, i) => (
+            <div
+              key={`${d.reimbursementId}-${i}`}
+              className="space-y-0.5 border-l-2 border-blue-500/40 pl-2"
+            >
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Date</span>
+                <span className="font-mono font-semibold">{d.date}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Reimb. ID</span>
+                <span className="max-w-[140px] truncate font-mono font-semibold">
+                  {d.reimbursementId}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Case ID</span>
+                <span className="max-w-[140px] truncate font-mono font-semibold">
+                  {d.caseId}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Amount</span>
+                <span className="font-mono font-semibold text-emerald-300">
+                  ${d.amount.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Qty</span>
+                <span className="font-mono font-semibold">{d.quantity}</span>
+              </div>
+            </div>
+          ))}
+          {details.length > 1 ? (
+            <>
+              <div className="my-1 h-px bg-slate-700" />
+              <div className="flex justify-between gap-4">
+                <span className="text-slate-300">Total Amount</span>
+                <span className="font-mono font-bold text-emerald-300">
+                  ${totalAmount.toFixed(2)}
+                </span>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -306,8 +424,8 @@ export function ReceivedCell({ row }: { row: ShipmentReconRow }) {
           <ReceiveProgress shipped={row.shipped_qty} received={row.received_qty} />
         </div>
       </TooltipTrigger>
-      <TooltipContent side="top" align="end">
-        <div className="space-y-0.5">
+      <TooltipContent side="top" align="end" className="w-64">
+        <div className="space-y-1">
           <div className="flex justify-between gap-4">
             <span className="text-slate-300">Received</span>
             <span className="font-mono font-semibold">
@@ -318,6 +436,34 @@ export function ReceivedCell({ row }: { row: ShipmentReconRow }) {
             <span className="text-slate-300">Receipt Rate</span>
             <span className={cn("font-mono font-semibold", rateColor)}>{pct}%</span>
           </div>
+          {(row.received_details ?? []).length > 0 ? (
+            <>
+              <div className="my-1 h-px bg-slate-700" />
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-slate-300">Receipts</span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  {row.received_details.length} line
+                  {row.received_details.length > 1 ? "s" : ""}
+                </span>
+              </div>
+              <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-0.5">
+                <span className="font-semibold text-slate-400">Date</span>
+                <span className="text-right font-semibold text-slate-400">FC</span>
+                <span className="text-right font-semibold text-slate-400">Qty</span>
+                {row.received_details.map((d, i) => (
+                  <React.Fragment key={`${d.fulfillmentCenter}-${i}`}>
+                    <span className="font-mono font-semibold">{d.date}</span>
+                    <span className="text-right font-mono font-semibold">
+                      {d.fulfillmentCenter}
+                    </span>
+                    <span className="text-right font-mono font-semibold">
+                      {d.quantity}
+                    </span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
       </TooltipContent>
     </Tooltip>

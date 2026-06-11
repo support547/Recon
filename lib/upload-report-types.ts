@@ -10,6 +10,7 @@ export const REPORT_TYPE_VALUES = [
   "fba_summary",
   "replacements",
   "adjustments",
+  "inventory_adjustments",
   "gnr_report",
   "payment_repository",
   "removal_shipments",
@@ -35,6 +36,7 @@ export type UploadSummaryRow = {
   lastUpload: Date | null;
   lastRowCount: number;
   latestInFile: Date | null;
+  oldestInFile: Date | null;
 };
 
 export type UploadFileResult =

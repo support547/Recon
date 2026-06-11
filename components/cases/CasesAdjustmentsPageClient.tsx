@@ -10,8 +10,8 @@ import type {
   AdjustmentFilters,
   CaseFilters,
   CaseTrackerRow,
-  ManualAdjustmentRow,
 } from "@/actions/cases";
+import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
 import {
   deleteAdjustment,
   deleteCase,

@@ -55,6 +55,15 @@ export function CasesTable({ data, onEdit, onDelete }: CasesTableProps) {
         ),
       },
       {
+        accessorKey: "asin",
+        header: "ASIN",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.asin ?? "—"}
+          </span>
+        ),
+      },
+      {
         accessorKey: "fnsku",
         header: "FNSKU",
         cell: ({ row }) => (
@@ -129,6 +138,15 @@ export function CasesTable({ data, onEdit, onDelete }: CasesTableProps) {
             </div>
           );
         },
+      },
+      {
+        accessorKey: "reimbursementId",
+        header: "Reimb. ID",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.reimbursementId ?? "—"}
+          </span>
+        ),
       },
       {
         accessorKey: "caseReason",

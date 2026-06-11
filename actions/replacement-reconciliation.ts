@@ -10,7 +10,10 @@ import { computeReplacementRow } from "@/lib/replacement-reconciliation/formula"
 import {
   buildAdjMap,
   buildCaseMap,
+  buildRefundsByMskuOrder,
+  buildReimbsByAsinOrder,
   buildReplaceReimbsByMskuOrder,
+  buildReturnsByAsinOrder,
   buildReturnsByMskuOrder,
 } from "@/lib/replacement-reconciliation/matching";
 import type {
@@ -59,6 +62,7 @@ function adjTypeToEnum(s: string): AdjType {
   if (v === "FINANCIAL" || v === "CREDIT") return AdjType.FINANCIAL;
   if (v === "STATUS" || v === "TRANSFER") return AdjType.STATUS;
   if (v === "OTHER" || v === "WRITE-OFF" || v === "WRITE_OFF") return AdjType.OTHER;
+  if (v === "RETURN_NEW_MSKU" || v === "BOTH_RETURNED" || v === "BOTH RETURNED") return AdjType.RETURN_NEW_MSKU;
   return AdjType.OTHER;
 }
 
@@ -89,7 +93,7 @@ export async function getReplacementReconData(
     ];
   }
 
-  const [replacements, returns, reimbs, cases, adjs] = await Promise.all([
+  const [replacements, returns, reimbs, cases, adjs, refunds] = await Promise.all([
     prisma.replacement.findMany({
       where,
       orderBy: { shipmentDate: "desc" },
@@ -110,6 +114,7 @@ export async function getReplacementReconData(
       where: { deletedAt: null },
       select: {
         msku: true,
+        asin: true,
         orderId: true,
         quantity: true,
         disposition: true,
@@ -121,6 +126,7 @@ export async function getReplacementReconData(
       where: { deletedAt: null },
       select: {
         msku: true,
+        asin: true,
         amazonOrderId: true,
         reason: true,
         quantity: true,
@@ -134,15 +140,28 @@ export async function getReplacementReconData(
       select: {
         msku: true,
         orderId: true,
+        unitsClaimed: true,
         unitsApproved: true,
         amountApproved: true,
         status: true,
         referenceId: true,
+        notes: true,
       },
     }),
     prisma.manualAdjustment.findMany({
       where: { deletedAt: null, reconType: ReconType.REPLACEMENT },
       select: { msku: true, orderId: true, qtyAdjusted: true },
+    }),
+    prisma.paymentRepository.findMany({
+      where: { deletedAt: null, lineType: { equals: "Refund", mode: "insensitive" } },
+      select: {
+        sku: true,
+        orderId: true,
+        quantity: true,
+        total: true,
+        settlementId: true,
+        postedDatetime: true,
+      },
     }),
   ]);
 
@@ -150,9 +169,12 @@ export async function getReplacementReconData(
   const reimbsMap = buildReplaceReimbsByMskuOrder(reimbs);
   const caseMap = buildCaseMap(cases);
   const adjMap = buildAdjMap(adjs);
+  const refundsMap = buildRefundsByMskuOrder(refunds);
+  const returnsByAsin = buildReturnsByAsinOrder(returns);
+  const reimbsByAsin = buildReimbsByAsinOrder(reimbs);
 
   let rows: ReplacementReconRow[] = replacements.map((r) =>
-    computeReplacementRow({ replacement: r, returnsMap, reimbsMap, caseMap, adjMap }),
+    computeReplacementRow({ replacement: r, returnsMap, reimbsMap, caseMap, adjMap, refundsMap, returnsByAsin, reimbsByAsin }),
   );
 
   if (filters.status && filters.status !== "all" && filters.status !== "") {

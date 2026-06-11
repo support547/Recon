@@ -30,6 +30,7 @@ export function UploadSummary({ summary }: UploadSummaryProps) {
   const lastRows = summary?.lastRowCount ?? 0;
   const lastUpload = summary?.lastUpload ?? null;
   const latestInFile = summary?.latestInFile ?? null;
+  const oldestInFile = summary?.oldestInFile ?? null;
   const hasData = uploads > 0;
 
   return (
@@ -56,6 +57,10 @@ export function UploadSummary({ summary }: UploadSummaryProps) {
           <Row
             label="Last Uploaded"
             value={lastUpload ? formatDateTime(lastUpload) : "—"}
+          />
+          <Row
+            label="Oldest in File"
+            value={oldestInFile ? formatDate(oldestInFile) : "—"}
           />
           <Row
             label="Latest in File"

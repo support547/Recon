@@ -31,6 +31,7 @@ export const raiseCaseSchema = z.object({
   unitsClaimed: intLike,
   amountClaimed: numLike,
   status: z.string().min(1),
+  caseUrl: optStr,
   notes: optStr,
 });
 
@@ -43,6 +44,7 @@ export const adjustmentSchema = z.object({
   asin: optStr,
   title: optStr,
   adjType: z.string().min(1),
+  originalMsku: optStr,
   qtyAdjusted: intLike,
   reason: z.string().min(1),
   adjDate: optStr,

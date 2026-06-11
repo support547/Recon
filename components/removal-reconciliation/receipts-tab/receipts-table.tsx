@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { DollarSign, Paperclip, Trash2, Unlock, Wrench } from "lucide-react";
+import { Download, DollarSign, Eye, Paperclip, Trash2, Unlock, Wrench } from "lucide-react";
 
 import {
   Table,
@@ -11,11 +11,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { WrongItemBadge } from "@/components/removal-reconciliation/shared/status-badge";
 import { cn } from "@/lib/utils";
 import { Pagination } from "@/components/shared/Pagination";
+import { saveWarehouseBilling } from "@/actions/removal-reconciliation";
 import type { RemovalReceiptRow } from "@/lib/removal-reconciliation/types";
 import { caseStatusBadgeClass, formatEnumLabel } from "@/lib/cases-ui";
 import type { CaseStatus } from "@prisma/client";
@@ -26,6 +39,7 @@ export function ReceiptsTable({
   onReimb,
   onUnlock,
   onDelete,
+  onBillingSaved,
   visibility,
 }: {
   rows: RemovalReceiptRow[];
@@ -33,6 +47,7 @@ export function ReceiptsTable({
   onReimb: (row: RemovalReceiptRow) => void;
   onUnlock: (row: RemovalReceiptRow) => void;
   onDelete: (row: RemovalReceiptRow) => void;
+  onBillingSaved?: () => void;
   visibility?: Record<string, boolean>;
 }) {
   const show = (id: string) => visibility?.[id] !== false;
@@ -132,17 +147,17 @@ export function ReceiptsTable({
               )}
               {show("front_photo") && (
                 <TableCell className="text-center">
-                  <AttachmentLinks urls={(r as any).frontPhotoUrls ?? []} />
+                  <AttachmentLinks urls={(r as any).frontPhotoUrls ?? []} label="Front photo" />
                 </TableCell>
               )}
               {show("back_photo") && (
                 <TableCell className="text-center">
-                  <AttachmentLinks urls={(r as any).backPhotoUrls ?? []} />
+                  <AttachmentLinks urls={(r as any).backPhotoUrls ?? []} label="Back photo" />
                 </TableCell>
               )}
               {show("packing_list") && (
                 <TableCell className="text-center">
-                  <AttachmentLinks urls={(r as any).packingListUrls ?? []} />
+                  <AttachmentLinks urls={(r as any).packingListUrls ?? []} label="Packing list" />
                 </TableCell>
               )}
               {show("processed_by") && (
@@ -156,6 +171,27 @@ export function ReceiptsTable({
               {show("wh_status") && (
                 <TableCell>
                   <WhStatusBadge value={r.whStatus} />
+                </TableCell>
+              )}
+              {show("billed") && (
+                <TableCell className="text-center">
+                  <WhBilledCell row={r} onSaved={onBillingSaved} />
+                </TableCell>
+              )}
+              {show("billed_date") && <TableCell className="font-mono text-[11px] text-muted-foreground">{r.billedDate || "—"}</TableCell>}
+              {show("billed_amt") && (
+                <TableCell className="text-right font-mono text-xs">
+                  {r.billedAmount > 0 ? <b className="text-amber-700">${r.billedAmount.toFixed(2)}</b> : "—"}
+                </TableCell>
+              )}
+              {show("case_id") && (
+                <TableCell className="font-mono text-[11px]">
+                  <CaseIdCell row={r} />
+                </TableCell>
+              )}
+              {show("case_status") && (
+                <TableCell className="text-[11px]">
+                  <CaseStatusBadge value={(r as any).caseStatus ?? ""} />
                 </TableCell>
               )}
               {show("transfer") && (
@@ -182,16 +218,6 @@ export function ReceiptsTable({
                   {r.sellerComments || "—"}
                 </TableCell>
               )}
-              {show("case_id") && (
-                <TableCell className="font-mono text-[11px]">
-                  <CaseIdCell row={r} />
-                </TableCell>
-              )}
-              {show("case_status") && (
-                <TableCell className="text-[11px]">
-                  <CaseStatusBadge value={(r as any).caseStatus ?? ""} />
-                </TableCell>
-              )}
               {show("case_remark") && (
                 <TableCell className="max-w-[160px] truncate text-[11px] text-muted-foreground" title={(r as any).caseRemark ?? ""}>
                   {(r as any).caseRemark || "—"}
@@ -205,25 +231,6 @@ export function ReceiptsTable({
               {show("reimb_amt") && (
                 <TableCell className="text-right font-mono text-xs">
                   {r.reimbAmount > 0 ? <b className="text-emerald-700">${r.reimbAmount.toFixed(2)}</b> : "—"}
-                </TableCell>
-              )}
-              {show("billed") && (
-                <TableCell className="text-center">
-                  {r.warehouseBilled ? (
-                    <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                      ✓ YES
-                    </span>
-                  ) : (
-                    <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500">
-                      NO
-                    </span>
-                  )}
-                </TableCell>
-              )}
-              {show("billed_date") && <TableCell className="font-mono text-[11px] text-muted-foreground">{r.billedDate || "—"}</TableCell>}
-              {show("billed_amt") && (
-                <TableCell className="text-right font-mono text-xs">
-                  {r.billedAmount > 0 ? <b className="text-amber-700">${r.billedAmount.toFixed(2)}</b> : "—"}
                 </TableCell>
               )}
               {show("remarks") && (
@@ -274,54 +281,111 @@ export const RECEIPTS_TABLE_COLUMNS = [
   { id: "processed_by", label: "Processed By", align: "left" as const },
   { id: "wrong", label: "Wrong Item", align: "center" as const },
   { id: "wh_status", label: "Wh. Status", align: "left" as const },
+  { id: "billed", label: "Wh. Billed", align: "center" as const },
+  { id: "billed_date", label: "Billed Date", align: "left" as const },
+  { id: "billed_amt", label: "Billed Amt", align: "right" as const },
+  { id: "case_id", label: "Case ID", align: "left" as const },
+  { id: "case_status", label: "Case Status", align: "left" as const },
   { id: "transfer", label: "Transfer To", align: "left" as const },
   { id: "post_action", label: "Post-Action", align: "left" as const },
   { id: "seller_status", label: "Seller Status", align: "left" as const },
   { id: "seller_comments", label: "Seller Comments", align: "left" as const },
-  { id: "case_id", label: "Case ID", align: "left" as const },
-  { id: "case_status", label: "Case Status", align: "left" as const },
   { id: "case_remark", label: "Case Remark", align: "left" as const },
   { id: "reimb_qty", label: "Reimb. Qty", align: "right" as const },
   { id: "reimb_amt", label: "Reimb. $", align: "right" as const },
-  { id: "billed", label: "Wh. Billed", align: "center" as const },
-  { id: "billed_date", label: "Billed Date", align: "left" as const },
-  { id: "billed_amt", label: "Billed Amt", align: "right" as const },
   { id: "remarks", label: "Remarks", align: "left" as const },
   { id: "actions", label: "Actions", align: "left" as const },
 ];
 
-function AttachmentLinks({ urls }: { urls: string[] }) {
-  if (!urls?.length) return <span className="text-[11px] text-muted-foreground">—</span>;
-  if (urls.length === 1) {
-    return (
-      <a
-        href={urls[0]}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => e.stopPropagation()}
-        className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100"
-        title="Open attachment"
-      >
-        <Paperclip className="size-3" aria-hidden /> 1
-      </a>
-    );
+function fileNameFromUrl(url: string, fallback: string): string {
+  try {
+    const path = url.split("?")[0].split("#")[0];
+    const name = path.substring(path.lastIndexOf("/") + 1);
+    return decodeURIComponent(name) || fallback;
+  } catch {
+    return fallback;
   }
+}
+
+async function downloadAttachment(url: string, fileName: string) {
+  // Blob download so cross-origin/header-served files still save instead of navigating.
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    // Fallback: same-origin anchor download.
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+}
+
+function AttachmentLinks({ urls, label = "Attachment" }: { urls: string[]; label?: string }) {
+  if (!urls?.length) return <span className="text-[11px] text-muted-foreground">—</span>;
   return (
-    <span className="inline-flex items-center gap-0.5">
-      {urls.map((u, i) => (
-        <a
-          key={i}
-          href={u}
-          target="_blank"
-          rel="noopener noreferrer"
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100"
-          title={`Attachment ${i + 1}`}
+          className="inline-flex items-center gap-1 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100"
+          title={`${urls.length} ${label.toLowerCase()}${urls.length > 1 ? "s" : ""} — view or download`}
         >
-          {i + 1}
-        </a>
-      ))}
-    </span>
+          <Paperclip className="size-3" aria-hidden /> {urls.length}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="center"
+        onClick={(e) => e.stopPropagation()}
+        className="w-44"
+      >
+        {urls.map((u, i) => {
+          const fileName = fileNameFromUrl(u, `${label.toLowerCase().replace(/\s+/g, "-")}-${i + 1}`);
+          return (
+            <React.Fragment key={i}>
+              {urls.length > 1 && (
+                <DropdownMenuLabel className="truncate text-[10px] font-semibold text-slate-500" title={fileName}>
+                  {label} {i + 1}
+                </DropdownMenuLabel>
+              )}
+              <DropdownMenuItem asChild>
+                <a
+                  href={u}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex cursor-pointer items-center gap-2 text-xs"
+                >
+                  <Eye className="size-3.5" aria-hidden /> View
+                </a>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  void downloadAttachment(u, fileName);
+                }}
+                className="flex cursor-pointer items-center gap-2 text-xs"
+              >
+                <Download className="size-3.5" aria-hidden /> Download
+              </DropdownMenuItem>
+              {urls.length > 1 && i < urls.length - 1 && <DropdownMenuSeparator />}
+            </React.Fragment>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -366,6 +430,128 @@ function RcvdCell({ row }: { row: RemovalReceiptRow }) {
         </div>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function WhBilledCell({
+  row,
+  onSaved,
+}: {
+  row: RemovalReceiptRow;
+  onSaved?: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [billedDate, setBilledDate] = React.useState(row.billedDate || todayIso());
+  const [amount, setAmount] = React.useState(row.billedAmount || 0);
+  const [busy, setBusy] = React.useState(false);
+
+  // Re-sync local form when the row data changes (e.g. after a refresh).
+  React.useEffect(() => {
+    setBilledDate(row.billedDate || todayIso());
+    setAmount(row.billedAmount || 0);
+  }, [row.billedDate, row.billedAmount]);
+
+  async function save(billed: boolean) {
+    setBusy(true);
+    try {
+      const res = await saveWarehouseBilling({
+        receiptId: row.id,
+        warehouseBilled: billed,
+        billedDate: billed ? billedDate : null,
+        billedAmount: billed ? amount : 0,
+      });
+      if (res.ok) {
+        toast.success(billed ? "✅ Marked billed" : "Marked not billed");
+        setOpen(false);
+        onSaved?.();
+      } else {
+        toast.error(res.error || "Failed to save billing");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "rounded border px-2 py-0.5 text-[10px] font-bold transition",
+            row.warehouseBilled
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100",
+          )}
+          title="Edit warehouse billing"
+        >
+          {row.warehouseBilled ? "✓ YES" : "NO"}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="center"
+        className="w-56"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="space-y-2">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+            Warehouse billing
+          </div>
+          <div className="space-y-1">
+            <label className="block text-[10px] font-semibold text-muted-foreground">
+              Billed Date
+            </label>
+            <Input
+              type="date"
+              value={billedDate}
+              onChange={(e) => setBilledDate(e.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-[10px] font-semibold text-muted-foreground">
+              Amount ($)
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => setAmount(Number.parseFloat(e.target.value) || 0)}
+              className="h-8 text-center text-xs font-bold text-amber-700"
+            />
+          </div>
+          <div className="flex gap-1 pt-1">
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 flex-1 bg-emerald-600 text-[11px] hover:bg-emerald-700"
+              disabled={busy}
+              onClick={() => void save(true)}
+            >
+              Save billed
+            </Button>
+            {row.warehouseBilled ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 text-[11px]"
+                disabled={busy}
+                onClick={() => void save(false)}
+              >
+                Mark NO
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

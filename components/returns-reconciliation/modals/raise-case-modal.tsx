@@ -58,6 +58,7 @@ export function RaiseCaseModal({
   const [unitsClaimed, setUnitsClaimed] = React.useState(1);
   const [amountClaimed, setAmountClaimed] = React.useState(0);
   const [status, setStatus] = React.useState("OPEN");
+  const [caseUrl, setCaseUrl] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
@@ -74,6 +75,7 @@ export function RaiseCaseModal({
     setUnitsClaimed(row.totalReturned || 1);
     setAmountClaimed(0);
     setStatus("OPEN");
+    setCaseUrl("");
     setNotes("");
   }, [open, row]);
 
@@ -98,6 +100,7 @@ export function RaiseCaseModal({
         unitsClaimed,
         amountClaimed,
         status,
+        caseUrl: caseUrl || null,
         notes: notes || null,
       });
       if (!res.ok) {
@@ -114,10 +117,11 @@ export function RaiseCaseModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+      <DialogContent className="flex max-h-[min(90vh,920px)] flex-col gap-0 overflow-hidden sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>⚖️ Raise Case — Returns</DialogTitle>
         </DialogHeader>
+        <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pt-2 pb-2">
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
           <Info label="Order ID">{row.orderId}</Info>
           <Info label="MSKU">{row.msku}</Info>
@@ -127,10 +131,6 @@ export function RaiseCaseModal({
           <Info label="Status">{row.finalStatus}</Info>
           <Info label="Returned Qty">{row.totalReturned}</Info>
         </div>
-
-        <Field label="Case ID (Amazon Case #)">
-          <Input value={caseId} onChange={(e) => setCaseId(e.target.value)} placeholder="e.g. 12345678901" />
-        </Field>
 
         <Field label="Case Reason *">
           <Select value={caseReason} onValueChange={setCaseReason}>
@@ -180,11 +180,25 @@ export function RaiseCaseModal({
           </Select>
         </Field>
 
+        <Field label="Case ID (Amazon Case #)">
+          <Input value={caseId} onChange={(e) => setCaseId(e.target.value)} placeholder="e.g. 12345678901" />
+        </Field>
+
+        <Field label="Amazon Case URL">
+          <Input
+            type="url"
+            value={caseUrl}
+            onChange={(e) => setCaseUrl(e.target.value)}
+            placeholder="https://sellercentral.amazon.com/cu/case-dashboard/view-case?caseID=…"
+          />
+        </Field>
+
         <Field label="Notes">
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Additional details…" />
         </Field>
+        </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 border-t pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           <Button onClick={() => void onSubmit()} disabled={busy}>⚖️ Raise Case</Button>
         </DialogFooter>

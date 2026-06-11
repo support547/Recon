@@ -408,6 +408,12 @@ const REIMBURSEMENTS: ExplorerColumnSpec[] = [
     cell: "mono10",
   },
   {
+    accessorKey: "caseId",
+    header: "Case ID",
+    kind: "text",
+    cell: "mono10",
+  },
+  {
     accessorKey: "msku",
     header: "MSKU",
     kind: "text",
@@ -849,35 +855,25 @@ const REPLACEMENTS: ExplorerColumnSpec[] = [
     header: "Fulfillment Center",
     kind: "text",
   },
-  { accessorKey: "store", header: "Store", kind: "text", cell: "mono" },
 ];
 
 const ADJUSTMENTS: ExplorerColumnSpec[] = [
-  {
-    accessorKey: "msku",
-    header: "MSKU",
-    kind: "text",
-    cell: "mono10bold",
-  },
-  {
-    accessorKey: "flag",
-    header: "Flag",
-    kind: "text",
-    cell: "chipGrey",
-  },
-  {
-    accessorKey: "quantity",
-    header: "Quantity",
-    kind: "integer",
-    cell: "qtyGreen",
-  },
+  { accessorKey: "adjDate", header: "Date", kind: "date", cell: "mono" },
+  { accessorKey: "fnsku", header: "FNSKU", kind: "text", cell: "mono" },
+  { accessorKey: "asin", header: "ASIN", kind: "text", cell: "mono" },
+  { accessorKey: "msku", header: "MSKU", kind: "text", cell: "mono10bold" },
+  { accessorKey: "title", header: "Title", kind: "text", cell: "truncate180" },
+  { accessorKey: "eventType", header: "Event Type", kind: "text", cell: "chipGrey" },
+  { accessorKey: "referenceId", header: "Reference ID", kind: "text", cell: "mono10" },
+  { accessorKey: "quantity", header: "Quantity", kind: "integer", cell: "qtyGreen" },
+  { accessorKey: "fulfillmentCenter", header: "Fulfillment Center", kind: "text", cell: "chipTeal" },
+  { accessorKey: "disposition", header: "Disposition", kind: "text", cell: "chipDisposition" },
+  { accessorKey: "reason", header: "Reason", kind: "text", cell: "chipBlue" },
+  { accessorKey: "country", header: "Country", kind: "text" },
+  { accessorKey: "reconciledQty", header: "Reconciled", kind: "integer", cell: "integerRight" },
+  { accessorKey: "unreconciledQty", header: "Unreconciled", kind: "integer", cell: "integerRight" },
+  { accessorKey: "adjDatetime", header: "Date and Time", kind: "date", cell: "mono" },
   { accessorKey: "store", header: "Store", kind: "text" },
-  {
-    accessorKey: "uploadedAt",
-    header: "Uploaded At",
-    kind: "date",
-    cell: "mono",
-  },
 ];
 
 const GNR_REPORT: ExplorerColumnSpec[] = [

@@ -1,21 +1,24 @@
 import { Suspense } from "react";
 
 import {
-  getGnrReconData,
+  getGnrLogData,
   getGnrReconRemarks,
 } from "@/actions/gnr-reconciliation";
+import { getGnrReconV2Data } from "@/actions/gnr-reconciliation-v2";
 import { GnrReconciliationClient } from "@/components/gnr-reconciliation/gnr-reconciliation-client";
 import { Skeleton } from "@/components/ui/skeleton";
 
 async function GnrReconciliationLoader() {
-  const [payload, remarks] = await Promise.all([
-    getGnrReconData({}),
+  const [log, remarks, v2Payload] = await Promise.all([
+    getGnrLogData({}),
     getGnrReconRemarks().catch(() => ({}) as Record<string, string>),
+    getGnrReconV2Data({}),
   ]);
   return (
     <GnrReconciliationClient
-      initialPayload={payload}
       initialRemarks={remarks}
+      initialV2Payload={v2Payload}
+      initialLogRows={log.logRows}
     />
   );
 }

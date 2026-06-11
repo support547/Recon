@@ -4,8 +4,8 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import {
-  getFcTransferReconData,
-  type FcTransferReconPayload,
+  getFcTransferFullRecon,
+  type FcFullReconPayload,
 } from "@/actions/fc-transfer-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
@@ -14,14 +14,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  SummaryTable,
-  FC_SUMMARY_COLUMNS,
-} from "@/components/fc-transfer-reconciliation/summary-tab/summary-table";
-import {
-  AnalysisTable,
-  FC_ANALYSIS_COLUMNS,
-} from "@/components/fc-transfer-reconciliation/analysis-tab/analysis-table";
 import {
   LogTable,
   FC_LOG_COLUMNS,
@@ -33,12 +25,51 @@ import {
 import { RaiseCaseModal } from "@/components/fc-transfer-reconciliation/modals/raise-case-modal";
 import { AdjustModal } from "@/components/fc-transfer-reconciliation/modals/adjust-modal";
 import { MskuLogModal } from "@/components/fc-transfer-reconciliation/modals/msku-log-modal";
+import { LegDrilldownModal } from "@/components/fc-transfer-reconciliation/modals/leg-drilldown-modal";
+import {
+  FullReconTable,
+  FC_FULL_COLUMNS,
+} from "@/components/fc-transfer-reconciliation/full-recon-tab/full-recon-table";
 import type {
-  FcActionStatus,
-  FcAnalysisRow,
-} from "@/lib/fc-transfer-reconciliation/types";
+  FcFullReconRow,
+  FcFullStats,
+  FcFullStatus,
+} from "@/lib/fc-transfer-reconciliation/full-recon-types";
+import type { FcModalTarget } from "@/lib/fc-transfer-reconciliation/modal-target";
+import { fcFullCardGroups } from "@/lib/fc-transfer-reconciliation/full-recon";
 
-type CardKey = "all" | "take-action" | "waiting" | "excess" | "cases-raised" | "reimbursed";
+// Zeroed stats so the partition cards render before the full payload loads.
+const EMPTY_FULL_STATS: FcFullStats = {
+  totalGroups: 0,
+  reconciledCount: 0,
+  inTransitCount: 0, inTransitQty: 0,
+  shortageCount: 0, shortageQty: 0,
+  damagedCount: 0, damagedQty: 0,
+  shortageDamagedCount: 0, shortageDamagedQty: 0,
+  excessCount: 0, excessQty: 0,
+  caseOpenCount: 0, caseOpenQty: 0,
+  reimbursedCount: 0, reimbursedQty: 0,
+  adjustedCount: 0, adjustedQty: 0,
+  totalUnresolvedCount: 0, totalUnresolvedQty: 0,
+  distinctMskuCount: 0,
+  unknownDispositionQty: 0,
+};
+
+// Project a Full-Reconciliation row down to the neutral FcModalTarget the shared
+// raise-case / adjust modals consume. The modals key on msku|fnsku|asin, so a
+// case/adjustment raised here lands on the same canonical grain. The Full tab no
+// longer touches any analysis-tab type.
+function fullToModalTarget(r: FcFullReconRow): FcModalTarget {
+  return {
+    msku: r.msku,
+    fnsku: r.fnsku,
+    asin: r.asin,
+    title: r.title,
+    netQty: r.netQty,
+    daysPending: r.daysPending,
+    imbalanceStart: r.imbalanceStart,
+  };
+}
 
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
@@ -50,18 +81,20 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 export function FcTransferReconciliationClient({
-  initialPayload,
+  initialFullPayload,
+  viewSwitcher,
 }: {
-  initialPayload: FcTransferReconPayload;
+  initialFullPayload?: FcFullReconPayload;
+  // Optional By-MSKU / By-FC pill rendered into the header bar (left of the
+  // Columns/Export/Refresh actions). Supplied by FcReconShell; omit for the
+  // standalone client (no behavior change).
+  viewSwitcher?: React.ReactNode;
 }) {
-  const [tab, setTab] = React.useState<"summary" | "analysis" | "log">("analysis");
-  const [analysisVis, setAnalysisVis] = useColumnVisibility(
-    "fcTransferRecon.analysisCols",
-    FC_ANALYSIS_COLUMNS,
-  );
-  const [summaryVis, setSummaryVis] = useColumnVisibility(
-    "fcTransferRecon.summaryCols",
-    FC_SUMMARY_COLUMNS,
+  // Only two tabs remain: Full Reconciliation (new engine) + Transfer Log.
+  const [tab, setTab] = React.useState<"full" | "log">("full");
+  const [fullVis, setFullVis] = useColumnVisibility(
+    "fcTransferRecon.fullCols",
+    FC_FULL_COLUMNS,
   );
   const [logVis, setLogVis] = useColumnVisibility(
     "fcTransferRecon.logCols",
@@ -72,32 +105,47 @@ export function FcTransferReconciliationClient({
   const [fc, setFc] = React.useState("");
   const [search, setSearch] = React.useState("");
   const debouncedSearch = useDebounced(search, 280);
-  const [filterCard, setFilterCard] = React.useState<CardKey>("all");
 
-  const [payload, setPayload] = React.useState(initialPayload);
   const [loading, setLoading] = React.useState(false);
 
-  const [caseRow, setCaseRow] = React.useState<FcAnalysisRow | null>(null);
+  const [caseRow, setCaseRow] = React.useState<FcModalTarget | null>(null);
   const [caseOpen, setCaseOpen] = React.useState(false);
-  const [adjRow, setAdjRow] = React.useState<FcAnalysisRow | null>(null);
+  const [adjRow, setAdjRow] = React.useState<FcModalTarget | null>(null);
   const [adjOpen, setAdjOpen] = React.useState(false);
-  const [logRow, setLogRow] = React.useState<FcAnalysisRow | null>(null);
+  const [logRow, setLogRow] = React.useState<FcModalTarget | null>(null);
   const [logOpen, setLogOpen] = React.useState(false);
+
+  // Single source of truth: the full-recon payload (rows + stats + logRows).
+  const [fullPayload, setFullPayload] = React.useState<FcFullReconPayload | null>(
+    initialFullPayload ?? null,
+  );
+  // Granular status, "all", or a display-group token set by the TAKE ACTION /
+  // RESOLVED cards (the dropdown stays granular and never emits the group tokens).
+  const [fullStatusFilter, setFullStatusFilter] =
+    React.useState<FcFullStatus | "all" | "GRP_ACTION" | "GRP_RESOLVED">("all");
+  const [drillRow, setDrillRow] = React.useState<FcFullReconRow | null>(null);
+  const [drillOpen, setDrillOpen] = React.useState(false);
 
   const reload = React.useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getFcTransferReconData({
+      const full = await getFcTransferFullRecon({
         from: from || null,
         to: to || null,
         fc: fc || undefined,
         search: debouncedSearch || undefined,
       });
-      setPayload(data);
+      setFullPayload(full);
     } finally {
       setLoading(false);
     }
   }, [from, to, fc, debouncedSearch]);
+
+  // Lazy first-load if not seeded server-side.
+  React.useEffect(() => {
+    if (fullPayload === null) void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const skipFirst = React.useRef(true);
   React.useEffect(() => {
@@ -108,58 +156,62 @@ export function FcTransferReconciliationClient({
     void reload();
   }, [reload]);
 
-  const filteredAnalysis = React.useMemo(() => {
-    if (filterCard === "all") return payload.analysis;
-    if (filterCard === "cases-raised") return payload.analysis.filter((r) => r.caseOpenCount > 0);
-    if (filterCard === "reimbursed") return payload.analysis.filter((r) => r.reimbursed);
-    const target: FcActionStatus =
-      filterCard === "take-action" ? "take-action" :
-      filterCard === "waiting" ? "waiting" : "excess";
-    return payload.analysis.filter((r) => r.actionStatus === target);
-  }, [payload.analysis, filterCard]);
+  // Display-group tokens -> the granular statuses they roll up. The dropdown
+  // stays granular; only the TAKE ACTION / RESOLVED cards emit these tokens.
+  const ACTION_STATUSES: FcFullStatus[] = ["SHORTAGE", "DAMAGED_IN_TRANSIT", "SHORTAGE_AND_DAMAGED"];
+  const RESOLVED_STATUSES: FcFullStatus[] = ["CASE_OPEN", "REIMBURSED", "ADJUSTED"];
+
+  // Status filter is an EXACT match per status (SHORTAGE_AND_DAMAGED is its own
+  // bucket); the two group tokens match any status in their set. Cards always
+  // reflect the full set regardless of this filter.
+  const filteredFull = React.useMemo(() => {
+    const all = fullPayload?.rows ?? [];
+    if (fullStatusFilter === "all") return all;
+    if (fullStatusFilter === "GRP_ACTION") return all.filter((r) => ACTION_STATUSES.includes(r.status));
+    if (fullStatusFilter === "GRP_RESOLVED") return all.filter((r) => RESOLVED_STATUSES.includes(r.status));
+    return all.filter((r) => r.status === fullStatusFilter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fullPayload, fullStatusFilter]);
+
+  // Card stats reflect the FULL result set (never the status filter). Zeroed
+  // fallback so the partition cards render before data loads.
+  const fs: FcFullStats = fullPayload?.stats ?? EMPTY_FULL_STATS;
+  // Display-only consolidation of the 9 buckets into the 6 KPI cards.
+  const cg = fcFullCardGroups(fs);
+  const logRows = fullPayload?.logRows ?? [];
 
   function exportCsv() {
     let headers: string[];
     let dataRows: (string | number)[][];
     let filename: string;
-    if (tab === "analysis") {
+    if (tab === "full") {
       headers = [
-        "MSKU", "FNSKU", "ASIN", "Title",
-        "Net Qty", "Qty In", "Qty Out", "Event Days",
-        "First Event", "Imbalance Since", "Days Pending", "Status",
-        "Case Approved Qty", "Case Approved $",
+        "MSKU", "FNSKU", "ASIN", "Title", "Out FC Count", "In FC Count",
+        "Out Total", "Out Sellable", "Out Unsellable",
+        "In Total", "In Sellable", "In Unsellable",
+        "Net", "Sellable Shortfall", "Quantity Shortage", "Degradation",
+        "In-Transit", "Days Pending", "Open Qty", "Status", "Actionable",
+        "Reimb Qty", "Unknown Disp Qty",
       ];
-      dataRows = filteredAnalysis.map((r) => [
-        r.msku, r.fnsku, r.asin, r.title,
-        r.netQty, r.qtyIn, r.qtyOut, r.eventDays,
-        r.earliestDate, r.imbalanceStart, r.daysPending, r.actionStatus,
-        r.caseApprovedQty, r.caseApprovedAmount.toFixed(2),
+      dataRows = filteredFull.map((r) => [
+        r.msku, r.fnsku, r.asin, r.title, r.fromFcCount, r.toFcCount,
+        r.outQty, r.outSellable, r.outUnsellable,
+        r.inQty, r.inSellable, r.inUnsellable,
+        r.netQty, r.sellableShortfall, r.quantityShortage, r.degradationQty,
+        r.inTransitPending, r.daysPending, r.openQty, r.status, r.actionable ? "yes" : "no",
+        r.effectiveReimbQty, r.unknownDispositionQty,
       ]);
-      filename = "fc_transfer_analysis.csv";
-    } else if (tab === "log") {
+      filename = "fc_transfer_full_reconciliation.csv";
+    } else {
       headers = [
         "Date", "MSKU", "FNSKU", "ASIN", "Title",
         "Qty", "Event Type", "FC", "Disposition", "Reason",
       ];
-      dataRows = payload.logRows.map((r) => [
+      dataRows = logRows.map((r) => [
         r.transferDate, r.msku, r.fnsku, r.asin, r.title,
         r.quantity, r.eventType, r.fulfillmentCenter, r.disposition, r.reason,
       ]);
       filename = "fc_transfer_log.csv";
-    } else {
-      headers = [
-        "MSKU", "FNSKU", "ASIN", "Title",
-        "Events", "Net Qty", "Qty In", "Qty Out",
-        "Event Types", "Fulfillment Centers",
-        "Earliest", "Latest",
-      ];
-      dataRows = payload.summary.map((r) => [
-        r.msku, r.fnsku, r.asin, r.title,
-        r.eventCount, r.netQty, r.qtyIn, r.qtyOut,
-        r.eventTypes, r.fulfillmentCenters,
-        r.earliest, r.latest,
-      ]);
-      filename = "fc_transfer_summary.csv";
     }
     const esc = (v: unknown) => {
       const s = v == null ? "" : String(v);
@@ -177,23 +229,16 @@ export function FcTransferReconciliationClient({
     toast.success("✅ CSV exported");
   }
 
-  const stats = payload.stats;
-
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
         <HeaderActions>
-          {tab === "analysis" ? (
+          {viewSwitcher}
+          {tab === "full" ? (
             <ColumnsMenu
-              columns={FC_ANALYSIS_COLUMNS}
-              visibility={analysisVis}
-              onChange={setAnalysisVis}
-            />
-          ) : tab === "summary" ? (
-            <ColumnsMenu
-              columns={FC_SUMMARY_COLUMNS}
-              visibility={summaryVis}
-              onChange={setSummaryVis}
+              columns={FC_FULL_COLUMNS}
+              visibility={fullVis}
+              onChange={setFullVis}
             />
           ) : (
             <ColumnsMenu
@@ -208,69 +253,65 @@ export function FcTransferReconciliationClient({
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="gap-4">
           <TabsList className="h-9 w-full justify-start sm:w-auto">
-            <TabsTrigger value="analysis" className="text-xs">📈 FC Transfer Analysis</TabsTrigger>
-            <TabsTrigger value="summary" className="text-xs">📊 Summary by SKU</TabsTrigger>
+            <TabsTrigger value="full" className="text-xs">🧾 Full Reconciliation</TabsTrigger>
             <TabsTrigger value="log" className="text-xs">📋 Transfer Log</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="analysis" className="mt-0 space-y-4">
+          <TabsContent value="full" className="mt-0 space-y-4">
             <FilterBar
               from={from} setFrom={setFrom}
               to={to} setTo={setTo}
               fc={fc} setFc={setFc}
               search={search} setSearch={setSearch}
               onClear={() => {
-                setFrom(""); setTo(""); setFc(""); setSearch(""); setFilterCard("all");
+                setFrom(""); setTo(""); setFc(""); setSearch(""); setFullStatusFilter("all");
               }}
             />
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-              <KpiCard label="Take Action >60 Days" border="red" primary={stats.takeActionCount} secondary={stats.takeActionQty} secLabel="Units"
-                active={filterCard === "take-action"} onClick={() => setFilterCard(filterCard === "take-action" ? "all" : "take-action")} />
-              <KpiCard label="Waiting <60 Days" border="amber" primary={stats.waitingCount} secondary={stats.waitingQty} secLabel="Units"
-                active={filterCard === "waiting"} onClick={() => setFilterCard(filterCard === "waiting" ? "all" : "waiting")} />
-              <KpiCard label="Excess Stock" border="blue" primary={stats.excessCount} secondary={stats.excessQty} secLabel="Surplus"
-                active={filterCard === "excess"} onClick={() => setFilterCard(filterCard === "excess" ? "all" : "excess")} />
-              <KpiCard label="Cases Raised" border="green" primary={stats.casesRaisedCount} secondary={stats.casesRaisedQty} secLabel="Open"
-                active={filterCard === "cases-raised"} onClick={() => setFilterCard(filterCard === "cases-raised" ? "all" : "cases-raised")} />
-              <KpiCard label="Reimbursed" border="teal" primary={stats.reimbursedCount} secondary={stats.reimbursedQty} secLabel="Units"
-                active={filterCard === "reimbursed"} onClick={() => setFilterCard(filterCard === "reimbursed" ? "all" : "reimbursed")} />
-              <KpiCard label="Total Unresolved" border="slate" primary={stats.totalUnresolved} secondary={stats.totalUnresolvedQty} secLabel="Missing"
-                active={filterCard === "all"} onClick={() => setFilterCard("all")} />
+            {/* 6 KPI cards — DISPLAY-ONLY consolidation of the 9-bucket partition
+                (fcFullStats is unchanged; the dropdown below stays granular).
+                Display-grouping invariant: reconciled + inTransit + takeAction
+                (shortage+damaged+both) + excess + resolved (case+reimbursed+adjusted)
+                === Total. Cards reflect the FULL result set — the status filter only
+                filters the table below, never these counts. */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <KpiCard label="Total (All Rows)" border="slate" primary={cg.totalGroups} secondary={fs.distinctMskuCount} secLabel="MSKUs"
+                active={fullStatusFilter === "all"} onClick={() => setFullStatusFilter("all")} />
+              <KpiCard label="Reconciled" border="green" primary={cg.reconciledCount} secondary={0} secLabel="" hideSecondary
+                active={fullStatusFilter === "RECONCILED"} onClick={() => setFullStatusFilter(fullStatusFilter === "RECONCILED" ? "all" : "RECONCILED")} />
+              <KpiCard label="In-Transit" border="blue" primary={cg.inTransitCount} secondary={cg.inTransitQty} secLabel="Units"
+                active={fullStatusFilter === "IN_TRANSIT"} onClick={() => setFullStatusFilter(fullStatusFilter === "IN_TRANSIT" ? "all" : "IN_TRANSIT")} />
+              <KpiCard label="Take Action" border="red" primary={cg.takeActionCount} secondary={cg.takeActionQty} secLabel="Open Units"
+                active={fullStatusFilter === "GRP_ACTION"} onClick={() => setFullStatusFilter(fullStatusFilter === "GRP_ACTION" ? "all" : "GRP_ACTION")}
+                breakdown={<>Shortage {cg.shortageCount} · Damaged {cg.damagedCount} · Both {cg.shortageDamagedCount}</>} />
+              <KpiCard label="Excess" border="blue" primary={cg.excessCount} secondary={cg.excessQty} secLabel="Surplus"
+                active={fullStatusFilter === "EXCESS"} onClick={() => setFullStatusFilter(fullStatusFilter === "EXCESS" ? "all" : "EXCESS")} />
+              <KpiCard label="Cases & Adjustments" border="teal" primary={cg.resolvedCount} secondary={cg.resolvedQty} secLabel="Units"
+                active={fullStatusFilter === "GRP_RESOLVED"} onClick={() => setFullStatusFilter(fullStatusFilter === "GRP_RESOLVED" ? "all" : "GRP_RESOLVED")}
+                breakdown={<>Cases {cg.caseOpenCount} <span className="text-orange-600">(open)</span> · Reimb {cg.reimbursedCount} · Adj {cg.adjustedCount}</>} />
             </div>
 
-            {loading ? (
+            {/* Status filtering is driven by the clickable KPI cards above. The
+                data-quality warning stays (unrelated to filtering). */}
+            {fs.unknownDispositionQty > 0 ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-800">
+                  ⚠ {fs.unknownDispositionQty} units with unknown disposition
+                </span>
+              </div>
+            ) : null}
+
+            {loading || fullPayload === null ? (
               <Skeleton className="h-64 w-full" />
             ) : (
-              <AnalysisTable
-                visibility={analysisVis}
-                rows={filteredAnalysis}
-                onRaiseCase={(r) => { setCaseRow(r); setCaseOpen(true); }}
-                onAdjust={(r) => { setAdjRow(r); setAdjOpen(true); }}
-                onViewLog={(r) => { setLogRow(r); setLogOpen(true); }}
+              <FullReconTable
+                visibility={fullVis}
+                rows={filteredFull}
+                onRaiseCase={(r) => { setCaseRow(fullToModalTarget(r)); setCaseOpen(true); }}
+                onAdjust={(r) => { setAdjRow(fullToModalTarget(r)); setAdjOpen(true); }}
+                onDrill={(r) => { setDrillRow(r); setDrillOpen(true); }}
               />
             )}
-          </TabsContent>
-
-          <TabsContent value="summary" className="mt-0 space-y-4">
-            <FilterBar
-              from={from} setFrom={setFrom}
-              to={to} setTo={setTo}
-              fc={fc} setFc={setFc}
-              search={search} setSearch={setSearch}
-              onClear={() => {
-                setFrom(""); setTo(""); setFc(""); setSearch("");
-              }}
-            />
-
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              <KpiCard label="Unique SKUs" border="amber" primary={stats.totalSkus} secondary={stats.totalEvents} secLabel="Events" />
-              <KpiCard label="Total Qty In" border="green" primary={stats.totalQtyIn} secondary={0} secLabel="Units" hideSecondary />
-              <KpiCard label="Total Qty Out" border="red" primary={stats.totalQtyOut} secondary={0} secLabel="Units" hideSecondary />
-              <KpiCard label="Total Events" border="blue" primary={stats.totalEvents} secondary={stats.totalSkus} secLabel="SKUs" />
-            </div>
-
-            {loading ? <Skeleton className="h-64 w-full" /> : <SummaryTable visibility={summaryVis} rows={payload.summary} />}
           </TabsContent>
 
           <TabsContent value="log" className="mt-0 space-y-4">
@@ -283,13 +324,18 @@ export function FcTransferReconciliationClient({
                 setFrom(""); setTo(""); setFc(""); setSearch("");
               }}
             />
-            {loading ? <Skeleton className="h-64 w-full" /> : <LogTable visibility={logVis} rows={payload.logRows} />}
+            {loading || fullPayload === null ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <LogTable visibility={logVis} rows={logRows} />
+            )}
           </TabsContent>
         </Tabs>
 
         <RaiseCaseModal row={caseRow} open={caseOpen} onOpenChange={setCaseOpen} onSaved={() => void reload()} />
         <AdjustModal row={adjRow} open={adjOpen} onOpenChange={setAdjOpen} onSaved={() => void reload()} />
-        <MskuLogModal row={logRow} logRows={payload.logRows} open={logOpen} onOpenChange={setLogOpen} />
+        <MskuLogModal row={logRow} logRows={logRows} open={logOpen} onOpenChange={setLogOpen} />
+        <LegDrilldownModal row={drillRow} open={drillOpen} onOpenChange={setDrillOpen} />
       </div>
     </TooltipProvider>
   );
@@ -327,29 +373,36 @@ function FilterBar({
 }
 
 function KpiCard({
-  label, border, primary, secondary, secLabel, active, onClick, hideSecondary,
+  label, border, primary, secondary, secLabel, active, onClick, hideSecondary, breakdown,
 }: {
   label: string;
-  border: "blue" | "green" | "red" | "amber" | "slate" | "teal";
+  border: "blue" | "green" | "red" | "amber" | "slate" | "teal" | "rose" | "orange" | "violet";
   primary: number;
   secondary: number;
   secLabel: string;
   active?: boolean;
   onClick?: () => void;
   hideSecondary?: boolean;
+  breakdown?: React.ReactNode;
 }) {
   const b =
     border === "blue" ? "border-t-blue-600" :
     border === "green" ? "border-t-emerald-500" :
     border === "red" ? "border-t-red-500" :
     border === "amber" ? "border-t-amber-500" :
-    border === "teal" ? "border-t-teal-500" : "border-t-slate-400";
+    border === "teal" ? "border-t-teal-500" :
+    border === "rose" ? "border-t-rose-500" :
+    border === "orange" ? "border-t-orange-500" :
+    border === "violet" ? "border-t-violet-500" : "border-t-slate-400";
   const c =
     border === "blue" ? "text-blue-600" :
     border === "green" ? "text-emerald-700" :
     border === "red" ? "text-red-600" :
     border === "amber" ? "text-amber-800" :
-    border === "teal" ? "text-teal-700" : "text-slate-600";
+    border === "teal" ? "text-teal-700" :
+    border === "rose" ? "text-rose-700" :
+    border === "orange" ? "text-orange-700" :
+    border === "violet" ? "text-violet-700" : "text-slate-600";
   const Component = onClick ? "button" : "div";
   return (
     <Component
@@ -383,6 +436,11 @@ function KpiCard({
           </>
         ) : null}
       </div>
+      {breakdown ? (
+        <div className="mt-1 text-center text-[8px] leading-tight text-muted-foreground">
+          {breakdown}
+        </div>
+      ) : null}
     </Component>
   );
 }

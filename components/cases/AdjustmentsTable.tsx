@@ -13,7 +13,7 @@ import {
 } from "@tanstack/react-table";
 import { Pencil, Trash2 } from "lucide-react";
 
-import type { ManualAdjustmentRow } from "@/actions/cases";
+import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +57,31 @@ export function AdjustmentsTable({
         ),
       },
       {
+        accessorKey: "originalMsku",
+        header: "Original MSKU",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.originalMsku ?? "—"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "asin",
+        header: "ASIN",
+        cell: ({ row }) => (
+          <span
+            className={cn(
+              "font-mono text-xs",
+              row.original.reconType === "RETURN" && row.original.asin
+                ? "font-semibold text-blue-600"
+                : "",
+            )}
+          >
+            {row.original.asin ?? "—"}
+          </span>
+        ),
+      },
+      {
         accessorKey: "fnsku",
         header: "FNSKU",
         cell: ({ row }) => (
@@ -85,7 +110,9 @@ export function AdjustmentsTable({
         header: "Adj type",
         cell: ({ row }) => (
           <Badge variant="secondary" className="font-normal normal-case">
-            {formatEnumLabel(row.original.adjType)}
+            {row.original.adjType === "RETURN_NEW_MSKU"
+              ? "Return → New MSKU"
+              : formatEnumLabel(row.original.adjType)}
           </Badge>
         ),
       },
@@ -113,6 +140,27 @@ export function AdjustmentsTable({
         cell: ({ row }) => (
           <span className="block text-right font-mono tabular-nums">
             {row.original.qtyAfter.toLocaleString()}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "amount",
+        header: () => <span className="block text-right">Amount</span>,
+        cell: ({ row }) => {
+          const v = row.original.amount;
+          return (
+            <span className="block text-right font-mono tabular-nums text-emerald-700">
+              {v == null ? "—" : `$${Number.parseFloat(v).toFixed(2)}`}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "referenceId",
+        header: "Reimb ID",
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.referenceId ?? "—"}
           </span>
         ),
       },

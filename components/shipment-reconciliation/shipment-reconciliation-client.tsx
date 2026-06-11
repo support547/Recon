@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import type { CaseTrackerRow, ManualAdjustmentRow } from "@/actions/cases";
+import type { CaseTrackerRow } from "@/actions/cases";
+import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
 import {
   deleteShipmentCaAdjustment,
   deleteShipmentCaCase,
@@ -345,6 +346,9 @@ export function ShipmentReconciliationClient({
             break;
           case "pending":
             if (r.pending <= 0) return false;
+            break;
+          case "issues":
+            if (r.received_qty - r.shipped_qty <= 0) return false;
             break;
           case "case_raised":
             if (!ca || (ca.case_raised || 0) <= 0) return false;
@@ -769,30 +773,30 @@ export function ShipmentReconciliationClient({
               loading={reconLoading}
             />
             <SummaryCard
-              label="Cases Raised"
-              border="amber"
-              primary={stats.caseRaisedSkus.toLocaleString()}
+              label="Take Action"
+              border="red"
+              primary={stats.caseNeededSkus.toLocaleString()}
               subLabel="SKUs"
-              secondary={stats.caseRaisedQty.toLocaleString()}
-              secondarySub="Claimed"
+              secondary={stats.caseQty.toLocaleString()}
+              secondarySub="Units"
               loading={reconLoading}
             />
             <SummaryCard
-              label="Adjustments"
+              label="Resolved (Cases+Adjust)"
               border="slate"
-              primary={stats.adjSkus.toLocaleString()}
+              primary={(stats.caseRaisedSkus + stats.adjSkus).toLocaleString()}
               subLabel="SKUs"
-              secondary={stats.adjQty.toLocaleString()}
+              secondary={(stats.caseRaisedQty + stats.adjQty).toLocaleString()}
               secondarySub="Units"
               loading={reconLoading}
             />
             <SummaryCard
               label="Reimbursement"
               border="teal"
-              primary={stats.reimbQty.toLocaleString()}
-              subLabel="Lost_Inb"
-              secondary={stats.caseApprovedQty.toLocaleString()}
-              secondarySub="Approved"
+              primary={stats.reimbSkus.toLocaleString()}
+              subLabel="SKUs"
+              secondary={stats.reimbQty.toLocaleString()}
+              secondarySub="Units"
               loading={reconLoading}
             />
           </div>

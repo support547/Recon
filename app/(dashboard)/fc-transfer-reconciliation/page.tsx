@@ -1,15 +1,20 @@
 import { Suspense } from "react";
 
-import { getFcTransferReconData } from "@/actions/fc-transfer-reconciliation";
-import { FcTransferReconciliationClient } from "@/components/fc-transfer-reconciliation/fc-transfer-reconciliation-client";
+import { getFcTransferFullRecon } from "@/actions/fc-transfer-reconciliation";
+import { FcReconShell } from "@/components/fc-transfer-reconciliation/fc-recon-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 
-async function FcTransferReconciliationLoader() {
-  const payload = await getFcTransferReconData({});
-  return <FcTransferReconciliationClient initialPayload={payload} />;
+async function FcTransferReconciliationLoader({ view }: { view: "msku" | "fc" }) {
+  const fullPayload = await getFcTransferFullRecon({});
+  return <FcReconShell initialFullPayload={fullPayload} initialView={view} />;
 }
 
-export default function FcTransferReconciliationPage() {
+export default async function FcTransferReconciliationPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view } = await searchParams;
   return (
     <Suspense
       fallback={
@@ -25,7 +30,7 @@ export default function FcTransferReconciliationPage() {
         </div>
       }
     >
-      <FcTransferReconciliationLoader />
+      <FcTransferReconciliationLoader view={view === "fc" ? "fc" : "msku"} />
     </Suspense>
   );
 }

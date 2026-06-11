@@ -6,7 +6,7 @@ import { AdjType, ReconType } from "@prisma/client";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 
-import type { ManualAdjustmentRow } from "@/actions/cases";
+import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
 import { createAdjustment, updateAdjustment } from "@/actions/cases";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,12 +55,15 @@ function emptyAdjustmentForm(): AdjustmentFormValues {
     adjType: AdjType.QUANTITY,
     qtyBefore: 0,
     qtyAdjusted: 0,
+    amount: "",
     reason: "",
     verifiedBy: "",
     sourceDoc: "",
     notes: "",
     adjDate: "",
     store: "",
+    receivedAsFnsku: "",
+    originalMsku: "",
     caseId: "",
   };
 }
@@ -78,12 +81,15 @@ function rowToFormValues(row: ManualAdjustmentRow): AdjustmentFormValues {
     adjType: row.adjType,
     qtyBefore: row.qtyBefore,
     qtyAdjusted: row.qtyAdjusted,
+    amount: row.amount ?? "",
     reason: row.reason ?? "",
     verifiedBy: row.verifiedBy ?? "",
     sourceDoc: row.sourceDoc ?? "",
     notes: row.notes ?? "",
     adjDate: toDatetimeLocalValue(row.adjDate),
     store: row.store ?? "",
+    receivedAsFnsku: row.receivedAsFnsku ?? "",
+    originalMsku: row.originalMsku ?? "",
     caseId: row.caseId ?? "",
   };
 }
@@ -197,6 +203,19 @@ export function AdjustmentFormModal({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>FNSKU</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={String(field.value ?? "")} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="originalMsku"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Original MSKU</FormLabel>
                       <FormControl>
                         <Input {...field} value={String(field.value ?? "")} />
                       </FormControl>
@@ -330,8 +349,8 @@ export function AdjustmentFormModal({
                   )}
                 />
 
-                <FormItem>
-                  <FormLabel>Qty after</FormLabel>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium leading-none">Qty after</label>
                   <Input
                     readOnly
                     tabIndex={-1}
@@ -341,7 +360,63 @@ export function AdjustmentFormModal({
                   <p className="text-xs text-muted-foreground">
                     Before + adjusted (saved on submit).
                   </p>
-                </FormItem>
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="amount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Amount ($)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          {...field}
+                          value={
+                            field.value === undefined || field.value === null
+                              ? ""
+                              : String(field.value)
+                          }
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === "" ? null : e.target.value,
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="referenceId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reimbursement ID</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={String(field.value ?? "")} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="receivedAsFnsku"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Received as FNSKU</FormLabel>
+                      <FormControl>
+                        <Input {...field} value={String(field.value ?? "")} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
@@ -448,17 +523,6 @@ export function AdjustmentFormModal({
                 <FormField
                   control={form.control}
                   name="orderId"
-                  render={({ field }) => (
-                    <FormItem className="hidden">
-                      <FormControl>
-                        <Input {...field} value={String(field.value ?? "")} />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="referenceId"
                   render={({ field }) => (
                     <FormItem className="hidden">
                       <FormControl>

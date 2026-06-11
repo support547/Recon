@@ -20,7 +20,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { FcAnalysisRow, FcLogRow } from "@/lib/fc-transfer-reconciliation/types";
+import type { FcLogRow } from "@/lib/fc-transfer-reconciliation/types";
+import type { FcModalTarget } from "@/lib/fc-transfer-reconciliation/modal-target";
 
 export function MskuLogModal({
   row,
@@ -28,7 +29,7 @@ export function MskuLogModal({
   open,
   onOpenChange,
 }: {
-  row: FcAnalysisRow | null;
+  row: FcModalTarget | null;
   logRows: FcLogRow[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -57,7 +58,7 @@ export function MskuLogModal({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `fc_transfer_log_${row.msku || "msku"}.csv`;
+    a.download = `fc_transfer_log_${row?.msku || "msku"}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success("✅ CSV exported");

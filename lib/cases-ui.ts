@@ -40,6 +40,8 @@ const RECON_BADGE: Record<ReconType, string> = {
   GNR: "border-orange-200 bg-orange-50 text-orange-900 dark:bg-orange-950/40 dark:text-orange-100",
   REPLACEMENT:
     "border-pink-200 bg-pink-50 text-pink-900 dark:bg-pink-950/40 dark:text-pink-100",
+  ADJUSTMENT:
+    "border-purple-200 bg-purple-50 text-purple-900 dark:bg-purple-950/40 dark:text-purple-100",
   OTHER:
     "border-gray-200 bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-100",
 };

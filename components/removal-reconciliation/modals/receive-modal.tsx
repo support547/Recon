@@ -50,6 +50,7 @@ export function ReceiveModal({
   preselectCase?: boolean;
   onSaved?: () => void;
 }) {
+  const [selectedTracking, setSelectedTracking] = React.useState("");
   const [receivedDate, setReceivedDate] = React.useState(todayIso());
   const [lpnNumber, setLpnNumber] = React.useState("");
   const [binLocation, setBinLocation] = React.useState("");
@@ -80,7 +81,12 @@ export function ReceiveModal({
 
   React.useEffect(() => {
     if (!open || !row) return;
-    const exp = row.expectedShipped;
+    const details = row.trackingDetails ?? [];
+    // Default to the first tracking not yet fully received, else the first one.
+    const firstOpen =
+      details.find((d) => d.received < d.shipped) ?? details[0];
+    setSelectedTracking(firstOpen?.tracking ?? "");
+    const exp = firstOpen ? firstOpen.shipped : row.expectedShipped;
     setReceivedDate(todayIso());
     setLpnNumber("");
     setBinLocation("");
@@ -106,11 +112,33 @@ export function ReceiveModal({
 
   if (!row) return null;
 
-  const trackingNumber = row.trackingNumbers.split(/[,\n| ]/).map((s) => s.trim()).filter(Boolean)[0] ?? "";
-  const carrier = row.carriers.split(/[,\n]/)[0]?.trim() ?? "";
-  const expectedQty = row.expectedShipped;
+  const trackingDetails = row.trackingDetails ?? [];
+  const hasMultiTracking = trackingDetails.length > 1;
+
+  // Selected per-tracking detail drives tracking #, carrier, and expected qty.
+  // Falls back to the parent-row pipe-joined string when no shipment detail exists.
+  const selectedDetail = trackingDetails.find((d) => d.tracking === selectedTracking);
+  const fallbackTracking =
+    row.trackingNumbers.split(/[,\n| ]/).map((s) => s.trim()).filter(Boolean)[0] ?? "";
+  const fallbackCarrier = row.carriers.split(/[,\n]/)[0]?.trim() ?? "";
+
+  const trackingNumber = selectedDetail?.tracking ?? (selectedTracking || fallbackTracking);
+  const carrier = selectedDetail?.carrier || fallbackCarrier;
+  // Per-tracking expected = units shipped on this tracking; fall back to order-level.
+  const expectedQty = selectedDetail ? selectedDetail.shipped : row.expectedShipped;
   const missing = Math.max(0, expectedQty - receivedQty);
   const totalClaim = unitsClaimed * valuePerUnit;
+
+  function onChangeTracking(t: string) {
+    setSelectedTracking(t);
+    const d = (row?.trackingDetails ?? []).find((x) => x.tracking === t);
+    const exp = d ? d.shipped : (row?.expectedShipped ?? 0);
+    setReceivedQty(exp);
+    setSellableQty(exp);
+    setUnsellableQty(0);
+    setRaiseCase(Boolean(preselectCase));
+    setUnitsClaimed(0);
+  }
 
   function onChangeReceived(v: number) {
     setReceivedQty(v);
@@ -182,6 +210,12 @@ export function ReceiveModal({
 
   async function onSubmit() {
     if (!row || !processedBy.trim()) return;
+    if (raiseCase && unitsClaimed < 1) {
+      toast.error("Cannot raise case", {
+        description: "Enter at least 1 unit to claim, or turn off the case toggle.",
+      });
+      return;
+    }
     setBusy(true);
     try {
       let bolUrls: string[] = [];
@@ -277,9 +311,45 @@ export function ReceiveModal({
         <div className="rounded-md border border-slate-300 bg-slate-100 p-3 space-y-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
             <SummaryCell label="Order Date" value={row.requestDate || "—"} mono />
-            <SummaryCell label="Tracking ID / BOL" value={trackingNumber} mono />
+            {hasMultiTracking ? (
+              <div className="rounded-md border border-blue-300 bg-blue-50/60 px-2.5 py-2">
+                <div className="text-[9px] uppercase tracking-wide text-blue-700">
+                  Tracking ID / BOL · pick one
+                </div>
+                <Select value={selectedTracking} onValueChange={onChangeTracking}>
+                  <SelectTrigger className="mt-1 h-8 w-full font-mono text-xs">
+                    <SelectValue placeholder="Select tracking" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {trackingDetails.map((d) => {
+                      const done = d.received >= d.shipped && d.shipped > 0;
+                      const remaining = Math.max(0, d.shipped - d.received);
+                      return (
+                        <SelectItem key={d.tracking} value={d.tracking}>
+                          <span className="font-mono">{d.tracking}</span>
+                          <span className="ml-2 text-[10px] text-muted-foreground">
+                            ship {d.shipped} ·{" "}
+                            {done
+                              ? "✓ received"
+                              : d.received > 0
+                                ? `${remaining} left`
+                                : "not received"}
+                          </span>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <SummaryCell label="Tracking ID / BOL" value={trackingNumber} mono />
+            )}
             <SummaryCell label="Carrier" value={carrier} mono />
-            <SummaryCell label="Shipped Qty" value={String(row.actualShipped)} tone="violet" />
+            <SummaryCell
+              label={hasMultiTracking ? "Shipped (this tracking)" : "Shipped Qty"}
+              value={String(selectedDetail ? selectedDetail.shipped : row.actualShipped)}
+              tone="violet"
+            />
           </div>
           <DropZone
             label="Tracking ID / BOL Proof"

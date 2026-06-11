@@ -10,6 +10,7 @@ export function summaryStats(rows: RemovalReconRow[]): RemovalReconStats {
   let partialMissingSkus = 0;
   let partialMissingQty = 0;
   let reimbursedSkus = 0;
+  let reimbursedQty = 0;
   let reimbursedAmount = 0;
   let hasCaseSkus = 0;
   let caseCountTotal = 0;
@@ -34,6 +35,7 @@ export function summaryStats(rows: RemovalReconRow[]): RemovalReconStats {
       partialMissingQty += Math.max(0, r.expectedShipped - r.receivedQty);
     } else if (r.receiptStatus === "REIMBURSED") {
       reimbursedSkus++;
+      reimbursedQty += r.reimbQty;
       reimbursedAmount += r.reimbAmount;
     }
 
@@ -53,6 +55,7 @@ export function summaryStats(rows: RemovalReconRow[]): RemovalReconStats {
     partialMissingSkus,
     partialMissingQty,
     reimbursedSkus,
+    reimbursedQty,
     reimbursedAmount,
     hasCaseSkus,
     caseCountTotal,

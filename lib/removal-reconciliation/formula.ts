@@ -4,6 +4,7 @@ import type {
   RemovalReceiptStatusKey,
   RemovalReconRow,
   ShipmentMeta,
+  TrackingDetail,
 } from "./types";
 import { key, lookupCase } from "./matching";
 
@@ -13,6 +14,7 @@ const EMPTY_SHIPMENT: ShipmentMeta = {
   lastDate: null,
   carriers: [],
   trackings: [],
+  byTracking: new Map(),
 };
 
 const EMPTY_RECEIPT: ReceiptMeta = {
@@ -26,6 +28,7 @@ const EMPTY_RECEIPT: ReceiptMeta = {
   postActions: [],
   finalStatuses: [],
   wrongItemCount: 0,
+  byTracking: new Map(),
 };
 
 const EMPTY_CASE: CaseMeta = {
@@ -113,9 +116,38 @@ export function computeRemovalRow(input: {
     receiptStatus = "AWAITING";
   }
 
-  const isLocked = receipt.received > 0 || reimbQty > 0;
+  // Lock only when the order is fully resolved: every expected unit received,
+  // or reimbursed. While partially received (e.g. multiple tracking numbers
+  // still arriving) keep the row unlocked so "Receive" stays active until all
+  // units are accounted for.
+  const isFullyReceived = expectedShipped > 0 && receipt.received >= expectedShipped;
+  const isLocked = isFullyReceived || reimbQty > 0;
 
   const removalFee = removal.removalFee ? Number(removal.removalFee.toString()) : 0;
+
+  // Per-tracking breakdown for expandable child rows. Union of tracking numbers
+  // seen on shipments and on receipts (a receipt can exist for a tracking the
+  // shipment report did not list, and vice-versa). Fee stays order-level only —
+  // Amazon does not bill per tracking.
+  const trackingKeys = new Set<string>([
+    ...shipment.byTracking.keys(),
+    ...receipt.byTracking.keys(),
+  ]);
+  const trackingDetails: TrackingDetail[] = Array.from(trackingKeys)
+    .map((t) => {
+      const s = shipment.byTracking.get(t);
+      const rc = receipt.byTracking.get(t);
+      return {
+        tracking: t,
+        carrier: s?.carrier ?? "",
+        shipped: s?.shipped ?? 0,
+        received: rc?.received ?? 0,
+        sellable: rc?.sellable ?? 0,
+        unsellable: rc?.unsellable ?? 0,
+        missing: rc?.missing ?? 0,
+      };
+    })
+    .sort((a, b) => b.shipped - a.shipped || a.tracking.localeCompare(b.tracking));
 
   return {
     removalId: removal.id,
@@ -139,6 +171,7 @@ export function computeRemovalRow(input: {
     trackingNumbers: shipment.trackings.join(" | "),
     actualShipped: shipment.actualShipped,
     shipmentCount: shipment.shipmentCount,
+    trackingDetails,
     receivedQty: receipt.received,
     sellableQty: receipt.sellable,
     unsellableQty: receipt.unsellable,

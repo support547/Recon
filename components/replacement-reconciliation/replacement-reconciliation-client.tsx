@@ -42,7 +42,7 @@ import type {
 
 const ALL = "__all__";
 
-type CardKey = "all" | "returns" | "reimb" | "takeAction" | "waiting";
+type CardKey = "all" | "returns" | "reimb" | "adj" | "takeAction" | "waiting";
 
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
@@ -116,9 +116,11 @@ export function ReplacementReconciliationClient({
     return rows.filter((r) => {
       switch (filterCard) {
         case "returns":
-          return r.returnQty > 0;
+          return r.status === "RETURNED" || r.status === "RESOLVED";
         case "reimb":
-          return r.effectiveReimbQty > 0 || r.effectiveReimbAmount > 0;
+          return r.status === "REIMBURSED";
+        case "adj":
+          return r.adjQty !== 0;
         case "takeAction":
           return r.status === "TAKE_ACTION" || r.status === "PARTIAL";
         case "waiting":
@@ -164,6 +166,7 @@ export function ReplacementReconciliationClient({
       PARTIAL: 4,
       WAITING_RETURN: 3,
       REIMBURSED: 2,
+      ADJUSTED: 2,
       RETURNED: 1,
       RESOLVED: 0,
     };
@@ -179,12 +182,16 @@ export function ReplacementReconciliationClient({
       prev.returnQty += r.returnQty;
       prev.reimbQty += r.reimbQty;
       prev.reimbAmount += r.reimbAmount;
+      prev.refundQty += r.refundQty;
+      prev.refundLines = [...prev.refundLines, ...r.refundLines];
       prev.caseCount += r.caseCount;
+      prev.caseClaimedQty += r.caseClaimedQty;
       prev.caseApprovedQty += r.caseApprovedQty;
       prev.caseApprovedAmount += r.caseApprovedAmount;
       prev.adjQty += r.adjQty;
       prev.effectiveReimbQty += r.effectiveReimbQty;
       prev.effectiveReimbAmount += r.effectiveReimbAmount;
+      prev.coveredQty += r.coveredQty;
       const prevRank = STATUS_RANK[prev.status] ?? 0;
       const curRank = STATUS_RANK[r.status] ?? 0;
       if (curRank > prevRank) prev.status = r.status;
@@ -201,32 +208,46 @@ export function ReplacementReconciliationClient({
   }, [filteredRows, analysisView]);
 
   function exportCsv() {
-    const headers = [
-      "Shipment Date", "MSKU", "ASIN", "Repl. Qty",
-      "Replacement Order", "Original Order", "Reason",
-      "Returned Qty", "Reimb. Qty", "Reimb. $",
-      "Case Status", "Case Count", "Status",
-    ];
+    // Export exactly what the table shows: ASIN view -> aggregated asinRows
+    // (Reason/Order columns are not meaningful when grouped by ASIN).
+    const byAsin = analysisView === "asin";
     const esc = (v: unknown) => {
       const s = v == null ? "" : String(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
+    const headers = byAsin
+      ? [
+          "Shipment Date", "Days", "ASIN", "Repl. Qty",
+          "Returned Qty", "Reimb. Qty", "Refund Qty", "Adjustment",
+          "Case Status", "Case Count", "Status",
+        ]
+      : [
+          "Shipment Date", "Days", "MSKU", "ASIN", "Reason",
+          "Replacement Order", "Original Order", "Repl. Qty",
+          "Returned Qty", "Reimb. Qty", "Refund Qty", "Adjustment",
+          "Case Status", "Case Count", "Status",
+        ];
     const lines = [headers.join(",")];
-    for (const r of filteredRows) {
-      lines.push(
-        [
-          r.shipmentDate, r.msku, r.asin, r.quantity,
-          r.replacementOrderId, r.originalOrderId, r.replacementReasonCode,
-          r.returnQty, r.effectiveReimbQty, r.effectiveReimbAmount.toFixed(2),
-          r.caseTopStatus, r.caseCount, r.status,
-        ].map(esc).join(","),
-      );
+    for (const r of asinRows) {
+      const row = byAsin
+        ? [
+            r.shipmentDate, r.daysSinceShipment ?? "", r.asin, r.quantity,
+            r.returnQty, r.effectiveReimbQty, r.refundQty, r.adjQty,
+            r.caseTopStatus, r.caseCount, STATUS_LABEL[r.status],
+          ]
+        : [
+            r.shipmentDate, r.daysSinceShipment ?? "", r.msku, r.asin, r.replacementReasonCode,
+            r.replacementOrderId, r.originalOrderId, r.quantity,
+            r.returnQty, r.effectiveReimbQty, r.refundQty, r.adjQty,
+            r.caseTopStatus, r.caseCount, STATUS_LABEL[r.status],
+          ];
+      lines.push(row.map(esc).join(","));
     }
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "replacement_recon.csv";
+    a.download = byAsin ? "replacement_recon_by_asin.csv" : "replacement_recon.csv";
     a.click();
     URL.revokeObjectURL(url);
     toast.success("✅ CSV exported");
@@ -299,7 +320,7 @@ export function ReplacementReconciliationClient({
               }}
             />
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
               <KpiCard
                 label="All Replacements"
                 border="blue"
@@ -322,10 +343,19 @@ export function ReplacementReconciliationClient({
                 label="Reimbursements"
                 border="teal"
                 primary={stats.reimbSkus}
-                secondary={Number(stats.reimbAmount.toFixed(0))}
-                secLabel="$"
+                secondary={stats.reimbQty}
+                secLabel="Units"
                 active={filterCard === "reimb"}
                 onClick={() => setFilterCard("reimb")}
+              />
+              <KpiCard
+                label="Adjustments"
+                border="blue"
+                primary={stats.adjSkus}
+                secondary={stats.adjQty}
+                secLabel="Units"
+                active={filterCard === "adj"}
+                onClick={() => setFilterCard("adj")}
               />
               <KpiCard
                 label="Waiting for Return"
@@ -341,7 +371,7 @@ export function ReplacementReconciliationClient({
                 border="red"
                 primary={stats.takeActionSkus}
                 secondary={stats.takeActionQty}
-                secLabel="Pending"
+                secLabel="Units"
                 active={filterCard === "takeAction"}
                 onClick={() => setFilterCard("takeAction")}
               />
@@ -389,12 +419,24 @@ export function ReplacementReconciliationClient({
   );
 }
 
+/** Plain-text status labels for CSV export (no emoji). */
+const STATUS_LABEL: Record<ReplacementStatusKey, string> = {
+  TAKE_ACTION: "Take Action",
+  WAITING_RETURN: "Waiting for Return",
+  PARTIAL: "Partial",
+  RETURNED: "Returned",
+  REIMBURSED: "Reimbursed",
+  ADJUSTED: "Adjusted",
+  RESOLVED: "Resolved",
+};
+
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "TAKE_ACTION", label: "⚠ Take Action" },
   { value: "WAITING_RETURN", label: "⏳ Waiting for Return" },
   { value: "PARTIAL", label: "◐ Partial" },
   { value: "RETURNED", label: "↩ Returned" },
   { value: "REIMBURSED", label: "💰 Reimbursed" },
+  { value: "ADJUSTED", label: "🔧 Adjusted" },
   { value: "RESOLVED", label: "✓ Resolved" },
 ] satisfies { value: ReplacementStatusKey; label: string }[];
 

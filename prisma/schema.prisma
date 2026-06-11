@@ -47,6 +47,7 @@ enum ReconType {
   FBA_BALANCE
   GNR
   REPLACEMENT
+  ADJUSTMENT
   OTHER
 }
 
@@ -55,6 +56,7 @@ enum AdjType {
   FINANCIAL
   STATUS
   OTHER
+  RETURN_NEW_MSKU
 }
 
 enum GradeResellStatus {
@@ -241,7 +243,7 @@ model FbaReceipt {
   @@index([shipmentId])
   @@index([store])
   @@index([receiptDate])
-  @@index([rowHash])
+  @@unique([rowHash])
   @@map("fba_receipts")
 }
 
@@ -386,7 +388,7 @@ model FcTransfer {
 model ShipmentStatus {
   id            String    @id @default(cuid())
   shipmentName  String?
-  shipmentId    String?
+  shipmentId    String?   @unique
   createdDate   DateTime?
   lastUpdated   DateTime?
   shipTo        String?
@@ -401,7 +403,6 @@ model ShipmentStatus {
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  @@index([shipmentId])
   @@index([status])
   @@index([store])
   @@index([rowHash])
@@ -459,7 +460,6 @@ model Replacement {
   replacementReasonCode       String?
   replacementOrderId          String?
   originalOrderId             String?
-  store                       String?
   rowHash                     String?
   uploadedAt                  DateTime  @default(now())
   createdAt                   DateTime  @default(now())
@@ -470,7 +470,6 @@ model Replacement {
   @@index([asin])
   @@index([orderId])
   @@index([originalOrderId])
-  @@index([store])
   @@index([rowHash])
   @@map("replacements")
 }
@@ -490,6 +489,41 @@ model Adjustment {
   @@index([msku])
   @@index([store])
   @@map("adjustments")
+}
+
+model InventoryAdjustment {
+  id                String    @id @default(cuid())
+  adjDate           DateTime? @map("adj_date") @db.Date
+  fnsku             String?
+  asin              String?
+  msku              String?
+  title             String?
+  eventType         String?   @map("event_type")
+  referenceId       String?   @map("reference_id")
+  quantity          Int       @default(0)
+  fulfillmentCenter String?   @map("fulfillment_center")
+  disposition       String?
+  reason            String?
+  country           String?
+  reconciledQty     Int       @default(0) @map("reconciled_qty")
+  unreconciledQty   Int       @default(0) @map("unreconciled_qty")
+  adjDatetime       DateTime? @map("adj_datetime")
+  store             String?
+  rowHash           String?   @map("row_hash")
+  uploadedAt        DateTime  @default(now()) @map("uploaded_at")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@unique([referenceId, fnsku, adjDate, quantity], name: "inv_adj_dedup")
+  @@index([msku])
+  @@index([fnsku])
+  @@index([asin])
+  @@index([referenceId])
+  @@index([adjDate])
+  @@index([store])
+  @@index([rowHash])
+  @@map("inventory_adjustments")
 }
 
 // =============================================================
@@ -797,6 +831,7 @@ model CaseTracker {
   shipmentId     String?
   orderId        String?
   referenceId    String?
+  reimbursementId String?
   // Case details
   caseReason     String?
   unitsClaimed   Int        @default(0)
@@ -852,6 +887,7 @@ model ManualAdjustment {
   qtyBefore   Int          @default(0)
   qtyAdjusted Int          @default(0)
   qtyAfter    Int          @default(0)
+  amount      Decimal?     @db.Decimal(12, 2)
   reason      String?
   verifiedBy  String?
   sourceDoc   String?
@@ -859,6 +895,9 @@ model ManualAdjustment {
   adjDate     DateTime?
   store       String?
   receivedAsFnsku String?  @map("received_as_fnsku")
+  // Original MSKU — for RETURN_NEW_MSKU: the MSKU the unit was originally
+  // listed/sold under, before it returned under a new MSKU.
+  originalMsku String?  @map("original_msku")
   // Optional case link
   caseId      String?
   case        CaseTracker? @relation(fields: [caseId], references: [id])

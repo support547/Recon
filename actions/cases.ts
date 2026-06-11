@@ -1,10 +1,15 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { Prisma } from "@prisma/client";
 import type { AdjType, CaseStatus, ReconType } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { serializeCaseTrackerRow } from "@/lib/case-tracker-serialize";
+import {
+  serializeManualAdjustmentRow,
+  type ManualAdjustmentRow,
+} from "@/lib/manual-adjustment-serialize";
 import {
   CaseTrackerCreateSchema,
   CaseTrackerFullUpdateSchema,
@@ -36,6 +41,7 @@ export type CaseTrackerRow = {
   shipmentId: string | null;
   orderId: string | null;
   referenceId: string | null;
+  reimbursementId: string | null;
   caseReason: string | null;
   unitsClaimed: number;
   unitsApproved: number;
@@ -55,31 +61,21 @@ export type CaseTrackerRow = {
   deletedAt: Date | null;
 };
 
-export type ManualAdjustmentRow = {
-  id: string;
-  msku: string | null;
-  asin: string | null;
-  fnsku: string | null;
-  title: string | null;
-  reconType: ReconType;
-  shipmentId: string | null;
-  orderId: string | null;
-  referenceId: string | null;
-  adjType: AdjType;
-  qtyBefore: number;
-  qtyAdjusted: number;
-  qtyAfter: number;
-  reason: string | null;
-  verifiedBy: string | null;
-  sourceDoc: string | null;
-  notes: string | null;
-  adjDate: Date | null;
-  store: string | null;
-  caseId: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  deletedAt: Date | null;
-};
+
+// Cases & adjustments feed every recon page's live case-status join.
+// A case/adjustment mutation here must bust those page caches so receipt
+// logs and recon order tables reflect the new status immediately.
+function revalidateCaseDependents() {
+  revalidatePath("/cases-adjustments");
+  revalidatePath("/removal-reconciliation");
+  revalidatePath("/shipment-reconciliation");
+  revalidatePath("/returns-reconciliation");
+  revalidatePath("/replacement-reconciliation");
+  revalidatePath("/fc-transfer-reconciliation");
+  revalidatePath("/gnr-reconciliation");
+  revalidatePath("/adjustment-reconciliation");
+  revalidatePath("/full-reconciliation");
+}
 
 export async function getCases(
   filters: CaseFilters = {},
@@ -142,6 +138,7 @@ function toCaseCreateInput(
     shipmentId: v.shipmentId,
     orderId: v.orderId,
     referenceId: v.referenceId,
+    reimbursementId: v.reimbursementId,
     caseReason: v.caseReason,
     unitsClaimed: v.unitsClaimed,
     unitsApproved: v.unitsApproved,
@@ -179,6 +176,7 @@ export async function createCase(
     const row = await prisma.caseTracker.create({
       data: toCaseCreateInput(parsed.data),
     });
+    revalidateCaseDependents();
     return { ok: true, data: { id: row.id } };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not create case.";
@@ -218,6 +216,7 @@ export async function updateCase(
       where: { id: rowId },
       data: toCaseCreateInput(rest),
     });
+    revalidateCaseDependents();
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not update case.";
@@ -239,6 +238,7 @@ export async function deleteCase(id: string): Promise<MutationResult> {
     if (result.count === 0) {
       return { ok: false, error: "Case not found." };
     }
+    revalidateCaseDependents();
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not delete case.";
@@ -263,12 +263,15 @@ function toAdjustmentUncheckedWrite(
     qtyBefore: v.qtyBefore,
     qtyAdjusted: v.qtyAdjusted,
     qtyAfter,
+    amount: v.amount != null ? new Prisma.Decimal(v.amount) : null,
     reason: v.reason,
     verifiedBy: v.verifiedBy,
     sourceDoc: v.sourceDoc,
     notes: v.notes,
     adjDate: v.adjDate ?? undefined,
     store: v.store,
+    receivedAsFnsku: v.receivedAsFnsku ?? null,
+    originalMsku: v.originalMsku ?? null,
     caseId: v.caseId ?? null,
   };
 }
@@ -298,18 +301,20 @@ export async function getAdjustments(
     ];
   }
 
-  return prisma.manualAdjustment.findMany({
+  const rows = await prisma.manualAdjustment.findMany({
     where,
     orderBy: [{ adjDate: "desc" }, { createdAt: "desc" }],
   });
+  return rows.map(serializeManualAdjustmentRow);
 }
 
 export async function getAdjustmentById(
   id: string,
 ): Promise<ManualAdjustmentRow | null> {
-  return prisma.manualAdjustment.findFirst({
+  const row = await prisma.manualAdjustment.findFirst({
     where: { id, deletedAt: null },
   });
+  return row ? serializeManualAdjustmentRow(row) : null;
 }
 
 export async function createAdjustment(
@@ -330,6 +335,7 @@ export async function createAdjustment(
     const row = await prisma.manualAdjustment.create({
       data: toAdjustmentUncheckedWrite(parsed.data),
     });
+    revalidateCaseDependents();
     return { ok: true, data: { id: row.id } };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not create adjustment.";
@@ -369,6 +375,7 @@ export async function updateAdjustment(
       where: { id: rowId },
       data: toAdjustmentUncheckedWrite(rest),
     });
+    revalidateCaseDependents();
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not update adjustment.";
@@ -390,6 +397,7 @@ export async function deleteAdjustment(id: string): Promise<MutationResult> {
     if (result.count === 0) {
       return { ok: false, error: "Adjustment not found." };
     }
+    revalidateCaseDependents();
     return { ok: true };
   } catch (e) {
     const msg =

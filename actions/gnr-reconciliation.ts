@@ -5,21 +5,7 @@ import { AdjType, CaseStatus, Prisma, ReconType } from "@prisma/client";
 
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
-import { summaryStats } from "@/lib/gnr-reconciliation/aggregate";
-import { aggregateGnr, computeGnrReconRow } from "@/lib/gnr-reconciliation/formula";
-import {
-  buildFbaLatestMap,
-  buildFnskuQtyMap,
-  buildGnrAdjMap,
-  buildGnrCaseMap,
-  buildReimbByFnsku,
-  combineGnrSources,
-} from "@/lib/gnr-reconciliation/matching";
-import type {
-  GnrLogRow,
-  GnrReconRow,
-  GnrReconStats,
-} from "@/lib/gnr-reconciliation/types";
+import type { GnrLogRow } from "@/lib/gnr-reconciliation/types";
 import {
   gnrAdjustmentSchema,
   raiseGnrCaseSchema,
@@ -28,12 +14,6 @@ import {
 export type MutationResult<T = void> =
   | { ok: true; data?: T }
   | { ok: false; error: string };
-
-export type GnrReconciliationPayload = {
-  rows: GnrReconRow[];
-  logRows: GnrLogRow[];
-  stats: GnrReconStats;
-};
 
 function revalidateAll() {
   revalidatePath("/gnr-reconciliation");
@@ -58,20 +38,18 @@ function statusToEnum(s: string): CaseStatus {
   return CaseStatus.OPEN;
 }
 
-export type GnrReconFilters = {
-  search?: string;
-  actionStatus?: string;
-};
-
-export async function getGnrReconData(
-  filters: GnrReconFilters = {},
-): Promise<GnrReconciliationPayload> {
+/**
+ * Slim GNR Log payload — the Log tab only needs gnr_report rows merged with the
+ * manual grade_resell_items entries (same shape/sort as the old getGnrReconData
+ * log section, sans the heavy reconciliation joins).
+ */
+export async function getGnrLogData(
+  filters: { search?: string } = {},
+): Promise<{ logRows: GnrLogRow[] }> {
   const search = filters.search?.trim();
-  const searchPattern = search ? `%${search}%` : null;
-
   const gnrWhere: Prisma.GnrReportWhereInput = { deletedAt: null };
   const manualWhere: Prisma.GradeResellItemWhereInput = { deletedAt: null };
-  if (searchPattern) {
+  if (search) {
     gnrWhere.OR = [
       { usedMsku: { contains: search, mode: "insensitive" } },
       { usedFnsku: { contains: search, mode: "insensitive" } },
@@ -87,34 +65,24 @@ export async function getGnrReconData(
     ];
   }
 
-  const [
-    gnrReportRows,
-    manualRows,
-    sales,
-    returns,
-    removals,
-    reimbs,
-    fbaSummary,
-    cases,
-    adjs,
-  ] = await Promise.all([
+  const [gnrReportRows, manualRows] = await Promise.all([
     prisma.gnrReport.findMany({
       where: gnrWhere,
       select: {
         id: true,
-        usedMsku: true,
-        usedFnsku: true,
-        fnsku: true,
-        asin: true,
-        usedCondition: true,
-        quantity: true,
-        unitStatus: true,
+        reportDate: true,
         orderId: true,
         lpn: true,
-        reportDate: true,
-        msku: true,
         valueRecoveryType: true,
+        msku: true,
+        fnsku: true,
+        asin: true,
+        quantity: true,
+        unitStatus: true,
         reasonForUnitStatus: true,
+        usedCondition: true,
+        usedMsku: true,
+        usedFnsku: true,
       },
     }),
     prisma.gradeResellItem.findMany({
@@ -136,76 +104,7 @@ export async function getGnrReconData(
         notes: true,
       },
     }),
-    prisma.salesData.findMany({
-      where: { deletedAt: null },
-      select: { fnsku: true, quantity: true },
-    }),
-    prisma.customerReturn.findMany({
-      where: { deletedAt: null },
-      select: { fnsku: true, quantity: true },
-    }),
-    prisma.fbaRemoval.findMany({
-      where: { deletedAt: null },
-      select: { fnsku: true, quantity: true },
-    }),
-    prisma.reimbursement.findMany({
-      where: { deletedAt: null },
-      select: { fnsku: true, quantity: true, amount: true },
-    }),
-    prisma.fbaSummary.findMany({
-      where: { deletedAt: null },
-      select: { fnsku: true, endingBalance: true, summaryDate: true },
-    }),
-    prisma.caseTracker.findMany({
-      where: { deletedAt: null, reconType: ReconType.GNR },
-      select: {
-        fnsku: true,
-        unitsClaimed: true,
-        unitsApproved: true,
-        amountApproved: true,
-        status: true,
-        referenceId: true,
-        caseReason: true,
-        notes: true,
-        raisedDate: true,
-        updatedAt: true,
-      },
-    }),
-    prisma.manualAdjustment.findMany({
-      where: { deletedAt: null, reconType: ReconType.GNR },
-      select: { msku: true, qtyAdjusted: true, reason: true },
-    }),
   ]);
-
-  const combined = combineGnrSources(gnrReportRows, manualRows);
-  const aggs = aggregateGnr(combined);
-
-  const salesMap = buildFnskuQtyMap(sales);
-  const returnsMap = buildFnskuQtyMap(returns);
-  const removalsMap = buildFnskuQtyMap(removals);
-  const reimbMap = buildReimbByFnsku(reimbs);
-  const fbaMap = buildFbaLatestMap(fbaSummary);
-  const caseMap = buildGnrCaseMap(cases);
-  const adjMap = buildGnrAdjMap(adjs);
-
-  let rows = aggs.map((agg) =>
-    computeGnrReconRow({ agg, salesMap, returnsMap, removalsMap, reimbMap, fbaMap, caseMap, adjMap }),
-  );
-
-  // Sort: positive ending balance first, then by gnrQty desc, then by msku
-  rows.sort((a, b) => {
-    const aPos = a.endingBalance > 0 ? 0 : 1;
-    const bPos = b.endingBalance > 0 ? 0 : 1;
-    if (aPos !== bPos) return aPos - bPos;
-    if (b.gnrQty !== a.gnrQty) return b.gnrQty - a.gnrQty;
-    return a.usedMsku.localeCompare(b.usedMsku);
-  });
-
-  if (filters.actionStatus && filters.actionStatus !== "all" && filters.actionStatus !== "") {
-    rows = rows.filter((r) => r.actionStatus === filters.actionStatus);
-  }
-
-  const stats = summaryStats(rows);
 
   const logRows: GnrLogRow[] = [];
   for (const r of gnrReportRows) {
@@ -248,7 +147,7 @@ export async function getGnrReconData(
   }
   logRows.sort((a, b) => b.reportDate.localeCompare(a.reportDate));
 
-  return { rows, logRows, stats };
+  return { logRows };
 }
 
 export async function saveGnrCaseAction(raw: unknown): Promise<MutationResult<{ id: string }>> {

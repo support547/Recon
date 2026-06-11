@@ -71,6 +71,9 @@ export async function getUploadSummaryByType(): Promise<UploadSummaryRow[]> {
     remShipAgg,
     shipStatusAgg,
     fbaSummAgg,
+    invAdjAgg,
+    settlementAgg,
+    paymentRepoRows,
   ] = await Promise.all([
     prisma.uploadedFile.groupBy({
       by: ["reportType"],
@@ -83,19 +86,31 @@ export async function getUploadSummaryByType(): Promise<UploadSummaryRow[]> {
       orderBy: { uploadedAt: "desc" },
       select: { reportType: true, rowCount: true },
     }),
-    prisma.shippedToFba.aggregate({ _max: { shipDate: true } }),
-    prisma.salesData.aggregate({ _max: { saleDate: true } }),
-    prisma.fbaReceipt.aggregate({ _max: { receiptDate: true } }),
-    prisma.customerReturn.aggregate({ _max: { returnDate: true } }),
-    prisma.reimbursement.aggregate({ _max: { approvalDate: true } }),
-    prisma.fcTransfer.aggregate({ _max: { transferDate: true } }),
-    prisma.replacement.aggregate({ _max: { shipmentDate: true } }),
-    prisma.gnrReport.aggregate({ _max: { reportDate: true } }),
-    prisma.fbaRemoval.aggregate({ _max: { requestDate: true } }),
-    prisma.removalShipment.aggregate({ _max: { shipmentDate: true } }),
-    prisma.shipmentStatus.aggregate({ _max: { lastUpdated: true } }),
-    prisma.fbaSummary.aggregate({ _max: { summaryDate: true } }),
+    prisma.shippedToFba.aggregate({ _max: { shipDate: true }, _min: { shipDate: true } }),
+    prisma.salesData.aggregate({ _max: { saleDate: true }, _min: { saleDate: true } }),
+    prisma.fbaReceipt.aggregate({ _max: { receiptDate: true }, _min: { receiptDate: true } }),
+    prisma.customerReturn.aggregate({ _max: { returnDate: true }, _min: { returnDate: true } }),
+    prisma.reimbursement.aggregate({ _max: { approvalDate: true }, _min: { approvalDate: true } }),
+    prisma.fcTransfer.aggregate({ _max: { transferDate: true }, _min: { transferDate: true } }),
+    prisma.replacement.aggregate({ _max: { shipmentDate: true }, _min: { shipmentDate: true } }),
+    prisma.gnrReport.aggregate({ _max: { reportDate: true }, _min: { reportDate: true } }),
+    prisma.fbaRemoval.aggregate({ _max: { requestDate: true }, _min: { requestDate: true } }),
+    prisma.removalShipment.aggregate({ _max: { shipmentDate: true }, _min: { shipmentDate: true } }),
+    prisma.shipmentStatus.aggregate({ _max: { lastUpdated: true }, _min: { lastUpdated: true } }),
+    prisma.fbaSummary.aggregate({ _max: { summaryDate: true }, _min: { summaryDate: true } }),
+    prisma.inventoryAdjustment.aggregate({ _max: { adjDate: true }, _min: { adjDate: true } }),
+    prisma.settlementReport.aggregate({ _max: { postedDate: true }, _min: { postedDate: true } }),
+    prisma.paymentRepository.findMany({ select: { postedDatetime: true } }),
   ]);
+
+  let paymentMin: Date | null = null;
+  let paymentMax: Date | null = null;
+  for (const r of paymentRepoRows) {
+    const d = toDate(r.postedDatetime);
+    if (!d) continue;
+    if (!paymentMin || d < paymentMin) paymentMin = d;
+    if (!paymentMax || d > paymentMax) paymentMax = d;
+  }
 
   const latestMap = new Map(
     latestPerType.map((r) => [r.reportType, r.rowCount]),
@@ -115,8 +130,29 @@ export async function getUploadSummaryByType(): Promise<UploadSummaryRow[]> {
     removal_shipments: remShipAgg._max.shipmentDate,
     shipment_status: shipStatusAgg._max.lastUpdated,
     fba_summary: fbaSummAgg._max.summaryDate,
-    payment_repository: null,
+    payment_repository: paymentMax,
     adjustments: null,
+    inventory_adjustments: invAdjAgg._max.adjDate,
+    settlement_report: settlementAgg._max.postedDate,
+  };
+
+  const oldestDataDates: Record<string, Date | null> = {
+    shipped_to_fba: shippedAgg._min.shipDate,
+    sales_data: salesAgg._min.saleDate,
+    fba_receipts: receiptsAgg._min.receiptDate,
+    customer_returns: returnsAgg._min.returnDate,
+    reimbursements: reimbAgg._min.approvalDate,
+    fc_transfers: fcAgg._min.transferDate,
+    replacements: replAgg._min.shipmentDate,
+    gnr_report: gnrAgg._min.reportDate,
+    fba_removals: removalsAgg._min.requestDate,
+    removal_shipments: remShipAgg._min.shipmentDate,
+    shipment_status: shipStatusAgg._min.lastUpdated,
+    fba_summary: fbaSummAgg._min.summaryDate,
+    payment_repository: paymentMin,
+    adjustments: null,
+    inventory_adjustments: invAdjAgg._min.adjDate,
+    settlement_report: settlementAgg._min.postedDate,
   };
 
   return REPORT_TYPE_VALUES.map((rt) => {
@@ -128,6 +164,7 @@ export async function getUploadSummaryByType(): Promise<UploadSummaryRow[]> {
       lastUpload: g?._max.uploadedAt ?? null,
       lastRowCount: latestMap.get(rt) ?? 0,
       latestInFile: latestDataDates[rt] ?? null,
+      oldestInFile: oldestDataDates[rt] ?? null,
     };
   });
 }
@@ -205,6 +242,9 @@ export async function deleteUploadBatch(id: string): Promise<UploadMutationResul
           break;
         case "adjustments":
           await tx.adjustment.deleteMany({ where });
+          break;
+        case "inventory_adjustments":
+          await tx.inventoryAdjustment.deleteMany({ where });
           break;
         case "gnr_report":
           await tx.gnrReport.deleteMany({ where });
@@ -301,6 +341,8 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
                 return processReplacements(tx, rows, batchAt);
               case "adjustments":
                 return processAdjustments(tx, rows, batchAt);
+              case "inventory_adjustments":
+                return processInventoryAdjustments(tx, rows, batchAt);
               case "gnr_report":
                 return processGnr(tx, rows, batchAt);
               case "payment_repository":
@@ -945,6 +987,7 @@ async function processReceipts(
           ${batchAt},
           ${batchAt}
         )
+        ON CONFLICT ("rowHash") DO NOTHING
       `;
       ins += 1;
     }
@@ -1668,12 +1711,24 @@ async function processShipmentStatus(
     return createHash("sha256").update(parts.join("\x1f")).digest("hex");
   };
 
+  // A shipment is identified by its Shipment ID. Re-uploading the same
+  // shipment (with new status / units / dates) must UPDATE the existing
+  // row, not insert a duplicate. Collapse incoming rows by shipmentId so a
+  // file with the same shipment listed twice keeps the last occurrence.
+  const byShipmentId = new Map<string, { r: SRow; hash: string }>();
+  for (const r of rows) {
+    if (!r.shipmentId) continue;
+    byShipmentId.set(r.shipmentId, { r, hash: hashOf(r) });
+  }
+  const valid = Array.from(byShipmentId.values());
+
   let ins = 0;
+  let upd = 0;
   let sk = 0;
-  const valid = rows.map((r) => ({ r, hash: hashOf(r) }));
 
   if (valid.length > 0) {
-    const existingSet = await fetchExistingHashes(
+    // Rows whose full content is unchanged (same rowHash) → skip entirely.
+    const existingHashes = await fetchExistingHashes(
       valid.map((v) => v.hash),
       (chunk) =>
         tx.shipmentStatus.findMany({
@@ -1681,36 +1736,87 @@ async function processShipmentStatus(
           select: { rowHash: true },
         }),
     );
+
+    // For the remaining (new or changed) rows, find which shipmentIds
+    // already exist so we know to UPDATE vs INSERT.
+    const changed = valid.filter((v) => !existingHashes.has(v.hash));
+    const existingIds = new Set<string>();
+    if (changed.length > 0) {
+      const ids = changed.map((v) => v.r.shipmentId);
+      const CHUNK = 1000;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const found = await tx.shipmentStatus.findMany({
+          where: { shipmentId: { in: ids.slice(i, i + CHUNK) } },
+          select: { shipmentId: true },
+        });
+        for (const f of found) if (f.shipmentId) existingIds.add(f.shipmentId);
+      }
+    }
+
     for (const { r, hash } of valid) {
-      if (existingSet.has(hash)) { sk += 1; continue; }
-      await tx.$executeRaw`
-        INSERT INTO "shipment_status" (
-          "id", "shipmentName", "shipmentId", "createdDate", "lastUpdated", "shipTo",
-          "totalSkus", "unitsExpected", "unitsLocated", "status", "store", "rowHash",
-          "uploadedAt", "createdAt", "updatedAt"
-        ) VALUES (
-          gen_random_uuid()::text,
-          ${r.shipmentName},
-          ${r.shipmentId},
-          ${r.createdDate},
-          ${r.lastUpdated},
-          ${r.shipTo},
-          ${r.totalSkus},
-          ${r.unitsExpected},
-          ${r.unitsLocated},
-          ${r.status},
-          NULL,
-          ${hash},
-          ${batchAt},
-          ${batchAt},
-          ${batchAt}
-        )
-      `;
-      ins += 1;
+      if (existingHashes.has(hash)) { sk += 1; continue; }
+
+      if (existingIds.has(r.shipmentId)) {
+        // Drop every existing row carrying this shipmentId (collapses any
+        // pre-existing duplicates) and reinsert one fresh row with the
+        // latest status and figures from the new report.
+        await tx.shipmentStatus.deleteMany({
+          where: { shipmentId: r.shipmentId },
+        });
+        await tx.$executeRaw`
+          INSERT INTO "shipment_status" (
+            "id", "shipmentName", "shipmentId", "createdDate", "lastUpdated", "shipTo",
+            "totalSkus", "unitsExpected", "unitsLocated", "status", "store", "rowHash",
+            "uploadedAt", "createdAt", "updatedAt"
+          ) VALUES (
+            gen_random_uuid()::text,
+            ${r.shipmentName},
+            ${r.shipmentId},
+            ${r.createdDate},
+            ${r.lastUpdated},
+            ${r.shipTo},
+            ${r.totalSkus},
+            ${r.unitsExpected},
+            ${r.unitsLocated},
+            ${r.status},
+            NULL,
+            ${hash},
+            ${batchAt},
+            ${batchAt},
+            ${batchAt}
+          )
+        `;
+        upd += 1;
+      } else {
+        await tx.$executeRaw`
+          INSERT INTO "shipment_status" (
+            "id", "shipmentName", "shipmentId", "createdDate", "lastUpdated", "shipTo",
+            "totalSkus", "unitsExpected", "unitsLocated", "status", "store", "rowHash",
+            "uploadedAt", "createdAt", "updatedAt"
+          ) VALUES (
+            gen_random_uuid()::text,
+            ${r.shipmentName},
+            ${r.shipmentId},
+            ${r.createdDate},
+            ${r.lastUpdated},
+            ${r.shipTo},
+            ${r.totalSkus},
+            ${r.unitsExpected},
+            ${r.unitsLocated},
+            ${r.status},
+            NULL,
+            ${hash},
+            ${batchAt},
+            ${batchAt},
+            ${batchAt}
+          )
+        `;
+        ins += 1;
+      }
     }
   }
 
-  return { totalRows: rows.length, rowsInserted: ins, rowsSkipped: sk };
+  return { totalRows: rows.length, rowsInserted: ins + upd, rowsSkipped: sk };
 }
 
 async function processFbaSummary(
@@ -2097,6 +2203,179 @@ async function processAdjustments(
     }
   }
   return { totalRows: entries.length, rowsInserted: ins, rowsSkipped: sk };
+}
+
+async function processInventoryAdjustments(
+  tx: Tx,
+  allRows: string[][],
+  batchAt: Date,
+): Promise<ProcessOutcome> {
+  const hdr = (allRows[0] ?? []).map((c) =>
+    String(c ?? "").toLowerCase().trim().replace(/['"]/g, "").replace(/﻿/g, ""),
+  );
+  const findCol = (...terms: string[]) => {
+    for (const t of terms) {
+      const tt = t.toLowerCase();
+      const i = hdr.findIndex((h) => h === tt);
+      if (i !== -1) return i;
+    }
+    for (const t of terms) {
+      const tt = t.toLowerCase();
+      const i = hdr.findIndex((h) => h.includes(tt));
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+
+  const iDate = findCol("date");
+  const iFnsku = findCol("fnsku");
+  const iAsin = findCol("asin");
+  const iMsku = findCol("msku", "merchant sku", "sku");
+  const iTitle = findCol("title");
+  const iEvent = findCol("event type", "event-type");
+  const iRef = findCol("reference id", "reference-id", "referenceid");
+  const iQty = findCol("quantity", "qty");
+  const iFc = findCol("fulfillment center", "fulfillment-center", "fc");
+  const iDisp = findCol("disposition");
+  const iReason = findCol("reason");
+  const iCountry = findCol("country");
+  const iRecon = findCol("reconciled");
+  const iUnrecon = findCol("unreconciled");
+  const iDt = findCol("date and time", "datetime");
+  const iStore = findCol("store");
+
+  if (iFnsku === -1 || iEvent === -1 || iQty === -1) {
+    throw new Error(
+      'Not Adjustments — need FNSKU, Event Type, and Quantity columns.',
+    );
+  }
+  const sample = allRows.slice(1, 6).map((r) =>
+    String(iEvent >= 0 ? r[iEvent] ?? "" : "").trim().toLowerCase(),
+  );
+  if (!sample.some((v) => v.includes("adjust"))) {
+    throw new Error('Not Adjustments — Event Type should be "Adjustment".');
+  }
+
+  type ARow = {
+    adjDate: Date | null;
+    fnsku: string | null;
+    asin: string | null;
+    msku: string | null;
+    title: string | null;
+    eventType: string | null;
+    referenceId: string | null;
+    quantity: number;
+    fulfillmentCenter: string | null;
+    disposition: string | null;
+    reason: string | null;
+    country: string | null;
+    reconciledQty: number;
+    unreconciledQty: number;
+    adjDatetime: Date | null;
+    store: string | null;
+  };
+
+  const get = (row: string[], i: number) => (i >= 0 ? row[i] : undefined);
+  const dataRows = allRows
+    .slice(1)
+    .filter((r) => String(get(r, iFnsku) ?? "").trim());
+
+  const entries: ARow[] = [];
+  for (const row of dataRows) {
+    const fnsku = String(get(row, iFnsku) ?? "").trim();
+    if (!fnsku) continue;
+    const date = toDate(get(row, iDate));
+    const dtRaw = String(get(row, iDt) ?? "").trim();
+    entries.push({
+      adjDate: date,
+      fnsku: fnsku || null,
+      asin: String(get(row, iAsin) ?? "").trim() || null,
+      msku: String(get(row, iMsku) ?? "").trim() || null,
+      title: String(get(row, iTitle) ?? "").trim() || null,
+      eventType: String(get(row, iEvent) ?? "").trim() || null,
+      referenceId: String(get(row, iRef) ?? "").trim() || null,
+      quantity: toNum(get(row, iQty)),
+      fulfillmentCenter: String(get(row, iFc) ?? "").trim() || null,
+      disposition: String(get(row, iDisp) ?? "").trim() || null,
+      reason: String(get(row, iReason) ?? "").trim() || null,
+      country: String(get(row, iCountry) ?? "").trim() || null,
+      reconciledQty: toNum(get(row, iRecon)),
+      unreconciledQty: toNum(get(row, iUnrecon)),
+      adjDatetime: dtRaw ? toDate(dtRaw) : date,
+      store: String(get(row, iStore) ?? "").replace(/[\r\n]/g, "").trim() || null,
+    });
+  }
+
+  const hashOf = (r: ARow): string => {
+    const parts = [
+      r.referenceId ?? "", r.fnsku ?? "",
+      r.adjDate ? r.adjDate.toISOString() : "",
+      r.msku ?? "", r.asin ?? "", r.title ?? "", r.eventType ?? "",
+      String(r.quantity), r.fulfillmentCenter ?? "",
+      r.disposition ?? "", r.reason ?? "", r.country ?? "",
+      String(r.reconciledQty), String(r.unreconciledQty),
+      r.adjDatetime ? r.adjDatetime.toISOString() : "",
+      r.store ?? "",
+    ];
+    return createHash("sha256").update(parts.join("\x1f")).digest("hex");
+  };
+
+  let ins = 0;
+  let sk = 0;
+  let bad = 0;
+  const valid: { r: ARow; hash: string }[] = [];
+  for (const r of entries) {
+    if (!r.adjDate || !r.fnsku) { bad += 1; continue; }
+    valid.push({ r, hash: hashOf(r) });
+  }
+
+  if (valid.length > 0) {
+    const existingSet = await fetchExistingHashes(
+      valid.map((v) => v.hash),
+      (chunk) =>
+        tx.inventoryAdjustment.findMany({
+          where: { rowHash: { in: chunk } },
+          select: { rowHash: true },
+        }),
+    );
+    for (const { r, hash } of valid) {
+      if (existingSet.has(hash)) { sk += 1; continue; }
+      await tx.$executeRaw`
+        INSERT INTO "inventory_adjustments" (
+          "id", "adj_date", "fnsku", "asin", "msku", "title", "event_type", "reference_id",
+          "quantity", "fulfillment_center", "disposition", "reason", "country",
+          "reconciled_qty", "unreconciled_qty", "adj_datetime", "store", "row_hash",
+          "uploaded_at", "createdAt", "updatedAt"
+        ) VALUES (
+          gen_random_uuid()::text,
+          ${r.adjDate},
+          ${r.fnsku},
+          ${r.asin},
+          ${r.msku},
+          ${r.title},
+          ${r.eventType},
+          ${r.referenceId},
+          ${r.quantity},
+          ${r.fulfillmentCenter},
+          ${r.disposition},
+          ${r.reason},
+          ${r.country},
+          ${r.reconciledQty},
+          ${r.unreconciledQty},
+          ${r.adjDatetime},
+          ${r.store},
+          ${hash},
+          ${batchAt},
+          ${batchAt},
+          ${batchAt}
+        )
+        ON CONFLICT ("reference_id", "fnsku", "adj_date", "quantity") DO NOTHING
+      `;
+      ins += 1;
+    }
+  }
+
+  return { totalRows: entries.length, rowsInserted: ins, rowsSkipped: sk + bad };
 }
 
 async function processGnr(

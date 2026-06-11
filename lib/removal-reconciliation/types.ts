@@ -1,3 +1,13 @@
+export type TrackingDetail = {
+  tracking: string;
+  carrier: string;
+  shipped: number;
+  received: number;
+  sellable: number;
+  unsellable: number;
+  missing: number;
+};
+
 export type RemovalReceiptStatusKey =
   | "AWAITING"
   | "PARTIAL"
@@ -36,6 +46,8 @@ export type RemovalReconRow = {
   trackingNumbers: string;
   actualShipped: number;
   shipmentCount: number;
+  /** Per-tracking breakdown for expandable child rows. */
+  trackingDetails: TrackingDetail[];
 
   // receipts
   receivedQty: number;
@@ -94,6 +106,7 @@ export type RemovalReceiptRow = {
   billedAmount: number;
   reimbQty: number;
   reimbAmount: number;
+  reshippedQty: number;
   postAction: string;
   actionRemarks: string;
   actionDate: string;
@@ -117,6 +130,8 @@ export type RemovalReceiptRow = {
   backPhotoUrls: string[];
   packingListUrls: string[];
   requestDate: string;
+  /** Order-level total removal fee (summed across the order's removal lines). */
+  removalFee: number;
 };
 
 
@@ -131,10 +146,17 @@ export type RemovalReconStats = {
   partialMissingSkus: number;
   partialMissingQty: number;
   reimbursedSkus: number;
+  reimbursedQty: number;
   reimbursedAmount: number;
   hasCaseSkus: number;
   caseCountTotal: number;
   totalFee: number;
+};
+
+export type ShipmentTrackingDetail = {
+  tracking: string;
+  carrier: string;
+  shipped: number;
 };
 
 export type ShipmentMeta = {
@@ -143,6 +165,15 @@ export type ShipmentMeta = {
   lastDate: Date | null;
   carriers: string[];
   trackings: string[];
+  /** Per-tracking shipped detail, keyed by tracking number. */
+  byTracking: Map<string, ShipmentTrackingDetail>;
+};
+
+export type ReceiptTrackingDetail = {
+  received: number;
+  sellable: number;
+  unsellable: number;
+  missing: number;
 };
 
 export type ReceiptMeta = {
@@ -156,6 +187,8 @@ export type ReceiptMeta = {
   postActions: string[];
   finalStatuses: string[];
   wrongItemCount: number;
+  /** Per-tracking received detail, keyed by tracking number. */
+  byTracking: Map<string, ReceiptTrackingDetail>;
 };
 
 export type CaseMeta = {

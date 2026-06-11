@@ -1,4 +1,10 @@
-import type { CaseMeta, ReceiptMeta, ShipmentMeta } from "./types";
+import type {
+  CaseMeta,
+  ReceiptMeta,
+  ReceiptTrackingDetail,
+  ShipmentMeta,
+  ShipmentTrackingDetail,
+} from "./types";
 
 export function key(orderId: string | null | undefined, fnsku: string | null | undefined): string {
   return `${(orderId ?? "").trim()}|${(fnsku ?? "").trim()}`;
@@ -24,11 +30,20 @@ export function buildShipmentMap(
       lastDate: null,
       carriers: [],
       trackings: [],
+      byTracking: new Map<string, ShipmentTrackingDetail>(),
     };
     prev.actualShipped += r.shippedQty || 0;
     if (r.trackingNumber) {
       prev.shipmentCount++;
       if (!prev.trackings.includes(r.trackingNumber)) prev.trackings.push(r.trackingNumber);
+      const td = prev.byTracking.get(r.trackingNumber) ?? {
+        tracking: r.trackingNumber,
+        carrier: r.carrier ?? "",
+        shipped: 0,
+      };
+      td.shipped += r.shippedQty || 0;
+      if (!td.carrier && r.carrier) td.carrier = r.carrier;
+      prev.byTracking.set(r.trackingNumber, td);
     }
     if (r.carrier && !prev.carriers.includes(r.carrier)) prev.carriers.push(r.carrier);
     if (r.shipmentDate && (!prev.lastDate || r.shipmentDate > prev.lastDate)) {
@@ -43,6 +58,7 @@ export function buildReceiptMap(
   rows: {
     orderId: string | null;
     fnsku: string | null;
+    trackingNumber: string | null;
     receivedQty: number;
     sellableQty: number;
     unsellableQty: number;
@@ -69,12 +85,26 @@ export function buildReceiptMap(
       postActions: [] as string[],
       finalStatuses: [] as string[],
       wrongItemCount: 0,
+      byTracking: new Map<string, ReceiptTrackingDetail>(),
     };
     prev.received += r.receivedQty || 0;
     prev.sellable += r.sellableQty || 0;
     prev.unsellable += r.unsellableQty || 0;
     prev.missing += r.missingQty || 0;
     prev.count++;
+    if (r.trackingNumber) {
+      const td = prev.byTracking.get(r.trackingNumber) ?? {
+        received: 0,
+        sellable: 0,
+        unsellable: 0,
+        missing: 0,
+      };
+      td.received += r.receivedQty || 0;
+      td.sellable += r.sellableQty || 0;
+      td.unsellable += r.unsellableQty || 0;
+      td.missing += r.missingQty || 0;
+      prev.byTracking.set(r.trackingNumber, td);
+    }
     prev.rrReimbQty += r.reimbQty || 0;
     prev.rrReimbAmount += r.reimbAmount ? Number(r.reimbAmount.toString()) : 0;
     if (r.postAction && !prev.postActions.includes(r.postAction)) prev.postActions.push(r.postAction);

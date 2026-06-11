@@ -24,6 +24,7 @@ const EMPTY_CASE: CaseMeta = {
   approvedAmount: 0,
   caseIds: [],
   topStatus: "No Case",
+  remarks: [],
 };
 
 function fmtDate(d: Date | null | undefined): string {

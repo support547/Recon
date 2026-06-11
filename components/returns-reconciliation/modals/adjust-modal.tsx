@@ -28,6 +28,7 @@ const ADJ_TYPES = [
   { value: "QUANTITY", label: "Quantity / Recount" },
   { value: "FINANCIAL", label: "Financial / Credit" },
   { value: "STATUS", label: "Status / Transfer" },
+  { value: "RETURN_NEW_MSKU", label: "Return → New MSKU" },
   { value: "OTHER", label: "Other / Write-off" },
 ];
 
@@ -47,6 +48,7 @@ export function AdjustModal({
   onSaved?: () => void;
 }) {
   const [adjType, setAdjType] = React.useState("");
+  const [originalMsku, setOriginalMsku] = React.useState("");
   const [qtyAdjusted, setQtyAdjusted] = React.useState(0);
   const [reason, setReason] = React.useState("");
   const [adjDate, setAdjDate] = React.useState(todayIso());
@@ -56,6 +58,7 @@ export function AdjustModal({
   React.useEffect(() => {
     if (!open || !row) return;
     setAdjType("");
+    setOriginalMsku("");
     setQtyAdjusted(row.totalReturned || 0);
     setReason("");
     setAdjDate(todayIso());
@@ -83,6 +86,7 @@ export function AdjustModal({
         asin: row.asin,
         title: row.title,
         adjType,
+        originalMsku: originalMsku || null,
         qtyAdjusted,
         reason,
         adjDate,
@@ -102,10 +106,11 @@ export function AdjustModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="flex max-h-[min(90vh,920px)] flex-col gap-0 overflow-hidden sm:max-w-md">
         <DialogHeader>
           <DialogTitle>🔧 Manual Adjustment — Returns</DialogTitle>
         </DialogHeader>
+        <div className="-mx-1 min-h-0 flex-1 space-y-4 overflow-y-auto px-1 pt-2 pb-2">
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
           <Info label="Order ID">{row.orderId}</Info>
           <Info label="MSKU">{row.msku}</Info>
@@ -129,6 +134,15 @@ export function AdjustModal({
           </Select>
         </Field>
 
+        <Field label="Original MSKU">
+          <Input
+            value={originalMsku}
+            onChange={(e) => setOriginalMsku(e.target.value)}
+            placeholder="MSKU it was originally listed under…"
+            className="font-mono"
+          />
+        </Field>
+
         <div className="grid grid-cols-2 gap-3">
           <Field label="Qty Adjusted">
             <Input
@@ -150,8 +164,9 @@ export function AdjustModal({
         <Field label="Notes">
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Additional notes…" />
         </Field>
+        </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 border-t pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           <Button onClick={() => void onSubmit()} disabled={busy}>🔧 Save Adjustment</Button>
         </DialogFooter>

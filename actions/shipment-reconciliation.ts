@@ -8,16 +8,21 @@ import {
   deleteAdjustment,
   deleteCase,
   type CaseTrackerRow,
-  type ManualAdjustmentRow,
   type MutationResult,
   updateAdjustment,
   updateCase,
 } from "@/actions/cases";
+import {
+  serializeManualAdjustmentRow,
+  type ManualAdjustmentRow,
+} from "@/lib/manual-adjustment-serialize";
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
 import { serializeCaseTrackerRow } from "@/lib/case-tracker-serialize";
 import {
+  buildLostInboundReimbDetailMap,
   buildLostInboundReimbMap,
+  buildReceiptDetailMap,
   buildReceiptQuantityMap,
   buildShipmentMetaMap,
   computeReconRows,
@@ -146,7 +151,13 @@ async function buildActionOverlay(): Promise<Record<string, ActionCacheEntry>> {
 
   const adjs = await prisma.manualAdjustment.findMany({
     where: { deletedAt: null, reconType: ReconType.SHIPMENT },
-    select: { fnsku: true, qtyAdjusted: true },
+    select: {
+      fnsku: true,
+      qtyAdjusted: true,
+      referenceId: true,
+      reason: true,
+      notes: true,
+    },
   });
 
   for (const a of adjs) {
@@ -158,12 +169,19 @@ async function buildActionOverlay(): Promise<Record<string, ActionCacheEntry>> {
         case_approved: 0,
         case_amount: 0,
         adj_qty: 0,
+        adj_details: [],
         case_status: null,
         case_count: 0,
         case_ids: [],
       };
     }
     overlay[k].adj_qty += Number(a.qtyAdjusted) || 0;
+    (overlay[k].adj_details ??= []).push({
+      rootCause: trimCl(a.referenceId) || "—",
+      reason: String(a.reason ?? "").trim() || "—",
+      notes: String(a.notes ?? "").trim() || "—",
+      qty: Number(a.qtyAdjusted) || 0,
+    });
   }
 
   return overlay;
@@ -192,17 +210,44 @@ export async function getShipmentReconciliationData(filters: {
     }),
     prisma.fbaReceipt.findMany({
       where: { deletedAt: null },
-      select: { shipmentId: true, fnsku: true, quantity: true },
+      select: {
+        shipmentId: true,
+        fnsku: true,
+        quantity: true,
+        receiptDate: true,
+        receiptDatetime: true,
+        fulfillmentCenter: true,
+      },
     }),
     prisma.reimbursement.findMany({
       where: { deletedAt: null },
-      select: { fnsku: true, reason: true, quantity: true },
+      select: {
+        fnsku: true,
+        reason: true,
+        quantity: true,
+        amount: true,
+        reimbursementId: true,
+        caseId: true,
+        approvalDate: true,
+      },
     }),
   ]);
 
   const shipMap: Record<string, ShipmentMeta> = buildShipmentMetaMap(statusRows);
   const rcMap = buildReceiptQuantityMap(receipts);
+  const rcDetailMap = buildReceiptDetailMap(receipts);
   const riMap = buildLostInboundReimbMap(reimbs);
+  const riDetailMap = buildLostInboundReimbDetailMap(
+    reimbs.map((r) => ({
+      fnsku: r.fnsku,
+      reason: r.reason,
+      quantity: r.quantity,
+      amount: r.amount == null ? null : Number(r.amount),
+      reimbursementId: r.reimbursementId,
+      caseId: r.caseId,
+      approvalDate: r.approvalDate,
+    })),
+  );
 
   if (process.env.NODE_ENV !== "production") {
     const totalReceiptQty = receipts.reduce(
@@ -248,7 +293,9 @@ export async function getShipmentReconciliationData(filters: {
   const rows = computeReconRows({
     shippedRows,
     rcMap,
+    rcDetailMap,
     riMap,
+    riDetailMap,
     shipMap,
     filterShipmentStatus: filters.shipmentStatus,
     filterShipmentId: filters.shipmentId,
@@ -505,10 +552,11 @@ export async function listShipmentCaAdjustments(filters: {
     });
   }
 
-  return prisma.manualAdjustment.findMany({
+  const rows = await prisma.manualAdjustment.findMany({
     where: { AND: andClause },
     orderBy: [{ adjDate: "desc" }, { createdAt: "desc" }],
   });
+  return rows.map(serializeManualAdjustmentRow);
 }
 
 export async function deleteShipmentCaCase(id: string): Promise<MutationResult> {

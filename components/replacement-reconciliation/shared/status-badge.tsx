@@ -10,6 +10,7 @@ const LABEL: Record<ReplacementStatusKey, string> = {
   PARTIAL: "◐ Partial",
   RETURNED: "↩ Returned",
   REIMBURSED: "💰 Reimbursed",
+  ADJUSTED: "🔧 Adjusted",
   RESOLVED: "✓ Resolved",
 };
 
@@ -19,6 +20,7 @@ const CLS: Record<ReplacementStatusKey, string> = {
   PARTIAL: "border-amber-200 bg-amber-50 text-amber-800",
   RETURNED: "border-blue-200 bg-blue-50 text-blue-700",
   REIMBURSED: "border-teal-200 bg-teal-50 text-teal-700",
+  ADJUSTED: "border-indigo-200 bg-indigo-50 text-indigo-700",
   RESOLVED: "border-emerald-200 bg-emerald-50 text-emerald-700",
 };
 

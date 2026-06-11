@@ -117,6 +117,7 @@ export async function getFullReconData(
       select: {
         fnsku: true, msku: true, quantity: true, amount: true,
         reason: true, amazonOrderId: true, caseId: true,
+        reimbursementId: true, originalReimbId: true, originalReimbType: true,
       },
     }),
     prisma.removalReceipt.findMany({

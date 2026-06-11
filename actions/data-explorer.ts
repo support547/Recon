@@ -166,12 +166,7 @@ export async function getDataExplorerStoreOptions(): Promise<string[]> {
       distinct: ["store"],
       select: { store: true },
     }),
-    prisma.replacement.findMany({
-      where: { deletedAt: null, store: { not: null } },
-      distinct: ["store"],
-      select: { store: true },
-    }),
-    prisma.adjustment.findMany({
+    prisma.inventoryAdjustment.findMany({
       where: { deletedAt: null, store: { not: null } },
       distinct: ["store"],
       select: { store: true },
@@ -233,7 +228,7 @@ export async function getDataExplorerTabStats(): Promise<{
     prisma.shipmentStatus.count({ where: { deletedAt: null } }),
     prisma.fbaSummary.count({ where: { deletedAt: null } }),
     prisma.replacement.count({ where: { deletedAt: null } }),
-    prisma.adjustment.count({ where: { deletedAt: null } }),
+    prisma.inventoryAdjustment.count({ where: { deletedAt: null } }),
     prisma.gnrReport.count({ where: { deletedAt: null } }),
     prisma.paymentRepository.count({ where: { deletedAt: null } }),
   ]);
@@ -868,6 +863,7 @@ export async function getReimbursements(
     approvalDate: Date | null;
     currency: string | null;
     reimbursementId: string | null;
+    caseId: string | null;
     amazonOrderId: string | null;
     store: string | null;
   }>
@@ -926,6 +922,7 @@ export async function getReimbursements(
         approvalDate: true,
         currency: true,
         reimbursementId: true,
+        caseId: true,
         amazonOrderId: true,
         store: true,
       },
@@ -1456,17 +1453,14 @@ export async function getReplacements(
     shipmentDate: Date | null;
     replacementReasonCode: string | null;
     fulfillmentCenter: string | null;
-    store: string | null;
   }>
 > {
   const { skip, page: p, pageSize: ps } = normalizePagination(page, pageSize);
   const { from, to } = parseDateRange(filters);
-  const sw = storeEq(filters?.store);
   const q = filters?.search?.trim();
 
   const where: Prisma.ReplacementWhereInput = {
     deletedAt: null,
-    ...(sw !== undefined ? { store: sw } : {}),
     ...(from || to
       ? {
           shipmentDate: {
@@ -1504,7 +1498,6 @@ export async function getReplacements(
         shipmentDate: true,
         replacementReasonCode: true,
         fulfillmentCenterId: true,
-        store: true,
       },
     }),
   ]);
@@ -1518,7 +1511,6 @@ export async function getReplacements(
       shipmentDate: r.shipmentDate,
       replacementReasonCode: r.replacementReasonCode,
       fulfillmentCenter: r.fulfillmentCenterId,
-      store: r.store,
     })),
     total,
     page: p,
@@ -1526,45 +1518,94 @@ export async function getReplacements(
   };
 }
 
-/** Raw uploaded adjustments (CSV upload), not manual recon adjustments */
+/** FBA inventory adjustments report (uploaded CSV) */
 export async function getAdjustments(
   filters?: DataExplorerFilters,
   page?: number,
   pageSize?: number,
 ): Promise<
   PaginatedResult<{
-    msku: string;
-    flag: string | null;
+    adjDate: Date | null;
+    fnsku: string | null;
+    asin: string | null;
+    msku: string | null;
+    title: string | null;
+    eventType: string | null;
+    referenceId: string | null;
     quantity: number;
+    fulfillmentCenter: string | null;
+    disposition: string | null;
+    reason: string | null;
+    country: string | null;
+    reconciledQty: number;
+    unreconciledQty: number;
+    adjDatetime: Date | null;
     store: string | null;
-    uploadedAt: Date;
   }>
 > {
   const { skip, page: p, pageSize: ps } = normalizePagination(page, pageSize);
+  const { from, to } = parseDateRange(filters);
+  const sw = storeEq(filters?.store);
   const mskuQ = filters?.msku?.trim();
-  const flagQ = filters?.flag?.trim();
-  const st = filters?.adjStore?.trim();
+  const fnskuQ = filters?.fnsku?.trim();
+  const disp = filters?.disposition?.trim();
+  const reasonEq = filters?.reason?.trim();
+  const q = filters?.search?.trim();
 
-  const where: Prisma.AdjustmentWhereInput = {
+  const where: Prisma.InventoryAdjustmentWhereInput = {
     deletedAt: null,
+    ...(sw !== undefined ? { store: sw } : {}),
+    ...(from || to
+      ? {
+          adjDate: {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          },
+        }
+      : {}),
     ...(mskuQ ? { msku: { contains: mskuQ, mode: "insensitive" } } : {}),
-    ...(flagQ ? { flag: { contains: flagQ, mode: "insensitive" } } : {}),
-    ...(st ? { store: { contains: st, mode: "insensitive" } } : {}),
+    ...(fnskuQ ? { fnsku: { contains: fnskuQ, mode: "insensitive" } } : {}),
+    ...(disp ? { disposition: { equals: disp, mode: "insensitive" } } : {}),
+    ...(reasonEq ? { reason: { equals: reasonEq, mode: "insensitive" } } : {}),
+    ...(q
+      ? {
+          OR: [
+            { msku: { contains: q, mode: "insensitive" } },
+            { fnsku: { contains: q, mode: "insensitive" } },
+            { asin: { contains: q, mode: "insensitive" } },
+            { title: { contains: q, mode: "insensitive" } },
+            { referenceId: { contains: q, mode: "insensitive" } },
+            { reason: { contains: q, mode: "insensitive" } },
+            { disposition: { contains: q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
   };
 
   const [total, rows] = await Promise.all([
-    prisma.adjustment.count({ where }),
-    prisma.adjustment.findMany({
+    prisma.inventoryAdjustment.count({ where }),
+    prisma.inventoryAdjustment.findMany({
       where,
-      orderBy: [{ uploadedAt: "desc" }, { id: "desc" }],
+      orderBy: [{ adjDate: "desc" }, { id: "desc" }],
       skip,
       take: ps,
       select: {
+        adjDate: true,
+        fnsku: true,
+        asin: true,
         msku: true,
-        flag: true,
+        title: true,
+        eventType: true,
+        referenceId: true,
         quantity: true,
+        fulfillmentCenter: true,
+        disposition: true,
+        reason: true,
+        country: true,
+        reconciledQty: true,
+        unreconciledQty: true,
+        adjDatetime: true,
         store: true,
-        uploadedAt: true,
       },
     }),
   ]);
@@ -2865,7 +2906,6 @@ export async function getDataExplorerSummary(
     const q = filters?.search?.trim();
     const where: Prisma.ReplacementWhereInput = {
       deletedAt: null,
-      ...(sw !== undefined ? { store: sw } : {}),
       ...(from || to
         ? {
             shipmentDate: {
@@ -2935,43 +2975,159 @@ export async function getDataExplorerSummary(
   }
 
   if (tab === "adjustments") {
+    const { from, to } = parseDateRange(filters);
     const mskuQ = filters?.msku?.trim();
-    const flagQ = filters?.flag?.trim();
-    const st = filters?.adjStore?.trim();
-    const where: Prisma.AdjustmentWhereInput = {
+    const fnskuQ = filters?.fnsku?.trim();
+    const disp = filters?.disposition?.trim();
+    const reasonEq = filters?.reason?.trim();
+    const q = filters?.search?.trim();
+    const where: Prisma.InventoryAdjustmentWhereInput = {
       deletedAt: null,
+      ...(sw !== undefined ? { store: sw } : {}),
+      ...(from || to
+        ? {
+            adjDate: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
       ...(mskuQ ? { msku: { contains: mskuQ, mode: "insensitive" } } : {}),
-      ...(flagQ ? { flag: { contains: flagQ, mode: "insensitive" } } : {}),
-      ...(st ? { store: { contains: st, mode: "insensitive" } } : {}),
+      ...(fnskuQ ? { fnsku: { contains: fnskuQ, mode: "insensitive" } } : {}),
+      ...(disp ? { disposition: { equals: disp, mode: "insensitive" } } : {}),
+      ...(reasonEq ? { reason: { equals: reasonEq, mode: "insensitive" } } : {}),
+      ...(q
+        ? {
+            OR: [
+              { msku: { contains: q, mode: "insensitive" } },
+              { fnsku: { contains: q, mode: "insensitive" } },
+              { asin: { contains: q, mode: "insensitive" } },
+              { title: { contains: q, mode: "insensitive" } },
+              { referenceId: { contains: q, mode: "insensitive" } },
+              { reason: { contains: q, mode: "insensitive" } },
+              { disposition: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : {}),
     };
-    const [cnt, qty, skus] = await Promise.all([
-      prisma.adjustment.count({ where }),
-      prisma.adjustment.aggregate({ where, _sum: { quantity: true } }),
-      prisma.adjustment.findMany({
+    const [cnt, qty, mskus, allRows] = await Promise.all([
+      prisma.inventoryAdjustment.count({ where }),
+      prisma.inventoryAdjustment.aggregate({ where, _sum: { quantity: true } }),
+      prisma.inventoryAdjustment.findMany({
         where,
         distinct: ["msku"],
         select: { msku: true },
       }),
+      prisma.inventoryAdjustment.findMany({
+        where,
+        select: {
+          reason: true,
+          fulfillmentCenter: true,
+          msku: true,
+          quantity: true,
+          adjDate: true,
+        },
+      }),
     ]);
+    const dts = allRows;
+    const dates = dts
+      .map((r) => (r.adjDate ? r.adjDate.toISOString().slice(0, 10) : null))
+      .filter((x): x is string => Boolean(x))
+      .sort();
+
+    type Bucket = { pos: number; neg: number; mskus: Set<string> };
+    const reasonMap = new Map<string, Bucket>();
+    const fcMap = new Map<string, Bucket>();
+    const ensure = (m: Map<string, Bucket>, k: string): Bucket => {
+      let b = m.get(k);
+      if (!b) {
+        b = { pos: 0, neg: 0, mskus: new Set() };
+        m.set(k, b);
+      }
+      return b;
+    };
+    for (const r of allRows) {
+      const reasonKey = (r.reason ?? "").trim() || "—";
+      const fcKey = (r.fulfillmentCenter ?? "").trim() || "—";
+      const m = (r.msku ?? "").trim();
+      const q = r.quantity ?? 0;
+      const rb = ensure(reasonMap, reasonKey);
+      const fb = ensure(fcMap, fcKey);
+      if (q >= 0) {
+        rb.pos += q;
+        fb.pos += q;
+      } else {
+        rb.neg += q;
+        fb.neg += q;
+      }
+      if (m) {
+        rb.mskus.add(m);
+        fb.mskus.add(m);
+      }
+    }
+    const perReasonMskuCounts = Array.from(reasonMap.entries())
+      .map(([reason, b]) => ({
+        reason,
+        pos: b.pos,
+        neg: b.neg,
+        mskuCount: b.mskus.size,
+      }))
+      .sort((a, b) => b.pos + Math.abs(b.neg) - (a.pos + Math.abs(a.neg)));
+
+    const perFcMskuCounts = Array.from(fcMap.entries())
+      .map(([fc, b]) => ({
+        fc,
+        pos: b.pos,
+        neg: b.neg,
+        mskuCount: b.mskus.size,
+      }))
+      .sort((a, b) => b.pos + Math.abs(b.neg) - (a.pos + Math.abs(a.neg)));
+
     return {
       cards: [
-        {
-          id: "n",
-          label: "Rows",
-          value: cnt.toLocaleString(),
-          tone: "blue",
-        },
+        { id: "n", label: "Rows", value: cnt.toLocaleString(), tone: "blue" },
         {
           id: "sku",
           label: "Unique MSKUs",
-          value: skus.length.toLocaleString(),
+          value: mskus
+            .filter((r) => r.msku?.trim())
+            .length.toLocaleString(),
           tone: "green",
         },
         {
           id: "qty",
-          label: "Σ Quantity",
+          label: "Quantity",
           value: (qty._sum.quantity ?? 0).toLocaleString(),
           tone: "green",
+        },
+        {
+          id: "dr",
+          label: "Date Range",
+          value: dates[0] ?? "—",
+          sub: dates.length ? `→ ${dates.at(-1) ?? "—"}` : undefined,
+          tone: "yellow",
+        },
+      ],
+      miniTables: [
+        {
+          title: "By Reason",
+          headers: ["Reason", "+ Qty", "− Qty", "MSKUs"],
+          rows: perReasonMskuCounts.map((r) => [
+            r.reason,
+            r.pos.toLocaleString(),
+            r.neg.toLocaleString(),
+            r.mskuCount.toLocaleString(),
+          ]),
+        },
+        {
+          title: "By Fulfillment Center",
+          headers: ["FC", "+ Qty", "− Qty", "MSKUs"],
+          rows: perFcMskuCounts.map((r) => [
+            r.fc,
+            r.pos.toLocaleString(),
+            r.neg.toLocaleString(),
+            r.mskuCount.toLocaleString(),
+          ]),
         },
       ],
     };

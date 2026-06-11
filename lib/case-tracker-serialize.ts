@@ -11,6 +11,7 @@ export function serializeCaseTrackerRow(row: {
   shipmentId: string | null;
   orderId: string | null;
   referenceId: string | null;
+  reimbursementId: string | null;
   caseReason: string | null;
   unitsClaimed: number;
   unitsApproved: number;
