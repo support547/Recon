@@ -862,7 +862,7 @@ export function FbaReconTable({
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
+          <div className="rounded-md border border-slate-200 bg-white">
             <table className="w-full caption-bottom text-sm">
               <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
                 <TableRow>
