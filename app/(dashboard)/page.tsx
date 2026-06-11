@@ -160,29 +160,22 @@ async function loadDashboard(): Promise<DashboardProps> {
   const shipmentStats: ModuleStats = shipment
     ? (() => {
         const rows = shipment.rows;
-        // Use the same derived stats as the Shipment Recon page so the dashboard
-        // badge matches the page's "Take Action" card (SKUs + UNITS).
         const s = shipmentSummaryStats(rows, shipment.overlay);
         const shortageQty = sum(rows, (r) => (r.shortage > 0 ? r.shortage : 0));
-        const shippedQ = sum(rows, (r) => r.shipped_qty);
         const receivedQ = sum(rows, (r) => r.received_qty);
-        const excessQ = sum(rows, (r) =>
-          r.received_qty > r.shipped_qty ? r.received_qty - r.shipped_qty : 0,
-        );
+        const resolvedQty = s.caseRaisedQty + s.adjQty;
         return {
-          // Tile's "Shortage" cell + header pill show gross shortage UNITS so they
-          // match the Shipment Recon page's SHORTAGE card (Σ r.shortage).
-          // `primaryLabel` pairs with `takeAction` (SKU count) in the Priority
-          // Actions list, so it keeps take-action wording.
-          primaryLabel: "SKUs take action",
-          primaryValue: shortageQty,
+          // Header pill + Priority Actions row show take-action UNITS, matching
+          // the Shipment Recon page's TAKE ACTION card (units side).
+          primaryLabel: "units take action",
+          primaryValue: s.caseQty,
           secondary: [
-            { label: "Shipped", value: shippedQ },
-            { label: "Received", value: receivedQ },
-            { label: "Case Needed", value: s.caseNeededSkus },
-            { label: "Excess", value: excessQ },
+            { label: "Total",      value: s.totalQty },
+            { label: "Received",   value: receivedQ },
+            { label: "Reimbursed", value: s.reimbQty },
+            { label: "Resolved",   value: resolvedQty },
           ],
-          takeAction: s.caseNeededSkus,
+          takeAction: s.caseQty,
           caseNeeded: s.caseNeededSkus,
           // Unrecovered-units KPI keeps shortage semantics (unchanged).
           pending: shortageQty,

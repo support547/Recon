@@ -150,12 +150,12 @@ function moduleStatus(m: ModuleStats): "red" | "amber" | "green" {
 
 // Short pill label per module key
 const SHORT_LABEL: Record<string, string> = {
-  shipment:    "units short",
+  shipment:    "take action",
   removal:     "awaiting",
   returns:     "take action",
   replacement: "take action",
   fcTransfer:  "take action",
-  gnr:         "action",
+  gnr:         "take action",
   adjustment:  "loss",
   full:        "action",
 };
@@ -334,7 +334,7 @@ export function ReconDashboardClient(props: DashboardProps) {
           />
           <KpiCard label="Reimbursed" value={props.flow.reimbursed} accent="amber" icon={DollarSign} />
           <KpiCard
-            label="Unrecovered Units"
+            label="Unrecovered"
             value={totals.unrecovered}
             accent={totals.unrecovered > 0 ? "red" : "emerald"}
             icon={Flame}
@@ -629,35 +629,35 @@ function KpiCard({
     <Card
       size="sm"
       className={cn(
-        "px-3 transition-colors",
+        "h-full gap-0.5 px-2.5 py-1.5 transition-colors",
         href && "cursor-pointer hover:ring-blue-500/30",
         emphasize && accent === "red" && "bg-red-50 ring-red-300",
       )}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center justify-between gap-1">
+        <span className="truncate text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
           {label}
         </span>
-        <Icon className={cn("size-4", KPI_ACCENT[accent])} aria-hidden />
+        <Icon className={cn("size-3 shrink-0", KPI_ACCENT[accent])} aria-hidden />
       </div>
-      <div className="flex items-baseline gap-1.5">
+      <div className="flex items-baseline gap-1">
         <span
           className={cn(
-            "font-mono text-2xl font-semibold tabular-nums",
+            "font-mono text-lg font-semibold tabular-nums leading-none",
             valueColor,
           )}
         >
           {fmt(value)}
         </span>
         {delta ? (
-          <span className="text-[11px] font-medium text-muted-foreground">{delta}</span>
+          <span className="text-[9px] font-medium text-muted-foreground">{delta}</span>
         ) : null}
       </div>
     </Card>
   );
   if (href) {
     return (
-      <Link href={href} className="block">
+      <Link href={href} className="block h-full">
         {inner}
       </Link>
     );
@@ -788,9 +788,9 @@ function CardBottom({
   );
 }
 
-// ── Shipment card: 2×2 grid — Shipped | Received / Shortage | Excess ──
-// secondary[0]=Shipped  secondary[1]=Received  secondary[3]=Excess
-// primaryValue = units short (Shortage)
+// ── Shipment card: 2×2 grid — Total | Received / Reimbursed | Resolved ──
+// secondary[0]=Total  [1]=Received  [2]=Reimbursed  [3]=Resolved (all units).
+// primaryValue/takeAction = take-action UNITS -> header pill + take-action badge.
 function ShipmentModuleCard({
   cfg,
   stats,
@@ -803,19 +803,10 @@ function ShipmentModuleCard({
     <div className="flex flex-col gap-0 px-3 py-2.5" style={cardBorderStyle(tone)}>
       <CardHeader cfg={cfg} stats={stats} tone={tone} />
       <div className="grid grid-cols-2 gap-1.5 py-1">
-        <StatBox label="Shipped"  value={stats.secondary[0]?.value ?? 0} tone="slate" />
-        <StatBox label="Received" value={stats.secondary[1]?.value ?? 0} tone="blue" />
-        <StatBox
-          label="Shortage"
-          value={stats.primaryValue}
-          tone={stats.primaryValue > 0 ? "red" : "emerald"}
-          bold
-        />
-        <StatBox
-          label="Excess"
-          value={stats.secondary[3]?.value ?? 0}
-          tone={(stats.secondary[3]?.value ?? 0) > 0 ? "amber" : "slate"}
-        />
+        <StatBox label="Total"      value={stats.secondary[0]?.value ?? 0} tone="slate" />
+        <StatBox label="Received"   value={stats.secondary[1]?.value ?? 0} tone="emerald" />
+        <StatBox label="Reimbursed" value={stats.secondary[2]?.value ?? 0} tone="blue" />
+        <StatBox label="Resolved"   value={stats.secondary[3]?.value ?? 0} tone="amber" />
       </div>
       <CardBottom cfg={cfg} stats={stats} hideCaseActions />
     </div>
