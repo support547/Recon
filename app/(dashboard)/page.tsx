@@ -107,7 +107,7 @@ async function loadDashboard(): Promise<DashboardProps> {
     safe(getReplacementReconData({}), null),
     safe(getFcTransferFullRecon({}), null),
     safe(getGnrReconV2Data({}), null),
-    safe(getAdjReconData({}), null),
+    safe(getAdjReconData({ groupBy: "asin" }), null),
     safe(getFullReconData({}), null),
     safe(getCases({}), []),
     safe(getAdjustments({}), []),
@@ -344,22 +344,32 @@ async function loadDashboard(): Promise<DashboardProps> {
     : { ...ZERO_MODULE, ...caseCountsByModule.gnr };
 
   // ── Adjustment module ───────────────────────────────────────
+  // Mirrors the Adjustment Recon page "By ASIN" KPI strip: pivot is grouped by
+  // ASIN and counts come directly from pivot rows (not the analysis aggregate,
+  // which gates by loss codes and excludes excess-only ASINs).
   const adjStats: ModuleStats = adj
     ? (() => {
-        const stats = adj.stats;
-        const analysis = adj.analysis;
+        const pivotRows = adj.pivot.rows;
+        const totalAsins = pivotRows.length;
+        const noActionAsins = count(pivotRows, (r) => r.totalQty >= 0);
+        const takeActionAsins = count(pivotRows, (r) => r.totalQty < 0);
+        const reimbAsins = count(pivotRows, (r) => r.reimbQty > 0 || r.reimbAmount > 0);
+        const casesRaisedAsins = count(pivotRows, (r) => r.caseCount > 0);
         return {
-          primaryLabel: "loss adjustments unresolved",
-          primaryValue: stats.takeActionCount,
+          primaryLabel: "ASINs take action",
+          primaryValue: takeActionAsins,
           secondary: [
-            { label: "Total Loss", value: stats.totalLossQty },
-            { label: "Found", value: stats.totalFoundQty },
-            { label: "Claimed", value: stats.casesRaisedQty },
-            { label: "Matched", value: stats.reimbMatchedQty },
+            { label: "Total",        value: totalAsins },
+            { label: "No Action",    value: noActionAsins },
+            { label: "Reimbursement", value: reimbAsins },
+            { label: "Cases Raised", value: casesRaisedAsins },
           ],
-          takeAction: stats.takeActionCount,
-          caseNeeded: count(analysis, (r) => r.actionStatus === "take-action" && r.caseCount === 0),
-          pending: stats.totalUnreconciledQty,
+          takeAction: takeActionAsins,
+          caseNeeded: count(
+            pivotRows,
+            (r) => r.totalQty < 0 && r.caseCount === 0,
+          ),
+          pending: adj.stats.totalUnreconciledQty,
           ...caseCountsByModule.adjustment,
         };
       })()

@@ -156,7 +156,7 @@ const SHORT_LABEL: Record<string, string> = {
   replacement: "take action",
   fcTransfer:  "take action",
   gnr:         "take action",
-  adjustment:  "loss",
+  adjustment:  "take action",
   full:        "action",
 };
 
@@ -356,6 +356,7 @@ export function ReconDashboardClient(props: DashboardProps) {
           if (cfg.key === "replacement") return <ReplacementModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
           if (cfg.key === "fcTransfer") return <FcTransferModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
           if (cfg.key === "gnr") return <GnrModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
+          if (cfg.key === "adjustment") return <AdjustmentModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
           return <ModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
         })}
       </section>
@@ -979,7 +980,32 @@ function GnrModuleCard({
   );
 }
 
-// ── Standard module card (Adj, Full) ──
+// ── Adjustment card: 2×2 grid — Total Titles | No Action / Reimbursement | Cases Raised ──
+// secondary[0]=Total Titles [1]=No Action [2]=Reimbursement [3]=Cases Raised.
+// primaryValue/takeAction = take-action ASIN count -> header pill + take-action badge.
+function AdjustmentModuleCard({
+  cfg,
+  stats,
+}: {
+  cfg: ModuleCardConfig;
+  stats: ModuleStats;
+}) {
+  const tone = moduleStatus(stats);
+  return (
+    <div className="flex flex-col gap-0 px-3 py-2.5" style={cardBorderStyle(tone)}>
+      <CardHeader cfg={cfg} stats={stats} tone={tone} />
+      <div className="grid grid-cols-2 gap-1.5 py-1">
+        <StatBox label="Total Titles"  value={stats.secondary[0]?.value ?? 0} tone="slate" />
+        <StatBox label="No Action"     value={stats.secondary[1]?.value ?? 0} tone="emerald" />
+        <StatBox label="Reimbursement" value={stats.secondary[2]?.value ?? 0} tone="blue" />
+        <StatBox label="Cases Raised"  value={stats.secondary[3]?.value ?? 0} tone="amber" />
+      </div>
+      <CardBottom cfg={cfg} stats={stats} hideCaseActions />
+    </div>
+  );
+}
+
+// ── Standard module card (Full) ──
 function ModuleCard({
   cfg,
   stats,
