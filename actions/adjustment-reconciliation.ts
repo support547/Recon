@@ -7,19 +7,23 @@ import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
 import {
   adjStats,
-  aggregateAdjAnalysis,
   aggregateAdjPivot,
+  buildAdjEventRows,
+  buildAdjLedgerRows,
   buildAdjLogRows,
+  buildAdjMskuRows,
 } from "@/lib/adjustment-reconciliation/aggregate";
 import {
   buildAdjAdjMap,
   buildAdjCaseMap,
   buildAdjCaseMapByAsin,
   buildAdjReimbMap,
-  buildAdjReimbMapFromManualByAsin,
+  buildAdjReimbMapByAsin,
 } from "@/lib/adjustment-reconciliation/matching";
 import type {
   AdjAnalysisRow,
+  AdjEventRow,
+  AdjLedgerRow,
   AdjLogRow,
   AdjPivotGroupBy,
   AdjPivotResult,
@@ -36,6 +40,8 @@ export type MutationResult<T = void> =
 
 export type AdjReconPayload = {
   analysis: AdjAnalysisRow[];
+  eventRows: AdjEventRow[];
+  ledgerRows: AdjLedgerRow[];
   pivot: AdjPivotResult;
   logRows: AdjLogRow[];
   stats: AdjReconStats;
@@ -149,28 +155,52 @@ export async function getAdjReconData(
     prisma.reimbursement.findMany({
       where: {
         deletedAt: null,
-        reason: { in: REIMB_REASONS_DAMAGED_LOST, mode: "insensitive" },
+        // Include both lost/damaged warehouse reasons AND reversals (which
+        // carry their original bucket in originalReimbType). Scope filter
+        // is applied per row in matching.ts.
+        OR: [
+          { reason: { in: REIMB_REASONS_DAMAGED_LOST, mode: "insensitive" } },
+          { originalReimbId: { not: null } },
+        ],
       },
       select: {
         msku: true,
         asin: true,
         quantity: true,
+        qtyCash: true,
+        qtyInventory: true,
         amount: true,
         reason: true,
         originalReimbId: true,
         originalReimbType: true,
         approvalDate: true,
+        reimbursementId: true,
+        caseId: true,
       },
     }),
   ]);
 
+  // Snapshot date = latest adjustment in scope. Reimbursements approved on or
+  // before this date are already reflected in Amazon's reconciledQty column.
+  let snapshotDate: Date | null = null;
+  for (const r of adjs) {
+    if (r.adjDate && (!snapshotDate || r.adjDate > snapshotDate)) {
+      snapshotDate = r.adjDate;
+    }
+  }
+  const snapshotIso = snapshotDate
+    ? snapshotDate.toISOString().split("T")[0]
+    : "";
+
   const caseMap = buildAdjCaseMap(cases);
   const adjMap = buildAdjAdjMap(manualAdjs);
-  const reimbMap = buildAdjReimbMap(reimbs);
+  const reimbMap = buildAdjReimbMap(reimbs, snapshotIso);
   const caseMapByAsin = buildAdjCaseMapByAsin(cases);
-  const reimbMapByAsin = buildAdjReimbMapFromManualByAsin(manualAdjs);
+  const reimbMapByAsin = buildAdjReimbMapByAsin(reimbs, snapshotIso);
 
-  const analysis = aggregateAdjAnalysis(adjs, caseMap, adjMap, reimbMap);
+  const ledgerRows = buildAdjLedgerRows(adjs, caseMap, adjMap, reimbMap);
+  const analysis = buildAdjMskuRows(ledgerRows, caseMap, adjMap, reimbMap);
+  const eventRows = buildAdjEventRows(ledgerRows, reimbMap);
   const groupBy = filters.groupBy ?? "asin";
   const pivot = aggregateAdjPivot(
     adjs,
@@ -181,7 +211,7 @@ export async function getAdjReconData(
   const logRows = buildAdjLogRows(adjs);
   const stats = adjStats(analysis);
 
-  return { analysis, pivot, logRows, stats };
+  return { analysis, eventRows, ledgerRows, pivot, logRows, stats };
 }
 
 export async function getAdjStores(): Promise<string[]> {

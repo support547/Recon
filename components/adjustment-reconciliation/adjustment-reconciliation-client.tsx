@@ -29,8 +29,12 @@ import { RaiseCaseModal } from "@/components/adjustment-reconciliation/modals/ra
 import { AdjustModal } from "@/components/adjustment-reconciliation/modals/adjust-modal";
 import type {
   AdjAnalysisRow,
+  AdjLedgerRow,
   AdjPivotRow,
 } from "@/lib/adjustment-reconciliation/types";
+
+const LEDGER_REASON_CODES = ["M", "E", "D", "G", "O", "Q", "4"] as const;
+type LedgerReason = (typeof LEDGER_REASON_CODES)[number];
 
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
@@ -49,8 +53,22 @@ export function AdjustmentReconciliationClient({
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<"__all__" | "ok" | "excess" | "take-action">("__all__");
+  const [mskuCardFilter, setMskuCardFilter] = React.useState<
+    | "all"
+    | "reconciled"
+    | "waiting"
+    | "take-action"
+    | "grade-resell"
+    | "reimb"
+    | "cases"
+  >("all");
   const [search, setSearch] = React.useState("");
   const [groupBy, setGroupBy] = React.useState<"asin" | "msku">("asin");
+  const [reasonFilter, setReasonFilter] = React.useState<Set<LedgerReason>>(
+    new Set(LEDGER_REASON_CODES),
+  );
+  const [collapseAllSignal, setCollapseAllSignal] = React.useState(0);
+  const [expandOpenSignal, setExpandOpenSignal] = React.useState(0);
   const debouncedSearch = useDebounced(search, 280);
 
   const [payload, setPayload] = React.useState(initialPayload);
@@ -99,18 +117,45 @@ export function AdjustmentReconciliationClient({
     let filename: string;
     if (groupBy === "msku") {
       headers = [
-        "MSKU", "FNSKU", "ASIN", "Title",
-        "Lost(M)", "Damaged(E)", "Inbound(5)", "Found(F)",
-        "Lost Reimb", "Damaged Reimb", "Open Lost", "Open Damaged",
-        "Net Claimable", "Claim Deadline", "Days To Deadline", "Status",
+        "Date", "MSKU", "FNSKU", "ASIN", "Title",
+        "Reference ID", "FC", "Disposition", "Reason", "Reason Label",
+        "Qty",
+        "Coverage Type", "Covered Qty", "Covered Amount", "Reimb Qty",
+        "Manual Adj Qty", "Manual Adj Count", "Manual Adj Reasons",
+        "Case Count", "Case Claimed Qty", "Case Approved Qty",
+        "Case Approved $", "Case Top Status", "Case IDs",
+        "Decision", "Status",
       ];
-      dataRows = filteredMskuRows.map((r) => [
-        r.msku, r.fnsku, r.asin, r.title,
-        r.misplacedQty - r.inboundLostQty, r.damagedQty, r.inboundLostQty, r.foundQty,
-        r.lostReimbQty, r.damagedReimbQty, r.openLost, r.openDamaged,
-        r.netClaimableQty, r.claimDeadline, r.daysToDeadline, r.actionStatus,
-      ]);
-      filename = "adjustment_msku_coverage.csv";
+      // Group rows by reason for the CSV (matches table layout) with a
+      // blank line between sections.
+      const byReason = new Map<string, AdjLedgerRow[]>();
+      for (const e of filteredLedgerRows) {
+        const arr = byReason.get(e.reason) ?? [];
+        arr.push(e);
+        byReason.set(e.reason, arr);
+      }
+      dataRows = [];
+      let first = true;
+      for (const code of LEDGER_REASON_CODES) {
+        const arr = byReason.get(code);
+        if (!arr || arr.length === 0) continue;
+        if (!first) dataRows.push([]);
+        first = false;
+        for (const e of arr) {
+          dataRows.push([
+            e.adjDate, e.msku, e.fnsku, e.asin, e.title,
+            e.referenceId, e.fulfillmentCenter, e.disposition, e.reason, e.reasonLabel,
+            e.qty,
+            e.coverageType, e.coveredQty, e.coveredAmount.toFixed(2),
+            Math.round(e.reimbQty),
+            e.manualAdjQty, e.manualAdjCount, e.manualAdjReasons,
+            e.caseCount, e.caseClaimedQty, e.caseApprovedQty,
+            e.caseApprovedAmount.toFixed(2), e.caseTopStatus, e.caseIds,
+            e.decision, e.actionStatus,
+          ]);
+        }
+      }
+      filename = "adjustment_msku_ledger.csv";
     } else {
       const codes = payload.pivot.reasonCodes;
       const keyHeader = payload.pivot.groupBy === "msku" ? "MSKU" : "ASIN";
@@ -149,16 +194,119 @@ export function AdjustmentReconciliationClient({
     [payload.pivot, filteredPivotRows],
   );
 
-  // MSKU coverage rows, filtered by the shared status dropdown.
+  // MSKU rows, filtered by the active KPI card (drives CSV in MSKU mode and
+  // the modal lookup map).
   const filteredMskuRows = React.useMemo(() => {
-    if (statusFilter === "__all__") return payload.analysis;
-    return payload.analysis.filter((r) => {
-      if (statusFilter === "ok") return r.actionStatus === "reconciled";
-      if (statusFilter === "excess") return r.actionStatus === "excess";
-      // take-action bucket also surfaces expired (past-window) loss.
-      return r.actionStatus === "take-action" || r.actionStatus === "expired";
-    });
-  }, [payload.analysis, statusFilter]);
+    const all = payload.analysis;
+    switch (mskuCardFilter) {
+      case "all":
+        return all;
+      case "reconciled":
+        return all.filter((r) => r.actionStatus === "reconciled");
+      case "waiting":
+        return all.filter((r) => r.actionStatus === "waiting");
+      case "take-action":
+        return all.filter((r) => r.actionStatus === "take-action");
+      case "grade-resell":
+        return all.filter((r) => r.actionStatus === "grade-resell");
+      case "reimb":
+        return all.filter((r) => r.reimbQty > 0 || r.lostReimbQty > 0 || r.damagedReimbQty > 0);
+      case "cases":
+        return all.filter((r) => r.caseCount > 0);
+    }
+  }, [payload.analysis, mskuCardFilter]);
+
+  // Ledger rows filtered by KPI card (status) + reason multiselect.
+  const filteredLedgerRows = React.useMemo<AdjLedgerRow[]>(() => {
+    let all = payload.ledgerRows;
+    if (reasonFilter.size < LEDGER_REASON_CODES.length) {
+      all = all.filter((e) => reasonFilter.has(e.reason as LedgerReason));
+    }
+    switch (mskuCardFilter) {
+      case "all":
+        return all;
+      case "reconciled":
+        return all.filter((e) => e.actionStatus === "reconciled");
+      case "waiting":
+        return all.filter((e) => e.actionStatus === "waiting");
+      case "take-action":
+        return all.filter((e) => e.actionStatus === "take-action");
+      case "grade-resell":
+        return all.filter((e) => e.actionStatus === "grade-resell");
+      case "reimb":
+        return all.filter((e) => e.coverageType === "reimbursed" || e.coverageType === "partial");
+      case "cases": {
+        const caseMskus = new Set(
+          payload.analysis.filter((r) => r.caseCount > 0).map((r) => r.msku),
+        );
+        return all.filter((e) => caseMskus.has(e.msku));
+      }
+    }
+  }, [payload.ledgerRows, payload.analysis, mskuCardFilter, reasonFilter]);
+
+  // MSKU-native KPI totals. Always computed off the unfiltered analysis so
+  // card counts stay stable as filters are clicked.
+  const mskuStats = React.useMemo(() => {
+    let totalMskus = 0;
+    let totalLossEvents = 0; // sum of lossQty as proxy event count
+    let reconciledCount = 0;
+    let reconciledUnits = 0;
+    let waitingCount = 0;
+    let waitingUnits = 0;
+    let takeActionCount = 0;
+    let takeActionUnits = 0;
+    let gradeResellCount = 0;
+    let gradeResellUnits = 0;
+    let reimbCount = 0;
+    let reimbQty = 0;
+    let casesCount = 0;
+    let casesOpen = 0;
+    for (const r of payload.analysis) {
+      totalMskus += 1;
+      totalLossEvents += r.lossQty;
+      if (r.actionStatus === "reconciled") {
+        reconciledCount += 1;
+        reconciledUnits += r.lossQty;
+      } else if (r.actionStatus === "waiting") {
+        waitingCount += 1;
+        waitingUnits += r.netClaimableQty;
+      } else if (r.actionStatus === "take-action") {
+        takeActionCount += 1;
+        takeActionUnits += r.netClaimableQty;
+      } else if (r.actionStatus === "grade-resell") {
+        gradeResellCount += 1;
+        // Sum |qty| of code-4 events on this MSKU as the units moved.
+        for (const ev of r.eventDecisions) {
+          if (ev.code === "4") gradeResellUnits += Math.abs(ev.qty);
+        }
+      }
+      const reimbTotal = r.reimbQty + r.lostReimbQty + r.damagedReimbQty;
+      if (reimbTotal > 0) {
+        reimbCount += 1;
+        reimbQty += r.reimbQty;
+      }
+      if (r.caseCount > 0) {
+        casesCount += 1;
+        casesOpen += r.caseOpenCount;
+      }
+    }
+    return {
+      totalMskus,
+      totalLossEvents,
+      reconciledCount,
+      reconciledUnits,
+      waitingCount,
+      waitingUnits,
+      takeActionCount,
+      takeActionUnits,
+      gradeResellCount,
+      gradeResellUnits,
+      reimbCount,
+      reimbQty,
+      casesCount,
+      casesOpen,
+    };
+  }, [payload.analysis]);
 
   const derivedStats = React.useMemo(() => {
     const allKeys = new Set(filteredPivotRows.map((r) => r.key));
@@ -276,60 +424,170 @@ export function AdjustmentReconciliationClient({
           from={from} setFrom={setFrom}
           to={to} setTo={setTo}
           status={statusFilter} setStatus={setStatusFilter}
+          showStatus={groupBy === "asin"}
           search={search} setSearch={setSearch}
           onClear={() => {
-            setFrom(""); setTo(""); setStatusFilter("__all__"); setSearch("");
+            setFrom("");
+            setTo("");
+            setStatusFilter("__all__");
+            setMskuCardFilter("all");
+            setSearch("");
           }}
         />
 
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <KpiCard
-            label="Total Titles"
-            border="slate"
-            primary={derivedStats.uniqueAsins}
-            secondary={derivedStats.uniqueMskus}
-            secLabel="MSKUs"
-            primaryLabel="ASINs"
+        {groupBy === "asin" ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+            <KpiCard
+              label="Total Titles"
+              border="slate"
+              primary={derivedStats.uniqueAsins}
+              secondary={derivedStats.uniqueMskus}
+              secLabel="MSKUs"
+              primaryLabel="ASINs"
+            />
+            <KpiCard
+              label="No Action"
+              border="green"
+              primary={derivedStats.posAsins}
+              secondary={derivedStats.posMskus}
+              secLabel="MSKUs"
+              primaryLabel="ASINs"
+            />
+            <KpiCard
+              label="Take Action"
+              border="red"
+              primary={derivedStats.negAsins}
+              secondary={derivedStats.negMskus}
+              secLabel="MSKUs"
+              primaryLabel="ASINs"
+            />
+            <KpiCard
+              label="Reimbursement"
+              border="amber"
+              primary={derivedStats.reimbAsins}
+              secondary={derivedStats.reimbMskus}
+              secLabel="MSKUs"
+              primaryLabel="ASINs"
+            />
+            <KpiCard
+              label="Cases Raised"
+              border="blue"
+              primary={stats.casesRaisedCount}
+              secondary={stats.casesRaisedQty}
+              secLabel="Open"
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-7">
+            <KpiCard
+              label="Total MSKUs"
+              border="slate"
+              primary={mskuStats.totalMskus}
+              secondary={mskuStats.totalLossEvents}
+              secLabel="Loss Qty"
+              primaryLabel="MSKUs"
+              active={mskuCardFilter === "all"}
+              onClick={() => setMskuCardFilter("all")}
+            />
+            <KpiCard
+              label="Reconciled"
+              border="green"
+              primary={mskuStats.reconciledCount}
+              secondary={mskuStats.reconciledUnits}
+              secLabel="Units"
+              primaryLabel="MSKUs"
+              active={mskuCardFilter === "reconciled"}
+              onClick={() => {
+                const next = mskuCardFilter === "reconciled" ? "all" : "reconciled";
+                setMskuCardFilter(next);
+                if (next === "reconciled") setCollapseAllSignal((n) => n + 1);
+              }}
+            />
+            <KpiCard
+              label="Waiting"
+              border="amber"
+              primary={mskuStats.waitingCount}
+              secondary={mskuStats.waitingUnits}
+              secLabel="Net Open"
+              primaryLabel="MSKUs"
+              active={mskuCardFilter === "waiting"}
+              onClick={() => {
+                const next = mskuCardFilter === "waiting" ? "all" : "waiting";
+                setMskuCardFilter(next);
+                if (next === "waiting") setCollapseAllSignal((n) => n + 1);
+              }}
+            />
+            <KpiCard
+              label="Take Action"
+              border="red"
+              primary={mskuStats.takeActionCount}
+              secondary={mskuStats.takeActionUnits}
+              secLabel="Net Open"
+              primaryLabel="MSKUs"
+              active={mskuCardFilter === "take-action"}
+              onClick={() => {
+                const next = mskuCardFilter === "take-action" ? "all" : "take-action";
+                setMskuCardFilter(next);
+                if (next === "take-action") setExpandOpenSignal((n) => n + 1);
+              }}
+            />
+            <KpiCard
+              label="Grade & Resell"
+              border="teal"
+              primary={mskuStats.gradeResellCount}
+              secondary={mskuStats.gradeResellUnits}
+              secLabel="Units"
+              primaryLabel="MSKUs"
+              active={mskuCardFilter === "grade-resell"}
+              onClick={() =>
+                setMskuCardFilter(
+                  mskuCardFilter === "grade-resell" ? "all" : "grade-resell",
+                )
+              }
+            />
+            <KpiCard
+              label="Amazon Reimb"
+              border="teal"
+              primary={mskuStats.reimbCount}
+              secondary={mskuStats.reimbQty}
+              secLabel="Qty"
+              primaryLabel="MSKUs"
+              active={mskuCardFilter === "reimb"}
+              onClick={() =>
+                setMskuCardFilter(mskuCardFilter === "reimb" ? "all" : "reimb")
+              }
+            />
+            <KpiCard
+              label="Cases Raised"
+              border="blue"
+              primary={mskuStats.casesCount}
+              secondary={mskuStats.casesOpen}
+              secLabel="Open"
+              primaryLabel="MSKUs"
+              active={mskuCardFilter === "cases"}
+              onClick={() =>
+                setMskuCardFilter(mskuCardFilter === "cases" ? "all" : "cases")
+              }
+            />
+          </div>
+        )}
+
+        {groupBy === "msku" ? (
+          <ReasonPillFilter
+            value={reasonFilter}
+            onChange={setReasonFilter}
           />
-          <KpiCard
-            label="No Action"
-            border="green"
-            primary={derivedStats.posAsins}
-            secondary={derivedStats.posMskus}
-            secLabel="MSKUs"
-            primaryLabel="ASINs"
-          />
-          <KpiCard
-            label="Take Action"
-            border="red"
-            primary={derivedStats.negAsins}
-            secondary={derivedStats.negMskus}
-            secLabel="MSKUs"
-            primaryLabel="ASINs"
-          />
-          <KpiCard
-            label="Reimbursement"
-            border="amber"
-            primary={derivedStats.reimbAsins}
-            secondary={derivedStats.reimbMskus}
-            secLabel="MSKUs"
-            primaryLabel="ASINs"
-          />
-          <KpiCard
-            label="Cases Raised"
-            border="blue"
-            primary={stats.casesRaisedCount}
-            secondary={stats.casesRaisedQty}
-            secLabel="Open"
-          />
-        </div>
+        ) : null}
 
         <div className="space-y-4">
           {loading ? (
             <Skeleton className="h-64 w-full" />
           ) : groupBy === "msku" ? (
             <MskuCoverageTable
-              rows={filteredMskuRows}
+              rows={filteredLedgerRows}
+              mskuRows={payload.analysis}
+              collapseAllSignal={collapseAllSignal}
+              expandOpenSignal={expandOpenSignal}
               onCase={(r) => {
                 setMskuCaseRow(r);
                 setMskuCaseOpen(true);
@@ -400,6 +658,7 @@ export function AdjustmentReconciliationClient({
 function FilterBar({
   from, setFrom, to, setTo,
   status, setStatus,
+  showStatus,
   search, setSearch,
   onClear,
 }: {
@@ -407,6 +666,7 @@ function FilterBar({
   to: string; setTo: (v: string) => void;
   status: "__all__" | "ok" | "excess" | "take-action";
   setStatus: (v: "__all__" | "ok" | "excess" | "take-action") => void;
+  showStatus: boolean;
   search: string; setSearch: (v: string) => void;
   onClear: () => void;
 }) {
@@ -418,17 +678,19 @@ function FilterBar({
         placeholder="🔍 MSKU / FNSKU / ASIN / Reference"
         className="h-8 max-w-[260px] text-xs"
       />
-      <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
-        <SelectTrigger className="h-8 w-[160px] text-xs">
-          <SelectValue placeholder="Status" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">All statuses</SelectItem>
-          <SelectItem value="ok">Matched</SelectItem>
-          <SelectItem value="excess">Excess</SelectItem>
-          <SelectItem value="take-action">Take Action</SelectItem>
-        </SelectContent>
-      </Select>
+      {showStatus ? (
+        <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
+          <SelectTrigger className="h-8 w-[160px] text-xs">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All statuses</SelectItem>
+            <SelectItem value="ok">Matched</SelectItem>
+            <SelectItem value="excess">Excess</SelectItem>
+            <SelectItem value="take-action">Take Action</SelectItem>
+          </SelectContent>
+        </Select>
+      ) : null}
       <span className="text-[11px] font-semibold text-muted-foreground">From</span>
       <Input
         type="date"
@@ -450,8 +712,59 @@ function FilterBar({
   );
 }
 
+function ReasonPillFilter({
+  value,
+  onChange,
+}: {
+  value: Set<LedgerReason>;
+  onChange: (next: Set<LedgerReason>) => void;
+}) {
+  const toggle = (code: LedgerReason) => {
+    const next = new Set(value);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    onChange(next);
+  };
+  const allOn = value.size === LEDGER_REASON_CODES.length;
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+      <span className="px-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        Reason
+      </span>
+      {LEDGER_REASON_CODES.map((code) => {
+        const on = value.has(code);
+        return (
+          <button
+            key={code}
+            type="button"
+            onClick={() => toggle(code)}
+            className={cn(
+              "rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-bold transition",
+              on
+                ? "border-blue-300 bg-blue-100 text-blue-800"
+                : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100",
+            )}
+          >
+            {code}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() =>
+          onChange(allOn ? new Set() : new Set(LEDGER_REASON_CODES))
+        }
+        className="ml-auto rounded border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+      >
+        {allOn ? "None" : "All"}
+      </button>
+    </div>
+  );
+}
+
 function KpiCard({
   label, border, primary, secondary, secLabel, primaryLabel = "Count", secondaryFormat,
+  onClick, active,
 }: {
   label: string;
   border: "blue" | "green" | "red" | "amber" | "slate" | "teal";
@@ -460,6 +773,8 @@ function KpiCard({
   secLabel: string;
   primaryLabel?: string;
   secondaryFormat?: "money";
+  onClick?: () => void;
+  active?: boolean;
 }) {
   const b =
     border === "blue" ? "border-t-blue-600" :
@@ -473,13 +788,20 @@ function KpiCard({
     border === "red" ? "text-red-600" :
     border === "amber" ? "text-amber-800" :
     border === "teal" ? "text-teal-700" : "text-slate-600";
-  return (
-    <div
-      className={cn(
-        "flex flex-col rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm border-t-[3px]",
-        b,
-      )}
-    >
+  const ring =
+    border === "blue" ? "ring-blue-500" :
+    border === "green" ? "ring-emerald-500" :
+    border === "red" ? "ring-red-500" :
+    border === "amber" ? "ring-amber-500" :
+    border === "teal" ? "ring-teal-500" : "ring-slate-400";
+  const baseCls = cn(
+    "flex flex-col rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm border-t-[3px]",
+    b,
+    onClick ? "cursor-pointer transition hover:shadow-md" : "",
+    active ? `ring-2 ring-offset-1 ${ring}` : "",
+  );
+  const body = (
+    <>
       <div className="mb-1 text-center text-[8.5px] font-bold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
@@ -500,6 +822,18 @@ function KpiCard({
           <span className="mt-0.5 text-[8px] text-muted-foreground">{secLabel}</span>
         </div>
       </div>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(baseCls, "w-full focus:outline-none focus-visible:ring-2")}
+      >
+        {body}
+      </button>
+    );
+  }
+  return <div className={baseCls}>{body}</div>;
 }

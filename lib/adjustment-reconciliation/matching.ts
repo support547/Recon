@@ -1,4 +1,4 @@
-import { reimbReasonBucket } from "./formula";
+import { reimbReasonBucket, type ReimbBucket } from "./formula";
 import type {
   AdjAdjMeta,
   AdjCaseMeta,
@@ -15,7 +15,12 @@ type ReimbRow = {
   amount: { toString(): string } | null;
   reason: string | null;
   originalReimbId?: string | null;
+  originalReimbType?: string | null;
   approvalDate?: Date | string | null;
+  reimbursementId?: string | null;
+  caseId?: string | null;
+  qtyCash?: number;
+  qtyInventory?: number;
 };
 
 function emptyBuckets(): AdjReimbBuckets {
@@ -26,40 +31,91 @@ function emptyBuckets(): AdjReimbBuckets {
     damagedAmount: 0,
     otherQty: 0,
     otherAmount: 0,
+    preLostQty: 0,
+    preDamagedQty: 0,
+    postLostQty: 0,
+    postDamagedQty: 0,
     qty: 0,
     amount: 0,
     count: 0,
     lastApprovalDate: "",
+    details: [],
   };
 }
 
-// Fold one reimbursement row into a bucket accumulator. Reversal netting: a row
-// carrying originalReimbId is a clawback — subtract instead of add.
-function applyReimbRow(b: AdjReimbBuckets, r: ReimbRow): void {
-  const bucket = reimbReasonBucket(r.reason);
-  const sign = trimStr(r.originalReimbId) ? -1 : 1;
-  const qty = (r.quantity || 0) * sign;
-  const amount = (r.amount ? Number(r.amount.toString()) : 0) * sign;
+// Decide a row's bucket. Reversals carry their original bucket in
+// originalReimbType; normal rows use the reimbursement reason.
+function bucketFor(r: ReimbRow): { bucket: ReimbBucket; isReversal: boolean } {
+  const isReversal = trimStr(r.originalReimbId).length > 0;
+  const source = isReversal ? r.originalReimbType : r.reason;
+  return { bucket: reimbReasonBucket(source), isReversal };
+}
+
+// Scope predicate: this module only cares about Lost_Warehouse and
+// Damaged_Warehouse coverage. Reversals are in-scope only when their original
+// reimbursement was one of those buckets.
+function isInScope(r: ReimbRow): boolean {
+  const { bucket } = bucketFor(r);
+  return bucket === "lost" || bucket === "damaged";
+}
+
+// Fold one reimbursement row into a bucket accumulator.
+//
+// Coverage qty:
+//   normal row   → qtyCash + qtyInventory  (units Amazon paid for + restocked)
+//   reversal row → -qtyCash                (cash clawback only; the stock
+//                                            return is represented separately
+//                                            by an N adjustment, so adding
+//                                            qtyInventory would double-count)
+function applyReimbRow(
+  b: AdjReimbBuckets,
+  r: ReimbRow,
+  snapshotIso: string,
+): void {
+  const { bucket, isReversal } = bucketFor(r);
+  if (bucket !== "lost" && bucket !== "damaged") return; // scope guard
+
+  const qtyCash = r.qtyCash ?? 0;
+  const qtyInventory = r.qtyInventory ?? 0;
+  const coverage = isReversal ? -qtyCash : qtyCash + qtyInventory;
+  const amount = (r.amount ? Number(r.amount.toString()) : 0) * (isReversal ? -1 : 1);
 
   if (bucket === "lost") {
-    b.lostQty += qty;
+    b.lostQty += coverage;
     b.lostAmount += amount;
-  } else if (bucket === "damaged") {
-    b.damagedQty += qty;
-    b.damagedAmount += amount;
   } else {
-    b.otherQty += qty;
-    b.otherAmount += amount;
+    b.damagedQty += coverage;
+    b.damagedAmount += amount;
   }
-  // Backward-compat total = lost + damaged (excludes "other").
-  if (bucket === "lost" || bucket === "damaged") {
-    b.qty += qty;
-    b.amount += amount;
-  }
+  b.qty += coverage;
+  b.amount += amount;
   b.count++;
 
   const iso = fmtApproval(r.approvalDate);
   if (iso && iso > b.lastApprovalDate) b.lastApprovalDate = iso;
+
+  const postSnapshot = iso !== "" && snapshotIso !== "" && iso > snapshotIso;
+  if (postSnapshot) {
+    if (bucket === "lost") b.postLostQty += coverage;
+    else b.postDamagedQty += coverage;
+  } else {
+    if (bucket === "lost") b.preLostQty += coverage;
+    else b.preDamagedQty += coverage;
+  }
+
+  b.details.push({
+    approvalDate: iso,
+    reimbId: trimStr(r.reimbursementId),
+    caseId: trimStr(r.caseId),
+    reason: trimStr(r.reason),
+    originalReimbType: trimStr(r.originalReimbType),
+    qty: coverage,
+    qtyCash: isReversal ? -qtyCash : qtyCash,
+    qtyInventory: isReversal ? 0 : qtyInventory,
+    amount,
+    isReversal,
+    postSnapshot,
+  });
 }
 
 function fmtApproval(d: Date | string | null | undefined): string {
@@ -145,13 +201,15 @@ export function buildAdjAdjMap(
 
 export function buildAdjReimbMap(
   rows: (ReimbRow & { msku: string | null })[],
+  snapshotIso = "",
 ): Map<string, AdjReimbBuckets> {
   const map = new Map<string, AdjReimbBuckets>();
   for (const r of rows) {
+    if (!isInScope(r)) continue;
     const k = trimStr(r.msku);
     if (!k) continue;
     const prev = map.get(k) ?? emptyBuckets();
-    applyReimbRow(prev, r);
+    applyReimbRow(prev, r, snapshotIso);
     map.set(k, prev);
   }
   return map;
@@ -199,13 +257,15 @@ export function buildAdjCaseMapByAsin(
 
 export function buildAdjReimbMapByAsin(
   rows: (ReimbRow & { asin: string | null })[],
+  snapshotIso = "",
 ): Map<string, AdjReimbBuckets> {
   const map = new Map<string, AdjReimbBuckets>();
   for (const r of rows) {
+    if (!isInScope(r)) continue;
     const k = trimStr(r.asin);
     if (!k) continue;
     const prev = map.get(k) ?? emptyBuckets();
-    applyReimbRow(prev, r);
+    applyReimbRow(prev, r, snapshotIso);
     map.set(k, prev);
   }
   return map;

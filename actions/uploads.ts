@@ -406,10 +406,26 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
 
 /* ─── Parsing ─── */
 
+// Real Amazon CSVs are sometimes cp1252-encoded (en-dashes 0x96, smart quotes
+// 0x91-0x94 in titles). Strict utf-8 produces U+FFFD replacement chars which
+// then break downstream parsing or display. Try utf-8 first; if any byte in
+// the 0x80-0x9F window is present (the cp1252-only range that is invalid in
+// utf-8), decode as latin1 instead. rowHash logic is unchanged \u2014 values that
+// previously contained replacement chars will hash differently going forward.
+function decodeTolerant(buf: Buffer): string {
+  for (let i = 0; i < buf.length; i++) {
+    const b = buf[i];
+    if (b >= 0x80 && b <= 0x9f) {
+      return buf.toString("latin1");
+    }
+  }
+  return buf.toString("utf8");
+}
+
 function parseSpreadsheet(filename: string, buf: Buffer): string[][] {
   const lower = filename.toLowerCase();
   if (lower.endsWith(".csv")) {
-    const text = buf.toString("utf8").replace(/^\uFEFF/, "");
+    const text = decodeTolerant(buf).replace(/^\uFEFF/, "");
     const parsed = parse(text, {
       columns: false,
       skip_empty_lines: true,
@@ -422,8 +438,7 @@ function parseSpreadsheet(filename: string, buf: Buffer): string[][] {
     );
   }
   if (lower.endsWith(".tsv") || lower.endsWith(".txt")) {
-    return buf
-      .toString("utf8")
+    return decodeTolerant(buf)
       .split("\n")
       .map((line) =>
         line
