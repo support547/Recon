@@ -41,11 +41,25 @@ export const REASON_LABEL_MAP: Record<string, string> = {
 
 export const CLAIM_TAG_MAP: Record<string, string> = {
   M: "Lost_Warehouse",
-  "5": "Lost_Warehouse",
+  "5": "Lost_Inbound",
   E: "Damaged_Warehouse",
   F: "Found",
   N: "Reimbursement_Reversal",
 };
+
+// Amazon reimbursement automation windows (since Nov 2024).
+export const DAMAGED_AUTO_REIMB_GRACE_DAYS = 7; // E: expect auto-reimb within
+export const LOST_RESEARCH_WINDOW_DAYS = 30; // M: Amazon may find or auto-pay
+export const CLAIM_EXPIRY_DAYS = 60; // manual claim window closes
+
+export type ReimbBucket = "lost" | "damaged" | "other";
+
+export function reimbReasonBucket(reason: string | null | undefined): ReimbBucket {
+  const r = (reason ?? "").trim().toLowerCase().replace(/[ _-]/g, "");
+  if (r === "lostwarehouse") return "lost";
+  if (r === "damagedwarehouse") return "damaged";
+  return "other";
+}
 
 const LOSS_SET = new Set<string>(LOSS_CODES);
 const FOUND_SET = new Set<string>(FOUND_CODES);

@@ -1,7 +1,74 @@
-import type { AdjAdjMeta, AdjCaseMeta, AdjReimbMeta } from "./types";
+import { reimbReasonBucket } from "./formula";
+import type {
+  AdjAdjMeta,
+  AdjCaseMeta,
+  AdjReimbBuckets,
+  AdjReimbMeta,
+} from "./types";
 
 function trimStr(s: string | null | undefined): string {
   return (s ?? "").trim();
+}
+
+type ReimbRow = {
+  quantity: number;
+  amount: { toString(): string } | null;
+  reason: string | null;
+  originalReimbId?: string | null;
+  approvalDate?: Date | string | null;
+};
+
+function emptyBuckets(): AdjReimbBuckets {
+  return {
+    lostQty: 0,
+    lostAmount: 0,
+    damagedQty: 0,
+    damagedAmount: 0,
+    otherQty: 0,
+    otherAmount: 0,
+    qty: 0,
+    amount: 0,
+    count: 0,
+    lastApprovalDate: "",
+  };
+}
+
+// Fold one reimbursement row into a bucket accumulator. Reversal netting: a row
+// carrying originalReimbId is a clawback — subtract instead of add.
+function applyReimbRow(b: AdjReimbBuckets, r: ReimbRow): void {
+  const bucket = reimbReasonBucket(r.reason);
+  const sign = trimStr(r.originalReimbId) ? -1 : 1;
+  const qty = (r.quantity || 0) * sign;
+  const amount = (r.amount ? Number(r.amount.toString()) : 0) * sign;
+
+  if (bucket === "lost") {
+    b.lostQty += qty;
+    b.lostAmount += amount;
+  } else if (bucket === "damaged") {
+    b.damagedQty += qty;
+    b.damagedAmount += amount;
+  } else {
+    b.otherQty += qty;
+    b.otherAmount += amount;
+  }
+  // Backward-compat total = lost + damaged (excludes "other").
+  if (bucket === "lost" || bucket === "damaged") {
+    b.qty += qty;
+    b.amount += amount;
+  }
+  b.count++;
+
+  const iso = fmtApproval(r.approvalDate);
+  if (iso && iso > b.lastApprovalDate) b.lastApprovalDate = iso;
+}
+
+function fmtApproval(d: Date | string | null | undefined): string {
+  if (!d) return "";
+  try {
+    return new Date(d).toISOString().split("T")[0];
+  } catch {
+    return "";
+  }
 }
 
 const CASE_STATUS_PRI: Record<string, number> = {
@@ -77,27 +144,14 @@ export function buildAdjAdjMap(
 }
 
 export function buildAdjReimbMap(
-  rows: {
-    msku: string | null;
-    quantity: number;
-    amount: { toString(): string } | null;
-    reason: string | null;
-  }[],
-): Map<string, AdjReimbMeta> {
-  const map = new Map<string, AdjReimbMeta>();
+  rows: (ReimbRow & { msku: string | null })[],
+): Map<string, AdjReimbBuckets> {
+  const map = new Map<string, AdjReimbBuckets>();
   for (const r of rows) {
     const k = trimStr(r.msku);
     if (!k) continue;
-    const prev = map.get(k) ?? {
-      qty: 0,
-      amount: 0,
-      count: 0,
-      reasons: [] as string[],
-    };
-    prev.qty += r.quantity || 0;
-    prev.amount += r.amount ? Number(r.amount.toString()) : 0;
-    prev.count++;
-    if (r.reason && !prev.reasons.includes(r.reason)) prev.reasons.push(r.reason);
+    const prev = map.get(k) ?? emptyBuckets();
+    applyReimbRow(prev, r);
     map.set(k, prev);
   }
   return map;
@@ -144,27 +198,14 @@ export function buildAdjCaseMapByAsin(
 }
 
 export function buildAdjReimbMapByAsin(
-  rows: {
-    asin: string | null;
-    quantity: number;
-    amount: { toString(): string } | null;
-    reason: string | null;
-  }[],
-): Map<string, AdjReimbMeta> {
-  const map = new Map<string, AdjReimbMeta>();
+  rows: (ReimbRow & { asin: string | null })[],
+): Map<string, AdjReimbBuckets> {
+  const map = new Map<string, AdjReimbBuckets>();
   for (const r of rows) {
     const k = trimStr(r.asin);
     if (!k) continue;
-    const prev = map.get(k) ?? {
-      qty: 0,
-      amount: 0,
-      count: 0,
-      reasons: [] as string[],
-    };
-    prev.qty += r.quantity || 0;
-    prev.amount += r.amount ? Number(r.amount.toString()) : 0;
-    prev.count++;
-    if (r.reason && !prev.reasons.includes(r.reason)) prev.reasons.push(r.reason);
+    const prev = map.get(k) ?? emptyBuckets();
+    applyReimbRow(prev, r);
     map.set(k, prev);
   }
   return map;

@@ -21,11 +21,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { AnalysisTable } from "@/components/adjustment-reconciliation/analysis-tab/analysis-table";
-import { MskuDetailTable } from "@/components/adjustment-reconciliation/analysis-tab/msku-detail-table";
+import { MskuCoverageTable } from "@/components/adjustment-reconciliation/analysis-tab/msku-coverage-table";
 import { AsinCaseModal } from "@/components/adjustment-reconciliation/modals/asin-case-modal";
 import { AsinViewModal } from "@/components/adjustment-reconciliation/modals/asin-view-modal";
 import { AsinAdjustModal } from "@/components/adjustment-reconciliation/modals/asin-adjust-modal";
-import type { AdjPivotRow } from "@/lib/adjustment-reconciliation/types";
+import { RaiseCaseModal } from "@/components/adjustment-reconciliation/modals/raise-case-modal";
+import { AdjustModal } from "@/components/adjustment-reconciliation/modals/adjust-modal";
+import type {
+  AdjAnalysisRow,
+  AdjPivotRow,
+} from "@/lib/adjustment-reconciliation/types";
 
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
@@ -58,6 +63,12 @@ export function AdjustmentReconciliationClient({
   const [adjustRow, setAdjustRow] = React.useState<AdjPivotRow | null>(null);
   const [adjustOpen, setAdjustOpen] = React.useState(false);
 
+  // MSKU-coverage modals consume AdjAnalysisRow directly.
+  const [mskuCaseRow, setMskuCaseRow] = React.useState<AdjAnalysisRow | null>(null);
+  const [mskuCaseOpen, setMskuCaseOpen] = React.useState(false);
+  const [mskuAdjustRow, setMskuAdjustRow] = React.useState<AdjAnalysisRow | null>(null);
+  const [mskuAdjustOpen, setMskuAdjustOpen] = React.useState(false);
+
   const reload = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -88,16 +99,18 @@ export function AdjustmentReconciliationClient({
     let filename: string;
     if (groupBy === "msku") {
       headers = [
-        "Date", "FNSKU", "ASIN", "MSKU", "Title", "Event Type",
-        "Reference ID", "Quantity", "FC", "Disposition", "Reason",
-        "Reconciled", "Unreconciled", "Store",
+        "MSKU", "FNSKU", "ASIN", "Title",
+        "Lost(M)", "Damaged(E)", "Inbound(5)", "Found(F)",
+        "Lost Reimb", "Damaged Reimb", "Open Lost", "Open Damaged",
+        "Net Claimable", "Claim Deadline", "Days To Deadline", "Status",
       ];
-      dataRows = payload.logRows.map((r) => [
-        r.adjDate, r.fnsku, r.asin, r.msku, r.title, "Adjustment",
-        r.referenceId, r.quantity, r.fulfillmentCenter, r.disposition, r.reason,
-        r.reconciledQty, r.unreconciledQty, r.store,
+      dataRows = filteredMskuRows.map((r) => [
+        r.msku, r.fnsku, r.asin, r.title,
+        r.misplacedQty - r.inboundLostQty, r.damagedQty, r.inboundLostQty, r.foundQty,
+        r.lostReimbQty, r.damagedReimbQty, r.openLost, r.openDamaged,
+        r.netClaimableQty, r.claimDeadline, r.daysToDeadline, r.actionStatus,
       ]);
-      filename = "adjustment_by_msku.csv";
+      filename = "adjustment_msku_coverage.csv";
     } else {
       const codes = payload.pivot.reasonCodes;
       const keyHeader = payload.pivot.groupBy === "msku" ? "MSKU" : "ASIN";
@@ -135,6 +148,17 @@ export function AdjustmentReconciliationClient({
     () => ({ ...payload.pivot, rows: filteredPivotRows }),
     [payload.pivot, filteredPivotRows],
   );
+
+  // MSKU coverage rows, filtered by the shared status dropdown.
+  const filteredMskuRows = React.useMemo(() => {
+    if (statusFilter === "__all__") return payload.analysis;
+    return payload.analysis.filter((r) => {
+      if (statusFilter === "ok") return r.actionStatus === "reconciled";
+      if (statusFilter === "excess") return r.actionStatus === "excess";
+      // take-action bucket also surfaces expired (past-window) loss.
+      return r.actionStatus === "take-action" || r.actionStatus === "expired";
+    });
+  }, [payload.analysis, statusFilter]);
 
   const derivedStats = React.useMemo(() => {
     const allKeys = new Set(filteredPivotRows.map((r) => r.key));
@@ -304,7 +328,17 @@ export function AdjustmentReconciliationClient({
           {loading ? (
             <Skeleton className="h-64 w-full" />
           ) : groupBy === "msku" ? (
-            <MskuDetailTable rows={payload.logRows} />
+            <MskuCoverageTable
+              rows={filteredMskuRows}
+              onCase={(r) => {
+                setMskuCaseRow(r);
+                setMskuCaseOpen(true);
+              }}
+              onAdjust={(r) => {
+                setMskuAdjustRow(r);
+                setMskuAdjustOpen(true);
+              }}
+            />
           ) : (
             <AnalysisTable
               pivot={filteredPivot}
@@ -343,6 +377,19 @@ export function AdjustmentReconciliationClient({
           logRows={payload.logRows}
           open={adjustOpen}
           onOpenChange={setAdjustOpen}
+          onSaved={() => void reload()}
+        />
+
+        <RaiseCaseModal
+          row={mskuCaseRow}
+          open={mskuCaseOpen}
+          onOpenChange={setMskuCaseOpen}
+          onSaved={() => void reload()}
+        />
+        <AdjustModal
+          row={mskuAdjustRow}
+          open={mskuAdjustOpen}
+          onOpenChange={setMskuAdjustOpen}
           onSaved={() => void reload()}
         />
       </div>

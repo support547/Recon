@@ -1,11 +1,13 @@
 import {
-  CLAIM_DAYS_THRESHOLD,
+  CLAIM_EXPIRY_DAYS,
+  DAMAGED_AUTO_REIMB_GRACE_DAYS,
   getClaimTag,
   getReasonLabel,
   isFoundCode,
   isLossCode,
   isNoiseCode,
   isReversalCode,
+  LOST_RESEARCH_WINDOW_DAYS,
 } from "./formula";
 import type {
   AdjActionStatus,
@@ -18,7 +20,7 @@ import type {
   AdjPivotResult,
   AdjPivotRow,
   AdjReconStats,
-  AdjReimbMeta,
+  AdjReimbBuckets,
 } from "./types";
 
 type AdjInput = {
@@ -59,7 +61,7 @@ export function aggregateAdjAnalysis(
   rows: AdjInput[],
   caseMap: Map<string, AdjCaseMeta>,
   adjMap: Map<string, AdjAdjMeta>,
-  reimbMap: Map<string, AdjReimbMeta>,
+  reimbMap: Map<string, AdjReimbBuckets>,
   today: Date = new Date(),
 ): AdjAnalysisRow[] {
   type Acc = {
@@ -70,6 +72,8 @@ export function aggregateAdjAnalysis(
     lossQty: number;
     misplacedQty: number;
     damagedQty: number;
+    lostQty: number; // code M only (abs)
+    inboundLostQty: number; // code 5 only (abs) — display-only
     reconciledQty: number;
     unreconciledQty: number;
     foundQty: number;
@@ -77,6 +81,8 @@ export function aggregateAdjAnalysis(
     oldestLoss: Date | null;
     latestLoss: Date | null;
     oldestUnreconciled: Date | null;
+    oldestLostAdj: Date | null; // oldest M adj date
+    oldestDamagedAdj: Date | null; // oldest E adj date
     hadLossCode: boolean;
     sawLostCode: boolean;
     sawDamagedCode: boolean;
@@ -103,6 +109,8 @@ export function aggregateAdjAnalysis(
         lossQty: 0,
         misplacedQty: 0,
         damagedQty: 0,
+        lostQty: 0,
+        inboundLostQty: 0,
         reconciledQty: 0,
         unreconciledQty: 0,
         foundQty: 0,
@@ -110,6 +118,8 @@ export function aggregateAdjAnalysis(
         oldestLoss: null,
         latestLoss: null,
         oldestUnreconciled: null,
+        oldestLostAdj: null,
+        oldestDamagedAdj: null,
         hadLossCode: false,
         sawLostCode: false,
         sawDamagedCode: false,
@@ -124,12 +134,24 @@ export function aggregateAdjAnalysis(
     if (isLossCode(code)) {
       acc.hadLossCode = true;
       acc.lossQty += qty;
-      if (code === "M" || code === "5") {
+      if (code === "M") {
         acc.misplacedQty += qty;
+        acc.lostQty += qty;
+        acc.sawLostCode = true;
+        if (r.adjDate && (!acc.oldestLostAdj || r.adjDate < acc.oldestLostAdj)) {
+          acc.oldestLostAdj = r.adjDate;
+        }
+      } else if (code === "5") {
+        // Inbound lost — display-only, belongs to Shipment Recon scope.
+        acc.misplacedQty += qty;
+        acc.inboundLostQty += qty;
         acc.sawLostCode = true;
       } else if (code === "E") {
         acc.damagedQty += qty;
         acc.sawDamagedCode = true;
+        if (r.adjDate && (!acc.oldestDamagedAdj || r.adjDate < acc.oldestDamagedAdj)) {
+          acc.oldestDamagedAdj = r.adjDate;
+        }
       }
       acc.reconciledQty += r.reconciledQty || 0;
       const unrecon = r.unreconciledQty || 0;
@@ -160,10 +182,36 @@ export function aggregateAdjAnalysis(
 
     const caseApprovedQty = cm?.approvedQty ?? 0;
     const adjQty = am?.qty ?? 0;
-    const reimbQty = rm?.qty ?? 0;
+    const lostReimbQty = rm?.lostQty ?? 0;
+    const damagedReimbQty = rm?.damagedQty ?? 0;
+    const reimbQty = rm?.qty ?? 0; // backward-compat total (lost + damaged)
     const reimbAmount = rm?.amount ?? 0;
+
+    // Found offsets Lost first. Inbound-lost (code 5) excluded — Shipment scope.
+    const effectiveLost = Math.max(0, a.lostQty - a.foundQty);
+
+    // Manual coverage (cases + manual adjustments) not bucket-tagged — apply to
+    // the larger open bucket first, then overflow to the other.
+    const manualCover = caseApprovedQty + adjQty;
+    const rawOpenLost = Math.max(0, effectiveLost - lostReimbQty);
+    const rawOpenDamaged = Math.max(0, a.damagedQty - damagedReimbQty);
+
+    let openLost = rawOpenLost;
+    let openDamaged = rawOpenDamaged;
+    if (manualCover > 0) {
+      if (rawOpenLost >= rawOpenDamaged) {
+        const toLost = Math.min(openLost, manualCover);
+        openLost -= toLost;
+        openDamaged = Math.max(0, openDamaged - (manualCover - toLost));
+      } else {
+        const toDamaged = Math.min(openDamaged, manualCover);
+        openDamaged -= toDamaged;
+        openLost = Math.max(0, openLost - (manualCover - toDamaged));
+      }
+    }
+
+    const netClaimableQty = openLost + openDamaged;
     const effectiveReimbQty = caseApprovedQty + adjQty + reimbQty;
-    const netClaimableQty = Math.max(0, a.unreconciledQty - effectiveReimbQty);
 
     const daysPending = a.oldestUnreconciled
       ? daysBetween(today, a.oldestUnreconciled)
@@ -174,11 +222,71 @@ export function aggregateAdjAnalysis(
     else if (a.sawLostCode) claimType = "Lost_Warehouse";
     else if (a.sawDamagedCode) claimType = "Damaged_Warehouse";
 
+    // Per-bucket status timeline. Oldest uncovered adj date drives the clock —
+    // the manual claim window closes 60d after the adjustment, so "take-action"
+    // must fire BEFORE that, not after.
+    type BucketStatus = "waiting" | "take-action" | "expired";
+    const bucketStatus = (
+      open: number,
+      oldest: Date | null,
+      waitWindow: number,
+    ): { status: BucketStatus | null; oldest: Date | null } => {
+      if (open <= 0 || !oldest) return { status: null, oldest: null };
+      const days = daysBetween(today, oldest);
+      let status: BucketStatus;
+      if (days <= waitWindow) status = "waiting";
+      else if (days <= CLAIM_EXPIRY_DAYS) status = "take-action";
+      else status = "expired";
+      return { status, oldest };
+    };
+
+    const lostB = bucketStatus(openLost, a.oldestLostAdj, LOST_RESEARCH_WINDOW_DAYS);
+    const damagedB = bucketStatus(
+      openDamaged,
+      a.oldestDamagedAdj,
+      DAMAGED_AUTO_REIMB_GRACE_DAYS,
+    );
+
+    const STATUS_RANK: Record<BucketStatus, number> = {
+      expired: 3,
+      "take-action": 2,
+      waiting: 1,
+    };
+
     let actionStatus: AdjActionStatus;
-    if (!a.hadLossCode) actionStatus = "excess";
-    else if (a.unreconciledQty === 0) actionStatus = "reconciled";
-    else if (daysPending > CLAIM_DAYS_THRESHOLD) actionStatus = "take-action";
-    else actionStatus = "waiting";
+    let deadlineAnchor: Date | null = null;
+    if (!a.hadLossCode) {
+      actionStatus = "excess";
+    } else if (netClaimableQty === 0) {
+      actionStatus = "reconciled";
+    } else {
+      // Worst bucket wins (expired > take-action > waiting).
+      const candidates = [lostB, damagedB].filter((b) => b.status !== null);
+      let worst: BucketStatus = "waiting";
+      for (const c of candidates) {
+        if (STATUS_RANK[c.status as BucketStatus] > STATUS_RANK[worst]) {
+          worst = c.status as BucketStatus;
+        }
+      }
+      actionStatus = worst;
+      // Deadline anchored to the oldest uncovered adj date across open buckets.
+      for (const c of candidates) {
+        if (c.oldest && (!deadlineAnchor || c.oldest < deadlineAnchor)) {
+          deadlineAnchor = c.oldest;
+        }
+      }
+    }
+
+    let claimDeadline = "";
+    let daysToDeadline = 0;
+    if (deadlineAnchor) {
+      const dl = new Date(deadlineAnchor);
+      dl.setDate(dl.getDate() + CLAIM_EXPIRY_DAYS);
+      claimDeadline = fmtIso(dl);
+      daysToDeadline = Math.floor(
+        (dl.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+      );
+    }
 
     out.push({
       msku: a.msku,
@@ -208,6 +316,13 @@ export function aggregateAdjAnalysis(
       effectiveReimbQty,
       netClaimableQty,
       actionStatus,
+      inboundLostQty: a.inboundLostQty,
+      openLost,
+      openDamaged,
+      lostReimbQty,
+      damagedReimbQty,
+      claimDeadline,
+      daysToDeadline,
     });
   }
 
@@ -215,19 +330,21 @@ export function aggregateAdjAnalysis(
     switch (r.actionStatus) {
       case "take-action":
         return 0;
-      case "waiting":
+      case "expired":
         return 1;
-      case "reconciled":
+      case "waiting":
         return 2;
-      case "excess":
+      case "reconciled":
         return 3;
+      case "excess":
+        return 4;
     }
   };
   out.sort((a, b) => {
     const pa = priority(a);
     const pb = priority(b);
     if (pa !== pb) return pa - pb;
-    if (pa === 0 || pa === 1) {
+    if (pa === 0 || pa === 1 || pa === 2) {
       return b.daysPending - a.daysPending;
     }
     return b.lossQty - a.lossQty;
@@ -240,7 +357,7 @@ export function aggregateAdjPivot(
   rows: AdjInput[],
   groupBy: AdjPivotGroupBy = "asin",
   caseMap?: Map<string, AdjCaseMeta>,
-  reimbMap?: Map<string, AdjReimbMeta>,
+  reimbMap?: Map<string, { qty: number; amount: number }>,
 ): AdjPivotResult {
   type Acc = {
     key: string;
@@ -357,9 +474,10 @@ export function adjStats(analysis: AdjAnalysisRow[]): AdjReconStats {
     totalUnreconciledQty += r.unreconciledQty;
     if (r.lossQty > 0) totalLossEvents += 1;
 
-    if (r.actionStatus === "take-action") {
+    if (r.actionStatus === "take-action" || r.actionStatus === "expired") {
+      // Expired claims are past the manual window but still represent open loss.
       takeActionCount += 1;
-      takeActionQty += r.unreconciledQty;
+      takeActionQty += r.netClaimableQty;
     } else if (r.actionStatus === "waiting") {
       waitingCount += 1;
       waitingQty += r.unreconciledQty;

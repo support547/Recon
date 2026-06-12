@@ -157,6 +157,9 @@ export async function getAdjReconData(
         quantity: true,
         amount: true,
         reason: true,
+        originalReimbId: true,
+        originalReimbType: true,
+        approvalDate: true,
       },
     }),
   ]);

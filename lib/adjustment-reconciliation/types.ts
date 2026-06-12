@@ -1,4 +1,9 @@
-export type AdjActionStatus = "take-action" | "waiting" | "reconciled" | "excess";
+export type AdjActionStatus =
+  | "take-action"
+  | "waiting"
+  | "reconciled"
+  | "excess"
+  | "expired";
 export type AdjClaimType = "Lost_Warehouse" | "Damaged_Warehouse" | "Mixed" | "None";
 
 export type AdjAnalysisRow = {
@@ -29,6 +34,14 @@ export type AdjAnalysisRow = {
   effectiveReimbQty: number;
   netClaimableQty: number;
   actionStatus: AdjActionStatus;
+  // Bucket-aware coverage (lost vs damaged).
+  inboundLostQty: number; // code 5 — display-only, Shipment Recon scope
+  openLost: number;
+  openDamaged: number;
+  lostReimbQty: number;
+  damagedReimbQty: number;
+  claimDeadline: string; // oldest uncovered adj date + 60d, ISO; "" if none
+  daysToDeadline: number; // can be negative when past deadline
 };
 
 export type AdjLogRow = {
@@ -92,6 +105,21 @@ export type AdjReimbMeta = {
   amount: number;
   count: number;
   reasons: string[];
+};
+
+// Bucket-aware reimbursement coverage per key. Backward-compat: qty/amount =
+// lost + damaged so existing pivot/analysis consumers keep working.
+export type AdjReimbBuckets = {
+  lostQty: number;
+  lostAmount: number;
+  damagedQty: number;
+  damagedAmount: number;
+  otherQty: number;
+  otherAmount: number;
+  qty: number;
+  amount: number;
+  count: number;
+  lastApprovalDate: string;
 };
 
 export type AdjPivotGroupBy = "asin" | "msku";

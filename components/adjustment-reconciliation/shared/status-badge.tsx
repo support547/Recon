@@ -12,6 +12,7 @@ const STATUS_LABEL: Record<AdjActionStatus, string> = {
   waiting: "⏳ Waiting",
   reconciled: "✓ Reconciled",
   excess: "⇄ Excess",
+  expired: "✗ Expired",
 };
 
 const STATUS_CLS: Record<AdjActionStatus, string> = {
@@ -19,6 +20,7 @@ const STATUS_CLS: Record<AdjActionStatus, string> = {
   waiting: "border-amber-200 bg-amber-50 text-amber-800",
   reconciled: "border-emerald-200 bg-emerald-50 text-emerald-700",
   excess: "border-blue-200 bg-blue-50 text-blue-700",
+  expired: "border-slate-300 bg-slate-100 text-slate-500 line-through",
 };
 
 export function AdjStatusBadge({ status }: { status: AdjActionStatus }) {
