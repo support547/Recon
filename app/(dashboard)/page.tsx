@@ -452,9 +452,7 @@ async function loadDashboard(): Promise<DashboardProps> {
     },
     cases: caseAgg,
     adjustments: adjAgg,
-    lastRefreshedAt: refreshMeta?.lastRefreshedAt
-      ? refreshMeta.lastRefreshedAt.toISOString()
-      : null,
+    lastRefreshedAt: new Date().toISOString(),
     refreshAction: refreshReconciliationSummary,
   };
 }

@@ -90,10 +90,12 @@ export async function getRemovalReconData(
     where.orderStatus = filters.orderStatus;
   }
   if (filters.from) {
-    where.requestDate = { ...(where.requestDate as object | undefined), gte: new Date(filters.from) };
+    where.requestDate = { ...(where.requestDate as object | undefined), gte: new Date(filters.from + "T00:00:00") };
   }
   if (filters.to) {
-    where.requestDate = { ...(where.requestDate as object | undefined), lte: new Date(filters.to + "T23:59:59") };
+    const toExclusive = new Date(filters.to);
+    toExclusive.setDate(toExclusive.getDate() + 1);
+    where.requestDate = { ...(where.requestDate as object | undefined), lt: toExclusive };
   }
   // NOTE: search is applied post-computation (below) so it can also match
   // trackingNumbers, which live on removalShipment — not on FbaRemoval.

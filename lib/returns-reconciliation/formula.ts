@@ -22,6 +22,14 @@ const EMPTY_CASE: CaseMeta = {
 };
 const EMPTY_ADJ: AdjMeta = { qty: 0, count: 0, reasons: [] };
 
+function noSummaryStatus(
+  daysSinceReturn: number,
+  caseMeta: { count: number },
+): "CASE_NEEDED" | "PENDING" {
+  if (daysSinceReturn <= SUMMARY_TOLERANCE_DAYS) return "PENDING";
+  return caseMeta.count > 0 ? "PENDING" : "CASE_NEEDED";
+}
+
 function fmtDate(d: Date | null | undefined): string {
   if (!d) return "";
   try { return new Date(d).toISOString().split("T")[0]; }
@@ -543,7 +551,7 @@ export function computeReturnRow(input: {
 
       if (daysBetweenReturnAndSummary < SUMMARY_TOLERANCE_DAYS) {
         inventoryStatus = "PENDING_SUMMARY";
-        finalStatus = "PENDING";
+        finalStatus = noSummaryStatus(daysSinceReturn, caseMeta);
       } else if (fbaSummaryConfirmedQty >= fbaSummaryExpectedQty) {
         inventoryStatus = "IN_INVENTORY";
         finalStatus = "RESOLVED";
