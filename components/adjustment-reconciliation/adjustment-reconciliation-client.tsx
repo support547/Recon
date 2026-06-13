@@ -31,6 +31,7 @@ import type {
   AdjAnalysisRow,
   AdjLedgerRow,
   AdjPivotRow,
+  AdjPivotStatus,
 } from "@/lib/adjustment-reconciliation/types";
 
 const LEDGER_REASON_CODES = ["M", "E", "D", "G", "O", "Q", "4"] as const;
@@ -52,7 +53,7 @@ export function AdjustmentReconciliationClient({
 }) {
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState<"__all__" | "ok" | "excess" | "take-action">("__all__");
+  const [statusFilter, setStatusFilter] = React.useState<"__all__" | AdjPivotStatus>("__all__");
   const [mskuCardFilter, setMskuCardFilter] = React.useState<
     | "all"
     | "reconciled"
@@ -63,7 +64,7 @@ export function AdjustmentReconciliationClient({
     | "cases"
   >("all");
   const [search, setSearch] = React.useState("");
-  const [groupBy, setGroupBy] = React.useState<"asin" | "msku">("asin");
+  const [groupBy, setGroupBy] = React.useState<"asin" | "msku">("msku");
   const [reasonFilter, setReasonFilter] = React.useState<Set<LedgerReason>>(
     new Set(LEDGER_REASON_CODES),
   );
@@ -186,6 +187,16 @@ export function AdjustmentReconciliationClient({
 
   const filteredPivotRows = React.useMemo(() => {
     if (statusFilter === "__all__") return payload.pivot.rows;
+    if (statusFilter === "take-action") {
+      return payload.pivot.rows.filter(
+        (r) => r.status === "take-action" || r.status === "partial",
+      );
+    }
+    if (statusFilter === "ok") {
+      return payload.pivot.rows.filter(
+        (r) => r.status === "ok" || r.status === "excess",
+      );
+    }
     return payload.pivot.rows.filter((r) => r.status === statusFilter);
   }, [payload.pivot.rows, statusFilter]);
 
@@ -310,73 +321,59 @@ export function AdjustmentReconciliationClient({
 
   const derivedStats = React.useMemo(() => {
     const allKeys = new Set(filteredPivotRows.map((r) => r.key));
-    const posKeys = new Set(filteredPivotRows.filter((r) => r.totalQty >= 0).map((r) => r.key));
-    const negKeys = new Set(filteredPivotRows.filter((r) => r.totalQty < 0).map((r) => r.key));
-    const reimbKeys = new Set(filteredPivotRows.filter((r) => r.reimbQty > 0 || r.reimbAmount > 0).map((r) => r.key));
+    const noActionKeys = new Set(
+      filteredPivotRows
+        .filter((r) => r.status === "ok" || r.status === "excess")
+        .map((r) => r.key),
+    );
+    const reimbursedKeys = new Set(filteredPivotRows.filter((r) => r.status === "reimbursed").map((r) => r.key));
+    const takeActionKeys = new Set(
+      filteredPivotRows
+        .filter((r) => r.status === "take-action" || r.status === "partial")
+        .map((r) => r.key),
+    );
     const groupKey = payload.pivot.groupBy;
 
     const uniqueAsins = new Set<string>();
     const uniqueMskus = new Set<string>();
-    const posAsins = new Set<string>();
-    const posMskus = new Set<string>();
-    const negAsins = new Set<string>();
-    const negMskus = new Set<string>();
-    const reimbAsins = new Set<string>();
-    const reimbMskus = new Set<string>();
+    const noActionAsins = new Set<string>();
+    const noActionMskus = new Set<string>();
+    const reimbursedAsins = new Set<string>();
+    const reimbursedMskus = new Set<string>();
+    const takeActionAsins = new Set<string>();
+    const takeActionMskus = new Set<string>();
     for (const r of payload.logRows) {
       const matchKey = groupKey === "asin" ? r.asin : r.msku;
       if (allKeys.has(matchKey)) {
         if (r.asin) uniqueAsins.add(r.asin);
         if (r.msku) uniqueMskus.add(r.msku);
       }
-      if (posKeys.has(matchKey)) {
-        if (r.asin) posAsins.add(r.asin);
-        if (r.msku) posMskus.add(r.msku);
+      if (noActionKeys.has(matchKey)) {
+        if (r.asin) noActionAsins.add(r.asin);
+        if (r.msku) noActionMskus.add(r.msku);
       }
-      if (negKeys.has(matchKey)) {
-        if (r.asin) negAsins.add(r.asin);
-        if (r.msku) negMskus.add(r.msku);
+      if (reimbursedKeys.has(matchKey)) {
+        if (r.asin) reimbursedAsins.add(r.asin);
+        if (r.msku) reimbursedMskus.add(r.msku);
       }
-      if (reimbKeys.has(matchKey)) {
-        if (r.asin) reimbAsins.add(r.asin);
-        if (r.msku) reimbMskus.add(r.msku);
+      if (takeActionKeys.has(matchKey)) {
+        if (r.asin) takeActionAsins.add(r.asin);
+        if (r.msku) takeActionMskus.add(r.msku);
       }
     }
 
-    let posCount = 0;
-    let posUnits = 0;
-    let negCount = 0;
-    let negUnits = 0;
-    let reimbQty = 0;
-    let reimbAmount = 0;
-    for (const r of filteredPivotRows) {
-      if (r.totalQty >= 0) {
-        posCount += 1;
-        posUnits += r.totalQty;
-      } else {
-        negCount += 1;
-        negUnits += Math.abs(r.totalQty);
-      }
-      reimbQty += r.reimbQty;
-      reimbAmount += r.reimbAmount;
-    }
+    const openUnits = filteredPivotRows.reduce((s, r) => s + r.openQty, 0);
+
     return {
       uniqueAsins: uniqueAsins.size,
       uniqueMskus: uniqueMskus.size,
-      posAsins: posAsins.size,
-      posMskus: posMskus.size,
-      negAsins: negAsins.size,
-      negMskus: negMskus.size,
-      reimbAsins: reimbAsins.size,
-      reimbMskus: reimbMskus.size,
-      posCount,
-      posUnits,
-      negCount,
-      negUnits,
-      diffCount: posCount - negCount,
-      diffUnits: posUnits - negUnits,
-      reimbQty,
-      reimbAmount,
+      noActionAsins: noActionAsins.size,
+      noActionMskus: noActionMskus.size,
+      reimbursedAsins: reimbursedAsins.size,
+      reimbursedMskus: reimbursedMskus.size,
+      takeActionAsins: takeActionAsins.size,
+      takeActionMskus: takeActionMskus.size,
+      openUnits,
     };
   }, [filteredPivotRows, payload.logRows, payload.pivot.groupBy]);
 
@@ -391,18 +388,6 @@ export function AdjustmentReconciliationClient({
               type="button"
               className={cn(
                 "rounded-md px-3 py-1 text-xs font-semibold transition",
-                groupBy === "asin"
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-              onClick={() => setGroupBy("asin")}
-            >
-              By ASIN
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-semibold transition",
                 groupBy === "msku"
                   ? "bg-white text-foreground shadow-sm"
                   : "text-muted-foreground",
@@ -410,6 +395,18 @@ export function AdjustmentReconciliationClient({
               onClick={() => setGroupBy("msku")}
             >
               By MSKU
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-semibold transition",
+                groupBy === "asin"
+                  ? "bg-white text-foreground shadow-sm"
+                  : "text-muted-foreground",
+              )}
+              onClick={() => setGroupBy("asin")}
+            >
+              By ASIN
             </button>
           </div>
           <Button variant="outline" size="sm" onClick={exportCsv}>
@@ -448,26 +445,42 @@ export function AdjustmentReconciliationClient({
             <KpiCard
               label="No Action"
               border="green"
-              primary={derivedStats.posAsins}
-              secondary={derivedStats.posMskus}
+              primary={derivedStats.noActionAsins}
+              secondary={derivedStats.noActionMskus}
               secLabel="MSKUs"
               primaryLabel="ASINs"
+              active={statusFilter === "ok"}
+              onClick={() =>
+                setStatusFilter(statusFilter === "ok" ? "__all__" : "ok")
+              }
             />
             <KpiCard
-              label="Take Action"
+              label="✓ Reimbursed"
+              border="green"
+              primary={derivedStats.reimbursedAsins}
+              secondary={derivedStats.reimbursedMskus}
+              secLabel="MSKUs"
+              primaryLabel="ASINs"
+              active={statusFilter === "reimbursed"}
+              onClick={() =>
+                setStatusFilter(
+                  statusFilter === "reimbursed" ? "__all__" : "reimbursed",
+                )
+              }
+            />
+            <KpiCard
+              label="⚠ Take Action"
               border="red"
-              primary={derivedStats.negAsins}
-              secondary={derivedStats.negMskus}
-              secLabel="MSKUs"
+              primary={derivedStats.takeActionAsins}
+              secondary={derivedStats.openUnits}
+              secLabel="Open Units"
               primaryLabel="ASINs"
-            />
-            <KpiCard
-              label="Reimbursement"
-              border="amber"
-              primary={derivedStats.reimbAsins}
-              secondary={derivedStats.reimbMskus}
-              secLabel="MSKUs"
-              primaryLabel="ASINs"
+              active={statusFilter === "take-action"}
+              onClick={() =>
+                setStatusFilter(
+                  statusFilter === "take-action" ? "__all__" : "take-action",
+                )
+              }
             />
             <KpiCard
               label="Cases Raised"
@@ -664,8 +677,8 @@ function FilterBar({
 }: {
   from: string; setFrom: (v: string) => void;
   to: string; setTo: (v: string) => void;
-  status: "__all__" | "ok" | "excess" | "take-action";
-  setStatus: (v: "__all__" | "ok" | "excess" | "take-action") => void;
+  status: "__all__" | AdjPivotStatus;
+  setStatus: (v: "__all__" | AdjPivotStatus) => void;
   showStatus: boolean;
   search: string; setSearch: (v: string) => void;
   onClear: () => void;
@@ -685,9 +698,11 @@ function FilterBar({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All statuses</SelectItem>
-            <SelectItem value="ok">Matched</SelectItem>
-            <SelectItem value="excess">Excess</SelectItem>
-            <SelectItem value="take-action">Take Action</SelectItem>
+            <SelectItem value="ok">✓ No Action</SelectItem>
+            <SelectItem value="excess">⇄ Excess</SelectItem>
+            <SelectItem value="reimbursed">✓ Reimbursed</SelectItem>
+            <SelectItem value="partial">~ Partial</SelectItem>
+            <SelectItem value="take-action">⚠ Take Action</SelectItem>
           </SelectContent>
         </Select>
       ) : null}

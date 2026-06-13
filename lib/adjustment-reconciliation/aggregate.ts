@@ -28,6 +28,7 @@ import type {
   AdjPivotGroupBy,
   AdjPivotResult,
   AdjPivotRow,
+  AdjPivotStatus,
   AdjReconStats,
   AdjReimbBuckets,
   AdjReimbDetail,
@@ -1122,7 +1123,8 @@ export function aggregateAdjPivot(
   rows: AdjInput[],
   groupBy: AdjPivotGroupBy = "asin",
   caseMap?: Map<string, AdjCaseMeta>,
-  reimbMap?: Map<string, { qty: number; amount: number }>,
+  reimbMap?: Map<string, AdjReimbBuckets>,
+  adjMap?: Map<string, AdjAdjMeta>,
 ): AdjPivotResult {
   type Acc = {
     key: string;
@@ -1170,24 +1172,54 @@ export function aggregateAdjPivot(
     .map((a) => {
       const cm = caseMap?.get(a.key);
       const rm = reimbMap?.get(a.key);
-      let status: "ok" | "excess" | "take-action";
-      if (a.totalQty === 0) status = "ok";
-      else if (a.totalQty > 0) status = "excess";
-      else status = "take-action";
+      const am = adjMap?.get(a.key);
+      const reimbQty = rm?.qty ?? 0;
+      const caseApproved = cm?.approvedQty ?? 0;
+      const openQty = Math.max(0, -a.totalQty - reimbQty - caseApproved);
+
+      let status: AdjPivotStatus;
+      if (a.totalQty > 0) {
+        status = "excess";
+      } else if (a.totalQty === 0) {
+        status = "ok";
+      } else if (openQty === 0) {
+        status = "reimbursed";
+      } else if (reimbQty > 0 || caseApproved > 0) {
+        status = "partial";
+      } else {
+        status = "take-action";
+      }
+
       return {
         key: a.key,
         title: a.title,
         qtyByReason: a.qtyByReason,
         totalQty: a.totalQty,
         status,
-        reimbQty: rm?.qty ?? 0,
+        reimbQty,
         reimbAmount: rm?.amount ?? 0,
+        openQty,
+        caseApprovedQty: caseApproved,
+        reimbDetails: rm?.details ?? [],
         caseCount: cm?.count ?? 0,
         caseOpenCount: cm?.openCount ?? 0,
         caseStatusTop: cm?.topStatus ?? "No Case",
+        caseClaimedQty: cm?.claimedQty ?? 0,
+        caseApprovedAmount: cm?.approvedAmount ?? 0,
+        caseIds: (cm?.caseIds ?? []).join(", "),
+        manualAdjQty: am?.qty ?? 0,
+        manualAdjCount: am?.count ?? 0,
+        manualAdjReasons: (am?.reasons ?? []).join(", "),
       };
     })
-    .sort((a, b) => a.key.localeCompare(b.key));
+    .sort((a, b) => {
+      const rank = (s: AdjPivotStatus) =>
+        s === "take-action" ? 0 : s === "partial" ? 1 :
+        s === "excess" ? 2 : s === "ok" ? 3 : 4;
+      const dr = rank(a.status) - rank(b.status);
+      if (dr !== 0) return dr;
+      return a.key.localeCompare(b.key);
+    });
 
   return { groupBy, rows: pivotRows, reasonCodes };
 }

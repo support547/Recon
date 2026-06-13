@@ -83,7 +83,9 @@ export function AsinCaseModal({
     setCaseId("");
     setCaseUrl("");
     setClaimType(REASON_OPTIONS[0]);
-    const pending = Math.max(0, Math.abs(row.totalQty) - row.reimbQty);
+    const pending = row.openQty > 0
+      ? row.openQty
+      : Math.max(0, Math.abs(row.totalQty) - row.reimbQty);
     setUnitsClaimed(pending || Math.abs(row.totalQty) || 1);
     setAmountClaimed(0);
     setStatus("OPEN");

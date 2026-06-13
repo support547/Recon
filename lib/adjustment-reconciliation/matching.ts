@@ -199,6 +199,22 @@ export function buildAdjAdjMap(
   return map;
 }
 
+export function buildAdjAdjMapByAsin(
+  rows: { asin: string | null; qtyAdjusted: number; reason: string | null }[],
+): Map<string, AdjAdjMeta> {
+  const map = new Map<string, AdjAdjMeta>();
+  for (const r of rows) {
+    const k = trimStr(r.asin);
+    if (!k) continue;
+    const prev = map.get(k) ?? { qty: 0, count: 0, reasons: [] as string[] };
+    prev.qty += r.qtyAdjusted || 0;
+    prev.count++;
+    if (r.reason && !prev.reasons.includes(r.reason)) prev.reasons.push(r.reason);
+    map.set(k, prev);
+  }
+  return map;
+}
+
 export function buildAdjReimbMap(
   rows: (ReimbRow & { msku: string | null })[],
   snapshotIso = "",

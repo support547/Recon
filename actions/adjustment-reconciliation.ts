@@ -15,6 +15,7 @@ import {
 } from "@/lib/adjustment-reconciliation/aggregate";
 import {
   buildAdjAdjMap,
+  buildAdjAdjMapByAsin,
   buildAdjCaseMap,
   buildAdjCaseMapByAsin,
   buildAdjReimbMap,
@@ -194,6 +195,7 @@ export async function getAdjReconData(
 
   const caseMap = buildAdjCaseMap(cases);
   const adjMap = buildAdjAdjMap(manualAdjs);
+  const adjMapByAsin = buildAdjAdjMapByAsin(manualAdjs);
   const reimbMap = buildAdjReimbMap(reimbs, snapshotIso);
   const caseMapByAsin = buildAdjCaseMapByAsin(cases);
   const reimbMapByAsin = buildAdjReimbMapByAsin(reimbs, snapshotIso);
@@ -207,6 +209,7 @@ export async function getAdjReconData(
     groupBy,
     groupBy === "asin" ? caseMapByAsin : caseMap,
     groupBy === "asin" ? reimbMapByAsin : reimbMap,
+    groupBy === "asin" ? adjMapByAsin : adjMap,
   );
   const logRows = buildAdjLogRows(adjs);
   const stats = adjStats(analysis);

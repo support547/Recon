@@ -96,9 +96,7 @@ export function MskuCoverageTable({
     let coveredQty = 0;
     let reimbQty = 0;
     let manualAdjQty = 0;
-    let caseClaimedQty = 0;
     let caseApprovedQty = 0;
-    let caseCount = 0;
     const seenMsku = new Set<string>();
     for (const r of rows) {
       qty += r.qty;
@@ -107,9 +105,7 @@ export function MskuCoverageTable({
       if (!seenMsku.has(r.msku)) {
         seenMsku.add(r.msku);
         manualAdjQty += r.manualAdjQty;
-        caseClaimedQty += r.caseClaimedQty;
         caseApprovedQty += r.caseApprovedQty;
-        caseCount += r.caseCount;
       }
     }
     return {
@@ -117,9 +113,7 @@ export function MskuCoverageTable({
       coveredQty,
       reimbQty,
       manualAdjQty,
-      caseClaimedQty,
       caseApprovedQty,
-      caseCount,
     };
   }, [rows]);
 
@@ -239,11 +233,7 @@ export function MskuCoverageTable({
                 <ThWithTotal label="Manual Adj" total={totals.manualAdjQty} signed />
               </Th>
               <Th className="text-right">
-                <ThWithTotal
-                  label="Case"
-                  total={totals.caseApprovedQty}
-                  subtitle={`${totals.caseCount} case${totals.caseCount === 1 ? "" : "s"}`}
-                />
+                <ThWithTotal label="Case" total={totals.caseApprovedQty} />
               </Th>
               <Th>Decision</Th>
               <Th>Status</Th>
@@ -284,8 +274,11 @@ export function MskuCoverageTable({
                     <div className="font-semibold">{e.msku || "—"}</div>
                     <div className="text-[10px] text-muted-foreground">{e.fnsku || "—"}</div>
                   </TableCell>
-                  <TableCell className="max-w-[220px] truncate text-[11px]" title={e.title}>
-                    {e.title || "—"}
+                  <TableCell className="max-w-[220px] text-[11px]" title={e.title}>
+                    <div className="truncate font-semibold">{e.title || "—"}</div>
+                    <div className="truncate font-mono text-[10px] text-muted-foreground">
+                      {e.asin || "—"}
+                    </div>
                   </TableCell>
                   <TableCell className="text-[10px] text-muted-foreground">
                     {e.fulfillmentCenter || "—"}

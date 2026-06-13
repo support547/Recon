@@ -5,7 +5,7 @@ import { AdjustmentReconciliationClient } from "@/components/adjustment-reconcil
 import { Skeleton } from "@/components/ui/skeleton";
 
 async function AdjustmentReconciliationLoader() {
-  const payload = await getAdjReconData({});
+  const payload = await getAdjReconData({ groupBy: "msku" });
   return <AdjustmentReconciliationClient initialPayload={payload} />;
 }
 

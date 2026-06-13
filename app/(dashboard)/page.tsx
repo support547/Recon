@@ -107,7 +107,7 @@ async function loadDashboard(): Promise<DashboardProps> {
     safe(getReplacementReconData({}), null),
     safe(getFcTransferFullRecon({}), null),
     safe(getGnrReconV2Data({}), null),
-    safe(getAdjReconData({ groupBy: "asin" }), null),
+    safe(getAdjReconData({ groupBy: "msku" }), null),
     safe(getFullReconData({}), null),
     safe(getCases({}), []),
     safe(getAdjustments({}), []),
@@ -344,30 +344,29 @@ async function loadDashboard(): Promise<DashboardProps> {
     : { ...ZERO_MODULE, ...caseCountsByModule.gnr };
 
   // ── Adjustment module ───────────────────────────────────────
-  // Mirrors the Adjustment Recon page "By ASIN" KPI strip: pivot is grouped by
-  // ASIN and counts come directly from pivot rows (not the analysis aggregate,
-  // which gates by loss codes and excludes excess-only ASINs).
+  // Mirrors the Adjustment Recon page "By MSKU" KPI strip: counts come from
+  // the analysis aggregate (one row per MSKU with rolled-up actionStatus).
   const adjStats: ModuleStats = adj
     ? (() => {
-        const pivotRows = adj.pivot.rows;
-        const totalAsins = pivotRows.length;
-        const noActionAsins = count(pivotRows, (r) => r.totalQty >= 0);
-        const takeActionAsins = count(pivotRows, (r) => r.totalQty < 0);
-        const reimbAsins = count(pivotRows, (r) => r.reimbQty > 0 || r.reimbAmount > 0);
-        const casesRaisedAsins = count(pivotRows, (r) => r.caseCount > 0);
+        const analysisRows = adj.analysis;
+        const totalMskus = analysisRows.length;
+        const takeActionMskus = count(analysisRows, (r) => r.actionStatus === "take-action");
+        const reconciledMskus = count(analysisRows, (r) => r.actionStatus === "reconciled");
+        const gradeResellMskus = count(analysisRows, (r) => r.actionStatus === "grade-resell");
+        const casesRaisedMskus = count(analysisRows, (r) => r.caseCount > 0);
         return {
-          primaryLabel: "ASINs take action",
-          primaryValue: takeActionAsins,
+          primaryLabel: "MSKUs take action",
+          primaryValue: takeActionMskus,
           secondary: [
-            { label: "Total",        value: totalAsins },
-            { label: "No Action",    value: noActionAsins },
-            { label: "Reimbursement", value: reimbAsins },
-            { label: "Cases Raised", value: casesRaisedAsins },
+            { label: "Total MSKUs",  value: totalMskus },
+            { label: "Reconciled",   value: reconciledMskus },
+            { label: "Grade & Resell", value: gradeResellMskus },
+            { label: "Cases Raised", value: casesRaisedMskus },
           ],
-          takeAction: takeActionAsins,
+          takeAction: takeActionMskus,
           caseNeeded: count(
-            pivotRows,
-            (r) => r.totalQty < 0 && r.caseCount === 0,
+            analysisRows,
+            (r) => r.actionStatus === "take-action" && r.caseCount === 0,
           ),
           pending: adj.stats.totalUnreconciledQty,
           ...caseCountsByModule.adjustment,

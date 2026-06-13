@@ -980,9 +980,9 @@ function GnrModuleCard({
   );
 }
 
-// ── Adjustment card: 2×2 grid — Total Titles | No Action / Reimbursement | Cases Raised ──
-// secondary[0]=Total Titles [1]=No Action [2]=Reimbursement [3]=Cases Raised.
-// primaryValue/takeAction = take-action ASIN count -> header pill + take-action badge.
+// ── Adjustment card: 2×2 grid — Total MSKUs | Reconciled / Grade & Resell | Cases Raised ──
+// secondary[0]=Total MSKUs [1]=Reconciled [2]=Grade & Resell [3]=Cases Raised.
+// primaryValue/takeAction = take-action MSKU count -> header pill + take-action badge.
 function AdjustmentModuleCard({
   cfg,
   stats,
@@ -995,9 +995,9 @@ function AdjustmentModuleCard({
     <div className="flex flex-col gap-0 px-3 py-2.5" style={cardBorderStyle(tone)}>
       <CardHeader cfg={cfg} stats={stats} tone={tone} />
       <div className="grid grid-cols-2 gap-1.5 py-1">
-        <StatBox label="Total Titles"  value={stats.secondary[0]?.value ?? 0} tone="slate" />
-        <StatBox label="No Action"     value={stats.secondary[1]?.value ?? 0} tone="emerald" />
-        <StatBox label="Reimbursement" value={stats.secondary[2]?.value ?? 0} tone="blue" />
+        <StatBox label="Total MSKUs"   value={stats.secondary[0]?.value ?? 0} tone="slate" />
+        <StatBox label="Reconciled"    value={stats.secondary[1]?.value ?? 0} tone="emerald" />
+        <StatBox label="Grade & Resell" value={stats.secondary[2]?.value ?? 0} tone="teal" />
         <StatBox label="Cases Raised"  value={stats.secondary[3]?.value ?? 0} tone="amber" />
       </div>
       <CardBottom cfg={cfg} stats={stats} hideCaseActions />

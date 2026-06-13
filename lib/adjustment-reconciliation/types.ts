@@ -263,7 +263,12 @@ export type AdjReimbBuckets = {
 
 export type AdjPivotGroupBy = "asin" | "msku";
 
-export type AdjPivotStatus = "ok" | "excess" | "take-action";
+export type AdjPivotStatus =
+  | "ok"
+  | "excess"
+  | "reimbursed"
+  | "partial"
+  | "take-action";
 
 export type AdjPivotRow = {
   key: string;
@@ -273,9 +278,18 @@ export type AdjPivotRow = {
   status: AdjPivotStatus;
   reimbQty: number;
   reimbAmount: number;
+  openQty: number;
+  caseApprovedQty: number;
+  reimbDetails: AdjReimbDetail[];
   caseCount: number;
   caseOpenCount: number;
   caseStatusTop: string;
+  caseClaimedQty: number;
+  caseApprovedAmount: number;
+  caseIds: string;
+  manualAdjQty: number;
+  manualAdjCount: number;
+  manualAdjReasons: string;
 };
 
 export type AdjPivotResult = {

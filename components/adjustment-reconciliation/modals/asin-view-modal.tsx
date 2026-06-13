@@ -3,6 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,9 +20,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import {
+  STATUS_CLS,
+  STATUS_LABEL,
+} from "@/components/adjustment-reconciliation/analysis-tab/analysis-table";
 import type {
   AdjLogRow,
   AdjPivotRow,
+  AdjPivotStatus,
 } from "@/lib/adjustment-reconciliation/types";
 
 export function AsinViewModal({
@@ -87,7 +93,7 @@ export function AsinViewModal({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs sm:grid-cols-6">
           <Info label="Net Qty">
             <span
               className={cn(
@@ -102,9 +108,21 @@ export function AsinViewModal({
               {row.totalQty}
             </span>
           </Info>
-          <Info label="Reimb Qty">{row.reimbQty}</Info>
+          <Info label="Reimbursed">
+            <span className="text-emerald-700">{row.reimbQty}</span>
+          </Info>
+          <Info label="Still Open">
+            {row.openQty > 0 ? (
+              <span className="font-bold text-red-600">{row.openQty}</span>
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </Info>
           <Info label="Reimb $">{`$${row.reimbAmount.toFixed(2)}`}</Info>
           <Info label="Cases">{row.caseCount}</Info>
+          <Info label="Status">
+            <AdjPivotStatusBadge status={row.status} />
+          </Info>
         </div>
 
         <div className="max-h-[55vh] overflow-auto rounded-md border border-slate-200 bg-white">
@@ -166,6 +184,20 @@ export function AsinViewModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function AdjPivotStatusBadge({ status }: { status: AdjPivotStatus }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "rounded-full font-mono text-[10px] font-bold",
+        STATUS_CLS[status],
+      )}
+    >
+      {STATUS_LABEL[status]}
+    </Badge>
   );
 }
 
