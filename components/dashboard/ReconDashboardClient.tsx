@@ -723,10 +723,14 @@ function CardHeader({
   tone: "red" | "amber" | "green";
 }) {
   const Icon = cfg.icon;
+  // Removal: awaiting is informational but the pill should read red like the
+  // take-action modules whenever there are awaiting units.
+  const pillTone =
+    cfg.key === "removal" && stats.primaryValue > 0 ? "red" : tone;
   const pillStyle: React.CSSProperties =
-    tone === "red"
+    pillTone === "red"
       ? { background: "#FCEBEB", color: "#791F1F" }
-      : tone === "amber"
+      : pillTone === "amber"
       ? { background: "#FAEEDA", color: "#633806" }
       : { background: "#EAF3DE", color: "#27500A" };
 
@@ -737,7 +741,11 @@ function CardHeader({
         <span className="truncate text-xs font-semibold text-foreground">{cfg.name}</span>
       </div>
       <span className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium" style={pillStyle}>
-        {tone === "green"
+        {/* Removal: awaiting is informational, not take-action — always show the
+            count (e.g. "16 awaiting") even when the module is otherwise clear. */}
+        {cfg.key === "removal"
+          ? `${fmt(stats.primaryValue)} ${SHORT_LABEL.removal}`
+          : tone === "green"
           ? "✓ clear"
           : `${fmt(stats.primaryValue)} ${SHORT_LABEL[cfg.key] ?? stats.primaryLabel}`}
       </span>
@@ -814,9 +822,10 @@ function ShipmentModuleCard({
   );
 }
 
-// ── Removal card: 2×2 grid — Total | Rcvd at WH / Awaiting | Reimbursed ──
-// secondary[0]=Requested(Total)  secondary[2]=Received  secondary[3]=Reimbursed
-// primaryValue = not received (Awaiting)
+// ── Removal card: 2×2 grid — Total | Received / Partial-Missing | Reimbursed ──
+// Awaiting units shown in the header pill (primaryValue). Box mirrors the
+// Removal Recon page KPI cards.
+// secondary[0]=Total  [1]=Received  [2]=Partial/Missing  [3]=Reimbursed
 function RemovalModuleCard({
   cfg,
   stats,
@@ -828,15 +837,13 @@ function RemovalModuleCard({
   return (
     <div className="flex flex-col gap-0 px-3 py-2.5" style={cardBorderStyle(tone)}>
       <CardHeader cfg={cfg} stats={stats} tone={tone} />
-      {/* Tone layout mirrors Shipment: slate | blue (top), red(primary, bold) |
-          amber (bottom). */}
       <div className="grid grid-cols-2 gap-1.5 py-1">
-        <StatBox label="Total"      value={stats.secondary[0]?.value ?? 0} tone="slate" />
-        <StatBox label="Rcvd at WH" value={stats.secondary[2]?.value ?? 0} tone="blue" />
+        <StatBox label="Total"    value={stats.secondary[0]?.value ?? 0} tone="slate" />
+        <StatBox label="Received" value={stats.secondary[1]?.value ?? 0} tone="emerald" />
         <StatBox
-          label="Awaiting"
-          value={stats.primaryValue}
-          tone={stats.primaryValue > 0 ? "red" : "emerald"}
+          label="Partial / Missing"
+          value={stats.secondary[2]?.value ?? 0}
+          tone={(stats.secondary[2]?.value ?? 0) > 0 ? "red" : "emerald"}
           bold
         />
         <StatBox

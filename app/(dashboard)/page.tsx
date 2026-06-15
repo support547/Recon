@@ -187,36 +187,27 @@ async function loadDashboard(): Promise<DashboardProps> {
   // ── Removal module ──────────────────────────────────────────
   const removalStats: ModuleStats = removal
     ? (() => {
-        const rows = removal.rows;
-        const notReceived = count(
-          rows,
-          (r) =>
-            r.receiptStatus === "MISSING" ||
-            r.receiptStatus === "AWAITING" ||
-            r.receiptStatus === "PARTIAL",
-        );
-        const requested = sum(rows, (r) => r.requestedQty);
-        const expected = sum(rows, (r) => r.expectedShipped);
-        const received = sum(rows, (r) => r.receivedQty);
-        const reimbursed = sum(rows, (r) => r.reimbQty);
+        // Mirror the Removal Recon page KPI cards exactly (summaryStats):
+        // header pill = Awaiting units; box = Total / Received / Partial-Missing / Reimbursed.
+        const s = removal.stats;
         const takeAction = count(
-          rows,
+          removal.rows,
           (r) =>
             (r.orderStatus || "").toLowerCase() === "completed" &&
             r.receiptStatus === "MISSING",
         );
         return {
-          primaryLabel: "not received",
-          primaryValue: notReceived,
+          primaryLabel: "awaiting",
+          primaryValue: s.awaitingQty,
           secondary: [
-            { label: "Requested", value: requested },
-            { label: "Expected", value: expected },
-            { label: "Received", value: received },
-            { label: "Reimbursed", value: reimbursed },
+            { label: "Total", value: s.totalQty },
+            { label: "Received", value: s.receivedQty },
+            { label: "Partial / Missing", value: s.partialMissingQty },
+            { label: "Reimbursed", value: s.reimbursedQty },
           ],
           takeAction,
           caseNeeded: takeAction,
-          pending: Math.max(expected - received, 0),
+          pending: s.partialMissingQty,
           ...caseCountsByModule.removal,
         };
       })()
