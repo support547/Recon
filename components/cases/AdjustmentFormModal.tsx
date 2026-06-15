@@ -37,6 +37,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { toDatetimeLocalValue } from "@/lib/cases-ui";
 import { ManualAdjustmentCreateSchema } from "@/lib/validations/cases";
 
+const ADJ_TYPES: { value: AdjType; label: string }[] = [
+  { value: "QUANTITY", label: "Quantity" },
+  { value: "FINANCIAL", label: "Financial" },
+  { value: "STATUS", label: "Status" },
+  { value: "RETURN_NEW_MSKU", label: "Return → New MSKU" },
+  { value: "LOST", label: "Lost" },
+  { value: "OTHER", label: "Other" },
+];
+
 type AdjustmentFormValues = Record<
   string,
   string | number | AdjType | ReconType | undefined | null
@@ -280,9 +289,9 @@ export function AdjustmentFormModal({
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {Object.values(AdjType).map((t) => (
-                            <SelectItem key={t} value={t}>
-                              {t.replace(/_/g, " ")}
+                          {ADJ_TYPES.map((t) => (
+                            <SelectItem key={t.value} value={t.value}>
+                              {t.label}
                             </SelectItem>
                           ))}
                         </SelectContent>

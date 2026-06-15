@@ -38,6 +38,7 @@ export type RaiseGnrCaseInputZ = z.infer<typeof raiseGnrCaseSchema>;
 export const gnrAdjustmentSchema = z.object({
   usedMsku: z.string().min(1),
   asin: optStr,
+  adjType: z.string().min(1).optional(),
   qtyAdjusted: intLike,
   reason: z.string().min(1),
   adjDate: optStr,

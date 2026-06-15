@@ -29,6 +29,7 @@ const ADJ_TYPES = [
   { value: "FINANCIAL", label: "Financial / Credit" },
   { value: "STATUS", label: "Status / Transfer" },
   { value: "RETURN_NEW_MSKU", label: "Return → New MSKU" },
+  { value: "LOST", label: "Lost" },
   { value: "OTHER", label: "Other / Write-off" },
 ];
 

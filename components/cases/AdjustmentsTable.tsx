@@ -109,7 +109,14 @@ export function AdjustmentsTable({
         accessorKey: "adjType",
         header: "Adj type",
         cell: ({ row }) => (
-          <Badge variant="secondary" className="font-normal normal-case">
+          <Badge
+            variant="secondary"
+            className={cn(
+              "font-normal normal-case",
+              row.original.adjType === "LOST" &&
+                "border-red-200 bg-red-50 text-red-700",
+            )}
+          >
             {row.original.adjType === "RETURN_NEW_MSKU"
               ? "Return → New MSKU"
               : formatEnumLabel(row.original.adjType)}

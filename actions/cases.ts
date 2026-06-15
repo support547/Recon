@@ -27,6 +27,7 @@ export type CaseFilters = {
 
 export type AdjustmentFilters = {
   reconType?: ReconType | "";
+  adjType?: AdjType | "";
   store?: string;
   search?: string;
 };
@@ -285,6 +286,9 @@ export async function getAdjustments(
 
   if (filters.reconType) {
     where.reconType = filters.reconType;
+  }
+  if (filters.adjType) {
+    where.adjType = filters.adjType;
   }
   if (filters.store?.trim()) {
     where.store = {

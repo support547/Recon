@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CaseStatus, ReconType } from "@prisma/client";
-import { Plus } from "lucide-react";
+import { AdjType, CaseStatus, ReconType } from "@prisma/client";
+import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type {
@@ -22,6 +22,7 @@ import { AdjustmentFormModal } from "@/components/cases/AdjustmentFormModal";
 import { AdjustmentsTable } from "@/components/cases/AdjustmentsTable";
 import { CaseFormModal } from "@/components/cases/CaseFormModal";
 import { CasesTable } from "@/components/cases/CasesTable";
+import { HeaderActions } from "@/components/layout/header-actions";
 import { SummaryCard } from "@/components/shared/SummaryCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,9 +34,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatEnumLabel } from "@/lib/cases-ui";
+import { cn } from "@/lib/utils";
 
 const ALL = "__all__";
+
+const ADJ_TYPE_LABELS: Record<AdjType, string> = {
+  QUANTITY: "Quantity",
+  FINANCIAL: "Financial",
+  STATUS: "Status",
+  RETURN_NEW_MSKU: "Return → New MSKU",
+  LOST: "Lost",
+  OTHER: "Other",
+};
+
+type PageTab = "cases" | "adjustments";
 
 function useDebouncedValue<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = React.useState(value);
@@ -44,6 +57,38 @@ function useDebouncedValue<T>(value: T, ms: number): T {
     return () => clearTimeout(t);
   }, [value, ms]);
   return debounced;
+}
+
+/** CSV-quote a cell: wrap in quotes and double any inner quotes. */
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function isoDate(d: Date | null | undefined): string {
+  if (!d) return "";
+  try {
+    return new Date(d).toISOString().split("T")[0];
+  } catch {
+    return "";
+  }
+}
+
+function downloadCsv(rows: (string | number)[][], filename: string) {
+  const csv = rows
+    .map((line) => line.map((c) => csvCell(c)).join(","))
+    .join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 type CasesAdjustmentsPageClientProps = {
@@ -56,6 +101,8 @@ export function CasesAdjustmentsPageClient({
   initialAdjustments,
 }: CasesAdjustmentsPageClientProps) {
   const router = useRouter();
+
+  const [tab, setTab] = React.useState<PageTab>("cases");
 
   const [caseFilters, setCaseFilters] = React.useState<CaseFilters>({});
   const [adjFilters, setAdjFilters] = React.useState<AdjustmentFilters>({});
@@ -210,17 +257,172 @@ export function CasesAdjustmentsPageClient({
     [adjustments],
   );
 
+  // ── CSV export (active tab only) ─────────────────────────────
+  function exportCasesCsv() {
+    const header = [
+      "MSKU",
+      "ASIN",
+      "FNSKU",
+      "Title",
+      "Recon Type",
+      "Shipment ID",
+      "Order ID",
+      "Case ID",
+      "Case URL",
+      "Attachment URL",
+      "Reimbursement ID",
+      "Case Reason",
+      "Units Claimed",
+      "Units Approved",
+      "Amount Claimed",
+      "Amount Approved",
+      "Currency",
+      "Status",
+      "Issue Date",
+      "Raised Date",
+      "Resolved Date",
+      "Store",
+      "Notes",
+    ];
+    const body = cases.map((c) => [
+      c.msku ?? "",
+      c.asin ?? "",
+      c.fnsku ?? "",
+      c.title ?? "",
+      formatEnumLabel(c.reconType),
+      c.shipmentId ?? "",
+      c.orderId ?? "",
+      c.referenceId ?? "",
+      c.caseUrl ?? "",
+      c.attachmentUrl ?? "",
+      c.reimbursementId ?? "",
+      c.caseReason ?? "",
+      c.unitsClaimed,
+      c.unitsApproved,
+      c.amountClaimed ?? "",
+      c.amountApproved ?? "",
+      c.currency ?? "",
+      formatEnumLabel(c.status),
+      isoDate(c.issueDate),
+      isoDate(c.raisedDate),
+      isoDate(c.resolvedDate),
+      c.store ?? "",
+      c.notes ?? "",
+    ]);
+    downloadCsv([header, ...body], "cases.csv");
+    toast.success("✅ Cases exported");
+  }
+
+  function exportAdjustmentsCsv() {
+    const header = [
+      "MSKU",
+      "Original MSKU",
+      "ASIN",
+      "FNSKU",
+      "Received As FNSKU",
+      "Title",
+      "Recon Type",
+      "Adj Type",
+      "Shipment ID",
+      "Order ID",
+      "Reimbursement ID",
+      "Qty Before",
+      "Qty Adjusted",
+      "Qty After",
+      "Amount",
+      "Reason",
+      "Verified By",
+      "Source Doc",
+      "Adj Date",
+      "Store",
+      "Notes",
+    ];
+    const body = adjustments.map((a) => [
+      a.msku ?? "",
+      a.originalMsku ?? "",
+      a.asin ?? "",
+      a.fnsku ?? "",
+      a.receivedAsFnsku ?? "",
+      a.title ?? "",
+      formatEnumLabel(a.reconType),
+      a.adjType === "RETURN_NEW_MSKU"
+        ? "Return → New MSKU"
+        : formatEnumLabel(a.adjType),
+      a.shipmentId ?? "",
+      a.orderId ?? "",
+      a.referenceId ?? "",
+      a.qtyBefore,
+      a.qtyAdjusted,
+      a.qtyAfter,
+      a.amount ?? "",
+      a.reason ?? "",
+      a.verifiedBy ?? "",
+      a.sourceDoc ?? "",
+      isoDate(a.adjDate),
+      a.store ?? "",
+      a.notes ?? "",
+    ]);
+    downloadCsv([header, ...body], "manual_adjustments.csv");
+    toast.success("✅ Adjustments exported");
+  }
+
+  function exportActiveCsv() {
+    if (tab === "cases") exportCasesCsv();
+    else exportAdjustmentsCsv();
+  }
+
+  const caseFiltersActive = Boolean(
+    caseFilters.status ||
+      caseFilters.reconType ||
+      caseFilters.store?.trim() ||
+      caseFilters.search?.trim(),
+  );
+  const adjFiltersActive = Boolean(
+    adjFilters.reconType ||
+      adjFilters.adjType ||
+      adjFilters.store?.trim() ||
+      adjFilters.search?.trim(),
+  );
+
   return (
-    <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-      <div className="border-b border-border pb-6">
-        <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-          Cases & adjustments
-        </h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Track seller cases and manual inventory corrections. Filters query the
-          database; tables add sorting, client filtering, and pagination.
-        </p>
-      </div>
+    <main className="w-full flex-1 space-y-6 p-4 md:p-6">
+      <HeaderActions>
+        <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition",
+              tab === "cases"
+                ? "bg-white text-foreground shadow-sm"
+                : "text-muted-foreground",
+            )}
+            onClick={() => setTab("cases")}
+          >
+            Cases
+            <Badge variant="secondary" className="font-mono text-[10px]">
+              {cases.length}
+            </Badge>
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-semibold transition",
+              tab === "adjustments"
+                ? "bg-white text-foreground shadow-sm"
+                : "text-muted-foreground",
+            )}
+            onClick={() => setTab("adjustments")}
+          >
+            Adjustments
+            <Badge variant="secondary" className="font-mono text-[10px]">
+              {adjustments.length}
+            </Badge>
+          </button>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportActiveCsv}>
+          ⬇ Export CSV
+        </Button>
+      </HeaderActions>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <SummaryCard
@@ -245,23 +447,8 @@ export function CasesAdjustmentsPageClient({
         />
       </div>
 
-      <Tabs defaultValue="cases" className="gap-6">
-        <TabsList variant="line" className="w-full justify-start">
-          <TabsTrigger value="cases" className="gap-2">
-            Cases
-            <Badge variant="secondary" className="font-mono text-[10px]">
-              {cases.length}
-            </Badge>
-          </TabsTrigger>
-          <TabsTrigger value="adjustments" className="gap-2">
-            Adjustments
-            <Badge variant="secondary" className="font-mono text-[10px]">
-              {adjustments.length}
-            </Badge>
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="cases" className="space-y-4">
+      {tab === "cases" ? (
+        <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
             <div className="grid gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">
@@ -347,6 +534,16 @@ export function CasesAdjustmentsPageClient({
               <Plus className="size-4" />
               New case
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              disabled={!caseFiltersActive}
+              onClick={() => setCaseFilters({})}
+            >
+              <X className="size-4" />
+              Clear
+            </Button>
           </div>
 
           {casesLoading ? (
@@ -358,9 +555,9 @@ export function CasesAdjustmentsPageClient({
             onEdit={openEditCase}
             onDelete={handleDeleteCase}
           />
-        </TabsContent>
-
-        <TabsContent value="adjustments" className="space-y-4">
+        </div>
+      ) : (
+        <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4 shadow-sm">
             <div className="grid gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">
@@ -383,6 +580,33 @@ export function CasesAdjustmentsPageClient({
                   {Object.values(ReconType).map((rt) => (
                     <SelectItem key={rt} value={rt}>
                       {rt.replace(/_/g, " ")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">
+                Adj type
+              </span>
+              <Select
+                value={adjFilters.adjType || ALL}
+                onValueChange={(v) =>
+                  setAdjFilters((f) => ({
+                    ...f,
+                    adjType: v === ALL ? "" : (v as AdjType),
+                  }))
+                }
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="All adj types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL}>All adj types</SelectItem>
+                  {Object.values(AdjType).map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {ADJ_TYPE_LABELS[t]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -423,6 +647,16 @@ export function CasesAdjustmentsPageClient({
               <Plus className="size-4" />
               New adjustment
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              disabled={!adjFiltersActive}
+              onClick={() => setAdjFilters({})}
+            >
+              <X className="size-4" />
+              Clear
+            </Button>
           </div>
 
           {adjLoading ? (
@@ -436,8 +670,8 @@ export function CasesAdjustmentsPageClient({
             onEdit={openEditAdjustment}
             onDelete={handleDeleteAdjustment}
           />
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
 
       <CaseFormModal
         open={caseModalOpen}

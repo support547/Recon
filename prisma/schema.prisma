@@ -57,6 +57,7 @@ enum AdjType {
   STATUS
   OTHER
   RETURN_NEW_MSKU
+  LOST
 }
 
 enum GradeResellStatus {

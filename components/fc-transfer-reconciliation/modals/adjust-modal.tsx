@@ -28,6 +28,7 @@ const ADJ_TYPES = [
   { value: "QUANTITY", label: "Quantity / Recount" },
   { value: "FINANCIAL", label: "Financial / Credit" },
   { value: "STATUS", label: "Status / Transfer" },
+  { value: "LOST", label: "Lost" },
   { value: "OTHER", label: "Other / Write-off" },
 ];
 

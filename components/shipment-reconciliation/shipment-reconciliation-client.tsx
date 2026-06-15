@@ -1,18 +1,12 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
-import type { CaseTrackerRow } from "@/actions/cases";
-import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
 import {
-  deleteShipmentCaAdjustment,
-  deleteShipmentCaCase,
+  getMissingShipments,
   getShipmentReconciliationData,
-  listShipmentCaAdjustments,
-  listShipmentCaCases,
   type ShipmentReconciliationPayload,
 } from "@/actions/shipment-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
-import { CaStandaloneAdjustmentDialog, CaStandaloneCaseDialog } from "@/components/shipment-reconciliation/ca-standalone-dialogs";
 import { ReconActionDialog } from "@/components/shipment-reconciliation/recon-action-dialog";
 import { ReconDetailSheet } from "@/components/shipment-reconciliation/recon-detail-sheet";
 import { ShipmentAggTable } from "@/components/shipment-reconciliation/shipment-agg-table";
@@ -26,8 +20,8 @@ import {
   WrongLabelDialog,
   type WrongLabelDialogContext,
 } from "@/components/shipment-reconciliation/wrong-label-dialog";
+import { NewShipmentsDialog } from "@/components/shipment-reconciliation/new-shipments-dialog";
 import { listWrongLabelByShipment } from "@/actions/adjustments";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -46,7 +40,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   TableBody,
   TableCell,
@@ -55,12 +48,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import {
-  adjustmentLegacyAdjType,
-  displayCaseStatusLabel,
-  formatIsoDate,
-  reconTypeToLegacy,
-} from "@/lib/shipment-reconciliation-display";
 import type {
   ActionCacheEntry,
   ShipmentReconRow,
@@ -72,11 +59,9 @@ import {
   trimCl,
 } from "@/lib/shipment-reconciliation-logic";
 import { cn } from "@/lib/utils";
-import { Pencil, Settings2, Trash2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import type { VisibilityState } from "@tanstack/react-table";
 import { toast } from "sonner";
-
-const CA_ALL = "__all__";
 
 function useDebounced<T>(value: T, ms: number): T {
   const [d, setD] = React.useState(value);
@@ -87,56 +72,15 @@ function useDebounced<T>(value: T, ms: number): T {
   return d;
 }
 
-function caseStatusBadgeClass(s: string) {
-  const map: Record<string, string> = {
-    pending: "border-amber-200 bg-amber-50 text-amber-800",
-    raised: "border-blue-200 bg-blue-50 text-blue-700",
-    approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    partial: "border-violet-200 bg-violet-50 text-violet-800",
-    rejected: "border-red-200 bg-red-50 text-red-700",
-    closed: "border-slate-200 bg-slate-100 text-slate-600",
-  };
-  return map[s] ?? "border-slate-200 bg-slate-100 text-slate-600";
-}
-
-function reconBadgeClass(t: string) {
-  const map: Record<string, string> = {
-    shipment: "border-blue-200 bg-blue-50 text-blue-700",
-    removal: "border-orange-200 bg-orange-50 text-orange-800",
-    return: "border-violet-200 bg-violet-50 text-violet-800",
-    fc_transfer: "border-slate-200 bg-slate-100 text-slate-700",
-    fba_balance: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  };
-  return map[t] ?? "border-slate-200 bg-slate-100 text-slate-600";
-}
-
-function adjTypeBadgeClass(t: string) {
-  const map: Record<string, string> = {
-    found: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    lost: "border-red-200 bg-red-50 text-red-700",
-    damaged: "border-red-200 bg-red-50 text-red-700",
-    correction: "border-violet-200 bg-violet-50 text-violet-800",
-    count_adjustment: "border-blue-200 bg-blue-50 text-blue-700",
-    donated: "border-slate-200 bg-slate-100 text-slate-600",
-  };
-  return map[t] ?? "border-slate-200 bg-slate-100 text-slate-600";
-}
-
 type Props = {
   initialPayload: ShipmentReconciliationPayload;
-  initialCases: CaseTrackerRow[];
-  initialAdjustments: ManualAdjustmentRow[];
   initialWrongLabelOverlay?: WrongLabelOverlay;
 };
 
 export function ShipmentReconciliationClient({
   initialPayload,
-  initialCases,
-  initialAdjustments,
   initialWrongLabelOverlay,
 }: Props) {
-  const [pageTab, setPageTab] = React.useState<"recon" | "ca">("recon");
-  const [caSub, setCaSub] = React.useState<"cases" | "adj">("cases");
   const [reconView, setReconView] = React.useState<"sku" | "shipment">("sku");
 
   const [shipmentStatus, setShipmentStatus] = React.useState("all");
@@ -156,18 +100,6 @@ export function ShipmentReconciliationClient({
   );
   const [reconLoading, setReconLoading] = React.useState(false);
 
-  const [cases, setCases] = React.useState(initialCases);
-  const [adjs, setAdjs] = React.useState(initialAdjustments);
-  const [cfType, setCfType] = React.useState(CA_ALL);
-  const [cfStatus, setCfStatus] = React.useState(CA_ALL);
-  const [cfSearch, setCfSearch] = React.useState("");
-  const debouncedCfSearch = useDebounced(cfSearch, 280);
-  const [afType, setAfType] = React.useState(CA_ALL);
-  const [afAdj, setAfAdj] = React.useState(CA_ALL);
-  const [afSearch, setAfSearch] = React.useState("");
-  const debouncedAfSearch = useDebounced(afSearch, 280);
-  const [caLoading, setCaLoading] = React.useState(false);
-
   const [drawerRow, setDrawerRow] = React.useState<ShipmentReconRow | null>(
     null,
   );
@@ -177,21 +109,32 @@ export function ShipmentReconciliationClient({
   );
   const [actionPre, setActionPre] = React.useState<"case" | "adj" | null>(null);
 
-  const [caseDlgOpen, setCaseDlgOpen] = React.useState(false);
-  const [caseEditing, setCaseEditing] = React.useState<CaseTrackerRow | null>(
-    null,
-  );
-  const [adjDlgOpen, setAdjDlgOpen] = React.useState(false);
-  const [adjEditing, setAdjEditing] = React.useState<ManualAdjustmentRow | null>(
-    null,
-  );
-
   const [wrongLabelOverlay, setWrongLabelOverlay] = React.useState<WrongLabelOverlay>(
     initialWrongLabelOverlay ?? {},
   );
   const [wrongLabelOpen, setWrongLabelOpen] = React.useState(false);
   const [wrongLabelCtx, setWrongLabelCtx] =
     React.useState<WrongLabelDialogContext | null>(null);
+  const [newShipmentsOpen, setNewShipmentsOpen] = React.useState(false);
+  const [newShipmentsCount, setNewShipmentsCount] = React.useState<number | null>(
+    null,
+  );
+
+  // Count for the "New Shipments" button badge — fetched once on mount.
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await getMissingShipments();
+        if (!cancelled) setNewShipmentsCount(list.length);
+      } catch {
+        if (!cancelled) setNewShipmentsCount(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const reloadWrongLabel = React.useCallback(async () => {
     const ids = Array.from(
@@ -224,11 +167,6 @@ export function ShipmentReconciliationClient({
     setWrongLabelOpen(true);
   }
 
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.location.hash === "#cases") setPageTab("ca");
-  }, []);
-
   const reloadRecon = React.useCallback(async () => {
     setReconLoading(true);
     try {
@@ -252,42 +190,6 @@ export function ShipmentReconciliationClient({
     }
     void reloadRecon();
   }, [reloadRecon]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    setCaLoading(true);
-    listShipmentCaCases({
-      reconLegacy: cfType !== CA_ALL ? cfType : undefined,
-      statusLegacy: cfStatus !== CA_ALL ? cfStatus : undefined,
-      search: debouncedCfSearch || undefined,
-    }).then((r) => {
-      if (!cancelled) {
-        setCases(r);
-        setCaLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [cfType, cfStatus, debouncedCfSearch]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    setCaLoading(true);
-    listShipmentCaAdjustments({
-      reconLegacy: afType !== CA_ALL ? afType : undefined,
-      adjLegacy: afAdj !== CA_ALL ? afAdj : undefined,
-      search: debouncedAfSearch || undefined,
-    }).then((r) => {
-      if (!cancelled) {
-        setAdjs(r);
-        setCaLoading(false);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [afType, afAdj, debouncedAfSearch]);
 
   const filteredRows = React.useMemo(() => {
     const fQ = debouncedSearch.toLowerCase();
@@ -370,20 +272,6 @@ export function ShipmentReconciliationClient({
 
   async function refreshAll() {
     await reloadRecon();
-    const [c, a] = await Promise.all([
-      listShipmentCaCases({
-        reconLegacy: cfType !== CA_ALL ? cfType : undefined,
-        statusLegacy: cfStatus !== CA_ALL ? cfStatus : undefined,
-        search: debouncedCfSearch || undefined,
-      }),
-      listShipmentCaAdjustments({
-        reconLegacy: afType !== CA_ALL ? afType : undefined,
-        adjLegacy: afAdj !== CA_ALL ? afAdj : undefined,
-        search: debouncedAfSearch || undefined,
-      }),
-    ]);
-    setCases(c);
-    setAdjs(a);
     toast.success("↻ Refreshed!");
   }
 
@@ -448,106 +336,6 @@ export function ShipmentReconciliationClient({
     toast.success("✅ CSV exported!");
   }
 
-  function exportCaCsv() {
-    if (caSub === "cases") {
-      const h = [
-        "MSKU",
-        "Title",
-        "Recon Type",
-        "Shipment/Ref",
-        "FNSKU",
-        "Issue Date",
-        "Units Claimed",
-        "Units Approved",
-        "$ Claimed",
-        "$ Approved",
-        "Case ID",
-        "Case URL",
-        "Attachment URL",
-        "Case Reason",
-        "Status",
-        "Raised Date",
-        "Resolved Date",
-        "Notes",
-      ];
-      const data = cases.map((c) => [
-        c.msku ?? "",
-        `"${String(c.title ?? "").replace(/"/g, "'")}"`,
-        reconTypeToLegacy(c.reconType),
-        c.shipmentId ?? c.orderId ?? "",
-        c.fnsku ?? "",
-        formatIsoDate(c.issueDate),
-        c.unitsClaimed,
-        c.unitsApproved,
-        c.amountClaimed ?? "",
-        c.amountApproved ?? "",
-        c.referenceId ?? "",
-        c.caseUrl ?? "",
-        c.attachmentUrl ?? "",
-        c.caseReason ?? "",
-        displayCaseStatusLabel(c),
-        formatIsoDate(c.raisedDate),
-        formatIsoDate(c.resolvedDate),
-        `"${String(c.notes ?? "").replace(/"/g, "'")}"`,
-      ]);
-      const csv = [h, ...data].map((r) => r.join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "case_tracker.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("✅ Case Tracker exported!");
-    } else {
-      const h = [
-        "MSKU",
-        "Title",
-        "Recon Type",
-        "Adj Type",
-        "Shipment/Ref",
-        "FNSKU",
-        "Adj Date",
-        "Qty Before",
-        "Adjustment",
-        "Qty After",
-        "Reason",
-        "Verified By",
-        "Source Doc",
-        "Notes",
-      ];
-      const data = adjs.map((x) => [
-        x.msku ?? "",
-        `"${String(x.title ?? "").replace(/"/g, "'")}"`,
-        reconTypeToLegacy(x.reconType),
-        adjustmentLegacyAdjType(x),
-        x.shipmentId ?? x.orderId ?? "",
-        x.fnsku ?? "",
-        formatIsoDate(x.adjDate),
-        x.qtyBefore,
-        x.qtyAdjusted,
-        x.qtyAfter,
-        `"${String(x.reason ?? "").replace(/"/g, "'")}"`,
-        x.verifiedBy ?? "",
-        x.sourceDoc ?? "",
-        `"${String(x.notes ?? "").replace(/"/g, "'")}"`,
-      ]);
-      const csv = [h, ...data].map((r) => r.join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "manual_adjustments.csv";
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("✅ Manual Adjustments exported!");
-    }
-  }
-
-  function filterCaseNeeded() {
-    setReconStatus("case_needed");
-  }
-
   function drillDown(sid: string) {
     setShipmentId(sid);
     setReconView("sku");
@@ -560,63 +348,37 @@ export function ShipmentReconciliationClient({
     return "📤";
   }
 
-  async function onDeleteCase(id: string) {
-    if (!confirm("Delete this case?")) return;
-    const res = await deleteShipmentCaCase(id);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
-    setCases((prev) => prev.filter((c) => c.id !== id));
-    toast.success("🗑 Case deleted");
-    await reloadRecon();
-  }
-
-  async function onDeleteAdj(id: string) {
-    if (!confirm("Delete this adjustment?")) return;
-    const res = await deleteShipmentCaAdjustment(id);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
-    setAdjs((prev) => prev.filter((a) => a.id !== id));
-    toast.success("🗑 Deleted");
-    await reloadRecon();
-  }
-
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-4 p-4 md:p-6">
       <HeaderActions>
-        {pageTab === "recon" ? (
-          <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-semibold transition",
-                reconView === "sku"
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-              onClick={() => setReconView("sku")}
-            >
-              By SKU
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-semibold transition",
-                reconView === "shipment"
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-              onClick={() => setReconView("shipment")}
-            >
-              By Shipment
-            </button>
-          </div>
-        ) : null}
-        {pageTab === "recon" && reconView === "sku" ? (
+        <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-3 py-1 text-xs font-semibold transition",
+              reconView === "sku"
+                ? "bg-white text-foreground shadow-sm"
+                : "text-muted-foreground",
+            )}
+            onClick={() => setReconView("sku")}
+          >
+            By SKU
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "rounded-md px-3 py-1 text-xs font-semibold transition",
+              reconView === "shipment"
+                ? "bg-white text-foreground shadow-sm"
+                : "text-muted-foreground",
+            )}
+            onClick={() => setReconView("shipment")}
+          >
+            By Shipment
+          </button>
+        </div>
+        {reconView === "sku" ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -650,35 +412,15 @@ export function ShipmentReconciliationClient({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
-        {pageTab === "recon" ? (
-          <Button variant="outline" size="sm" onClick={exportReconCsv}>
-            ⬇ Export CSV
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" onClick={exportCaCsv}>
-            ⬇ Export CSV
-          </Button>
-        )}
+        <Button variant="outline" size="sm" onClick={exportReconCsv}>
+          ⬇ Export CSV
+        </Button>
         <Button size="sm" onClick={() => void refreshAll()}>
           ↻ Refresh
         </Button>
       </HeaderActions>
 
-      <Tabs
-        value={pageTab}
-        onValueChange={(v) => setPageTab(v as "recon" | "ca")}
-        className="gap-4"
-      >
-        <TabsList className="h-9 w-auto justify-start">
-          <TabsTrigger value="recon" className="px-3 text-xs">
-            Shipment Recon
-          </TabsTrigger>
-          <TabsTrigger value="ca" className="px-3 text-xs">
-            Cases & Adjustments
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="recon" className="mt-0 space-y-4">
+      <div className="mt-0 space-y-4">
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
             <span className="text-[11px] font-semibold text-muted-foreground">
               Shipment Status
@@ -710,7 +452,7 @@ export function ShipmentReconciliationClient({
                 <SelectItem value="case_needed">🔴 Case Needed</SelectItem>
                 <SelectItem value="in_transit">🚚 In Transit</SelectItem>
                 <SelectItem value="partial">◑ Partial</SelectItem>
-                <SelectItem value="shortage">⚠ Shortage</SelectItem>
+                <SelectItem value="shortage">$([char]0x26A0) Shortage</SelectItem>
                 <SelectItem value="excess">↑ Excess</SelectItem>
               </SelectContent>
             </Select>
@@ -735,12 +477,17 @@ export function ShipmentReconciliationClient({
               ✕ Clear
             </Button>
             <Button
-              variant="destructive"
+              variant="outline"
               size="sm"
               className="text-xs"
-              onClick={filterCaseNeeded}
+              onClick={() => setNewShipmentsOpen(true)}
             >
-              🔴 Cases Needed
+              New Shipments
+              {newShipmentsCount != null && newShipmentsCount > 0 && (
+                <span className="ml-1.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                  {newShipmentsCount}
+                </span>
+              )}
             </Button>
           </div>
 
@@ -753,6 +500,8 @@ export function ShipmentReconciliationClient({
               secondary={stats.totalQty.toLocaleString()}
               secondarySub="Units"
               loading={reconLoading}
+              active={reconStatus === "all"}
+              onClick={() => setReconStatus("all")}
             />
             <SummaryCard
               label="Matched"
@@ -762,6 +511,10 @@ export function ShipmentReconciliationClient({
               secondary={stats.matchedQty.toLocaleString()}
               secondarySub="Units"
               loading={reconLoading}
+              active={reconStatus === "matched"}
+              onClick={() =>
+                setReconStatus((c) => (c === "matched" ? "all" : "matched"))
+              }
             />
             <SummaryCard
               label="Shortage"
@@ -771,6 +524,10 @@ export function ShipmentReconciliationClient({
               secondary={stats.shortQty.toLocaleString()}
               secondarySub="Units"
               loading={reconLoading}
+              active={reconStatus === "shortage"}
+              onClick={() =>
+                setReconStatus((c) => (c === "shortage" ? "all" : "shortage"))
+              }
             />
             <SummaryCard
               label="Take Action"
@@ -780,6 +537,12 @@ export function ShipmentReconciliationClient({
               secondary={stats.caseQty.toLocaleString()}
               secondarySub="Units"
               loading={reconLoading}
+              active={reconStatus === "case_needed"}
+              onClick={() =>
+                setReconStatus((c) =>
+                  c === "case_needed" ? "all" : "case_needed",
+                )
+              }
             />
             <SummaryCard
               label="Resolved (Cases+Adjust)"
@@ -798,6 +561,10 @@ export function ShipmentReconciliationClient({
               secondary={stats.reimbQty.toLocaleString()}
               secondarySub="Units"
               loading={reconLoading}
+              active={reconStatus === "partial"}
+              onClick={() =>
+                setReconStatus((c) => (c === "partial" ? "all" : "partial"))
+              }
             />
           </div>
 
@@ -835,559 +602,7 @@ export function ShipmentReconciliationClient({
               )}
             </div>
           </div>
-        </TabsContent>
-
-        <TabsContent value="ca" className="mt-0 space-y-4">
-          <div className="flex w-full flex-wrap gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5 sm:w-fit">
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-4 py-1.5 text-xs font-semibold transition",
-                caSub === "cases"
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-              onClick={() => setCaSub("cases")}
-            >
-              📋 Case Tracker
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "rounded-md px-4 py-1.5 text-xs font-semibold transition",
-                caSub === "adj"
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-              onClick={() => setCaSub("adj")}
-            >
-              🔧 Manual Adjustments
-            </button>
-          </div>
-
-          {caSub === "cases" ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <span className="text-[11px] font-semibold text-muted-foreground">
-                  Recon Type
-                </span>
-                <Select value={cfType} onValueChange={setCfType}>
-                  <SelectTrigger className="h-8 w-[140px] text-xs">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={CA_ALL}>All Types</SelectItem>
-                    <SelectItem value="shipment">Shipment</SelectItem>
-                    <SelectItem value="removal">Removal</SelectItem>
-                    <SelectItem value="return">Return</SelectItem>
-                    <SelectItem value="fc_transfer">FC Transfer</SelectItem>
-                    <SelectItem value="fba_balance">FBA Balance</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-[11px] font-semibold text-muted-foreground">
-                  Status
-                </span>
-                <Select value={cfStatus} onValueChange={setCfStatus}>
-                  <SelectTrigger className="h-8 w-[120px] text-xs">
-                    <SelectValue placeholder="All" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={CA_ALL}>All</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="raised">Raised</SelectItem>
-                    <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="partial">Partial</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                    <SelectItem value="closed">Closed</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  className="h-8 max-w-[220px] text-xs"
-                  placeholder="🔍 MSKU / Case ID / Shipment..."
-                  value={cfSearch}
-                  onChange={(e) => setCfSearch(e.target.value)}
-                />
-                <Button
-                  size="sm"
-                  className="ml-auto text-xs"
-                  onClick={() => {
-                    setCaseEditing(null);
-                    setCaseDlgOpen(true);
-                  }}
-                >
-                  + Add Case
-                </Button>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                <table className="w-full caption-bottom text-sm">
-                  <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
-                    <TableRow className="bg-slate-50 hover:bg-slate-50">
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        MSKU / Title
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Recon Type
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Shipment / Ref
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        FNSKU
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Issue Found
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Discrepancy
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Units Claimed
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Units Approved
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        $ Claimed
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        $ Approved
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Case ID
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Case Reason
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-center text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Attachment
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Status
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Raised Date
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Resolved Date
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Notes
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Actions
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {caLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={18} className="py-12 text-center">
-                          <Skeleton className="mx-auto h-8 w-48" />
-                        </TableCell>
-                      </TableRow>
-                    ) : !cases.length ? (
-                      <TableRow>
-                        <TableCell colSpan={18} className="py-16 text-center">
-                          <div className="text-muted-foreground">
-                            <div className="mb-2 text-3xl">📋</div>
-                            <div className="text-sm font-semibold text-foreground">
-                              No cases yet
-                            </div>
-                            <div className="mt-1 text-xs">
-                              Raise a case from the Reconciliation tab or add
-                              manually
-                            </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      cases.map((c) => {
-                        const st = displayCaseStatusLabel(c);
-                        const disp = reconTypeToLegacy(c.reconType);
-                        return (
-                          <TableRow key={c.id}>
-                            <TableCell className="max-w-[180px] align-top">
-                              <div className="font-mono text-[11px] font-medium">
-                                {c.msku}
-                              </div>
-                              <div className="truncate text-[11px] text-muted-foreground">
-                                {c.title ?? "—"}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "rounded-full font-mono text-[10px]",
-                                  reconBadgeClass(disp),
-                                )}
-                              >
-                                {disp}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px]">
-                              {c.shipmentId ?? c.orderId ?? c.referenceId ?? "—"}
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px]">
-                              {c.fnsku ?? "—"}
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px] text-muted-foreground">
-                              {formatIsoDate(c.issueDate)}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs font-bold text-red-600">
-                              {c.unitsClaimed || 0}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs">
-                              {c.unitsClaimed || 0}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs text-emerald-600">
-                              {c.unitsApproved ?? "—"}
-                            </TableCell>
-                            <TableCell className="text-right text-xs">
-                              {c.amountClaimed
-                                ? `$${Number.parseFloat(c.amountClaimed).toFixed(2)}`
-                                : "—"}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs text-emerald-600">
-                              {c.amountApproved
-                                ? `$${Number.parseFloat(c.amountApproved).toFixed(2)}`
-                                : "—"}
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px]">
-                              {c.referenceId ? (
-                                c.caseUrl ? (
-                                  <a
-                                    href={c.caseUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 underline hover:text-blue-800"
-                                    title={c.caseUrl}
-                                  >
-                                    {c.referenceId}
-                                  </a>
-                                ) : (
-                                  c.referenceId
-                                )
-                              ) : c.caseUrl ? (
-                                <a
-                                  href={c.caseUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 underline hover:text-blue-800"
-                                >
-                                  case ↗
-                                </a>
-                              ) : (
-                                "—"
-                              )}
-                            </TableCell>
-                            <TableCell className="max-w-[140px] truncate text-[11px]">
-                              {c.caseReason ?? "—"}
-                            </TableCell>
-                            <TableCell className="text-center">
-                              {c.attachmentUrl ? (
-                                <a
-                                  href={c.attachmentUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  title="View PDF attachment"
-                                  className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100"
-                                >
-                                  📎 PDF
-                                </a>
-                              ) : (
-                                <span className="text-[11px] text-muted-foreground">—</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "rounded-full font-mono text-[10px] capitalize",
-                                  caseStatusBadgeClass(st),
-                                )}
-                              >
-                                {st}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px] text-muted-foreground">
-                              {formatIsoDate(c.raisedDate)}
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px] text-muted-foreground">
-                              {formatIsoDate(c.resolvedDate)}
-                            </TableCell>
-                            <TableCell
-                              className="max-w-[120px] truncate text-[11px]"
-                              title={c.notes ?? ""}
-                            >
-                              {c.notes ?? "—"}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-1">
-                                <button
-                                  type="button"
-                                  title="Edit"
-                                  className="flex size-[26px] items-center justify-center rounded-md border border-slate-200 bg-white hover:bg-slate-50"
-                                  onClick={() => {
-                                    setCaseEditing(c);
-                                    setCaseDlgOpen(true);
-                                  }}
-                                >
-                                  <Pencil className="size-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Delete"
-                                  className="flex size-[26px] items-center justify-center rounded-md border border-slate-200 bg-white text-red-600 hover:bg-red-50"
-                                  onClick={() => void onDeleteCase(c.id)}
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </table>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                <span className="text-[11px] font-semibold text-muted-foreground">
-                  Recon Type
-                </span>
-                <Select value={afType} onValueChange={setAfType}>
-                  <SelectTrigger className="h-8 w-[140px] text-xs">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={CA_ALL}>All Types</SelectItem>
-                    <SelectItem value="shipment">Shipment</SelectItem>
-                    <SelectItem value="removal">Removal</SelectItem>
-                    <SelectItem value="return">Return</SelectItem>
-                    <SelectItem value="fc_transfer">FC Transfer</SelectItem>
-                    <SelectItem value="fba_balance">FBA Balance</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-[11px] font-semibold text-muted-foreground">
-                  Adj Type
-                </span>
-                <Select value={afAdj} onValueChange={setAfAdj}>
-                  <SelectTrigger className="h-8 w-[130px] text-xs">
-                    <SelectValue placeholder="All" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={CA_ALL}>All</SelectItem>
-                    <SelectItem value="found">Found</SelectItem>
-                    <SelectItem value="lost">Lost</SelectItem>
-                    <SelectItem value="damaged">Damaged</SelectItem>
-                    <SelectItem value="correction">Correction</SelectItem>
-                    <SelectItem value="count_adjustment">Count Adj</SelectItem>
-                    <SelectItem value="donated">Donated</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  className="h-8 max-w-[200px] text-xs"
-                  placeholder="🔍 MSKU / Reference..."
-                  value={afSearch}
-                  onChange={(e) => setAfSearch(e.target.value)}
-                />
-                <Button
-                  size="sm"
-                  className="ml-auto text-xs"
-                  onClick={() => {
-                    setAdjEditing(null);
-                    setAdjDlgOpen(true);
-                  }}
-                >
-                  + Add Adjustment
-                </Button>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-                <table className="w-full caption-bottom text-sm">
-                  <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
-                    <TableRow className="bg-slate-50 hover:bg-slate-50">
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        MSKU / Title
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Recon Type
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Adj Type
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Shipment / Ref
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        FNSKU
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Adj Date
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Qty Before
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Adjustment
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-right text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Qty After
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Reason / Root Cause
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Verified By
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Source Doc
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Notes
-                      </TableHead>
-                      <TableHead className="h-11 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-700 border-r border-slate-200 last:border-r-0">
-                        Actions
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {caLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={14} className="py-12 text-center">
-                          <Skeleton className="mx-auto h-8 w-48" />
-                        </TableCell>
-                      </TableRow>
-                    ) : !adjs.length ? (
-                      <TableRow>
-                        <TableCell colSpan={14} className="py-16 text-center">
-                          <div className="text-muted-foreground">
-                            <div className="mb-2 text-3xl">🔧</div>
-                            <div className="text-sm font-semibold text-foreground">
-                              No adjustments yet
-                            </div>
-                            <div className="mt-1 text-xs">
-                              Adjustments from reconciliation will appear here
-                            </div>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      adjs.map((a) => {
-                        const rt = reconTypeToLegacy(a.reconType);
-                        const at = adjustmentLegacyAdjType(a);
-                        const qa = a.qtyAdjusted || 0;
-                        return (
-                          <TableRow key={a.id}>
-                            <TableCell className="max-w-[180px] align-top">
-                              <div className="font-mono text-[11px] font-medium">
-                                {a.msku}
-                              </div>
-                              <div className="truncate text-[11px] text-muted-foreground">
-                                {a.title ?? "—"}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "rounded-full font-mono text-[10px]",
-                                  reconBadgeClass(rt),
-                                )}
-                              >
-                                {rt}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "rounded-full font-mono text-[10px]",
-                                  adjTypeBadgeClass(at),
-                                )}
-                              >
-                                {at}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px]">
-                              {a.shipmentId ?? a.orderId ?? "—"}
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px]">
-                              {a.fnsku ?? "—"}
-                            </TableCell>
-                            <TableCell className="font-mono text-[11px] text-muted-foreground">
-                              {formatIsoDate(a.adjDate)}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-[11px] text-muted-foreground">
-                              {a.qtyBefore ?? "—"}
-                            </TableCell>
-                            <TableCell
-                              className={cn(
-                                "text-right font-mono text-xs font-bold",
-                                qa >= 0 ? "text-blue-600" : "text-red-600",
-                              )}
-                            >
-                              {qa >= 0 ? "+" : ""}
-                              {qa}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs font-bold">
-                              {a.qtyAfter ?? "—"}
-                            </TableCell>
-                            <TableCell
-                              className="max-w-[160px] truncate text-[11px]"
-                              title={a.reason ?? ""}
-                            >
-                              {a.reason ?? "—"}
-                            </TableCell>
-                            <TableCell className="text-[11px]">
-                              {a.verifiedBy ?? "—"}
-                            </TableCell>
-                            <TableCell className="text-[11px]">
-                              {a.sourceDoc ?? "—"}
-                            </TableCell>
-                            <TableCell
-                              className="max-w-[120px] truncate text-[11px]"
-                              title={a.notes ?? ""}
-                            >
-                              {a.notes ?? "—"}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex gap-1">
-                                <button
-                                  type="button"
-                                  title="Edit"
-                                  className="flex size-[26px] items-center justify-center rounded-md border border-slate-200 bg-white hover:bg-slate-50"
-                                  onClick={() => {
-                                    setAdjEditing(a);
-                                    setAdjDlgOpen(true);
-                                  }}
-                                >
-                                  <Pencil className="size-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Delete"
-                                  className="flex size-[26px] items-center justify-center rounded-md border border-slate-200 bg-white text-red-600 hover:bg-red-50"
-                                  onClick={() => void onDeleteAdj(a.id)}
-                                >
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </table>
-              </div>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+      </div>
 
       <ReconDetailSheet
         row={drawerRow}
@@ -1417,50 +632,6 @@ export function ShipmentReconciliationClient({
         preselect={actionPre}
         onSaved={async () => {
           await reloadRecon();
-          const [c, a] = await Promise.all([
-            listShipmentCaCases({
-              reconLegacy: cfType !== CA_ALL ? cfType : undefined,
-              statusLegacy: cfStatus !== CA_ALL ? cfStatus : undefined,
-              search: debouncedCfSearch || undefined,
-            }),
-            listShipmentCaAdjustments({
-              reconLegacy: afType !== CA_ALL ? afType : undefined,
-              adjLegacy: afAdj !== CA_ALL ? afAdj : undefined,
-              search: debouncedAfSearch || undefined,
-            }),
-          ]);
-          setCases(c);
-          setAdjs(a);
-        }}
-      />
-
-      <CaStandaloneCaseDialog
-        open={caseDlgOpen}
-        onOpenChange={setCaseDlgOpen}
-        editing={caseEditing}
-        onSaved={async () => {
-          const c = await listShipmentCaCases({
-            reconLegacy: cfType !== CA_ALL ? cfType : undefined,
-            statusLegacy: cfStatus !== CA_ALL ? cfStatus : undefined,
-            search: debouncedCfSearch || undefined,
-          });
-          setCases(c);
-          await reloadRecon();
-        }}
-      />
-
-      <CaStandaloneAdjustmentDialog
-        open={adjDlgOpen}
-        onOpenChange={setAdjDlgOpen}
-        editing={adjEditing}
-        onSaved={async () => {
-          const a = await listShipmentCaAdjustments({
-            reconLegacy: afType !== CA_ALL ? afType : undefined,
-            adjLegacy: afAdj !== CA_ALL ? afAdj : undefined,
-            search: debouncedAfSearch || undefined,
-          });
-          setAdjs(a);
-          await reloadRecon();
         }}
       />
 
@@ -1469,22 +640,15 @@ export function ShipmentReconciliationClient({
         onOpenChange={setWrongLabelOpen}
         context={wrongLabelCtx}
         onSaved={async () => {
-          await Promise.all([
-            reloadRecon(),
-            reloadWrongLabel(),
-            listShipmentCaCases({
-              reconLegacy: cfType !== CA_ALL ? cfType : undefined,
-              statusLegacy: cfStatus !== CA_ALL ? cfStatus : undefined,
-              search: debouncedCfSearch || undefined,
-            }).then(setCases),
-            listShipmentCaAdjustments({
-              reconLegacy: afType !== CA_ALL ? afType : undefined,
-              adjLegacy: afAdj !== CA_ALL ? afAdj : undefined,
-              search: debouncedAfSearch || undefined,
-            }).then(setAdjs),
-          ]);
+          await Promise.all([reloadRecon(), reloadWrongLabel()]);
         }}
       />
+
+      <NewShipmentsDialog
+        open={newShipmentsOpen}
+        onOpenChange={setNewShipmentsOpen}
+      />
+
       </div>
     </TooltipProvider>
   );
@@ -1499,6 +663,8 @@ function SummaryCard({
   secondarySub,
   loading,
   className,
+  active,
+  onClick,
 }: {
   label: string;
   border: "blue" | "green" | "red" | "amber" | "slate" | "teal";
@@ -1508,6 +674,8 @@ function SummaryCard({
   secondarySub: string;
   loading?: boolean;
   className?: string;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   const b =
     border === "blue"
@@ -1534,11 +702,15 @@ function SummaryCard({
               ? "text-teal-700"
               : "text-slate-600";
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
       className={cn(
-        "flex flex-col rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm",
-        "border-t-[3px]",
+        "flex flex-col rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-left shadow-sm transition border-t-[3px]",
         b,
+        onClick && "cursor-pointer",
+        active ? "ring-2 ring-blue-300" : onClick && "hover:border-slate-300",
         className,
       )}
     >
@@ -1568,6 +740,6 @@ function SummaryCard({
           </div>
         </div>
       )}
-    </div>
+    </button>
   );
 }

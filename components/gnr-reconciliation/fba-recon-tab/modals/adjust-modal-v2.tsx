@@ -14,9 +14,24 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { GnrV2StatusBadge } from "@/components/gnr-reconciliation/fba-recon-tab/status-badge-v2";
 import type { GnrV2Row } from "@/lib/gnr-reconciliation/v2/types";
+
+const ADJ_TYPES = [
+  { value: "QUANTITY", label: "Quantity / Recount" },
+  { value: "FINANCIAL", label: "Financial / Credit" },
+  { value: "STATUS", label: "Status / Transfer" },
+  { value: "LOST", label: "Lost" },
+  { value: "OTHER", label: "Other / Write-off" },
+];
 
 function todayIso() {
   return new Date().toISOString().split("T")[0];
@@ -44,6 +59,7 @@ export function AdjustModalV2({
   onSaved?: () => void;
 }) {
   const [qtyAdjusted, setQtyAdjusted] = React.useState(0);
+  const [adjType, setAdjType] = React.useState("QUANTITY");
   const [reason, setReason] = React.useState("");
   const [adjDate, setAdjDate] = React.useState(todayIso());
   const [notes, setNotes] = React.useState("");
@@ -55,6 +71,7 @@ export function AdjustModalV2({
     // variance = ledgerEnding − computedEnding; adjSigned += qtyAdjusted, so the
     // value that zeroes variance is exactly the variance itself.
     setQtyAdjusted(row.variance ?? 0);
+    setAdjType("QUANTITY");
     setReason("GNR manual adjustment");
     setAdjDate(todayIso());
     setNotes("");
@@ -77,6 +94,7 @@ export function AdjustModalV2({
       const res = await saveGnrAdjustmentAction({
         usedMsku: row.usedMsku,
         asin: row.asin === "—" ? null : row.asin,
+        adjType,
         qtyAdjusted,
         reason,
         adjDate,
@@ -111,6 +129,19 @@ export function AdjustModalV2({
             <GnrV2StatusBadge status={row.status} />
           </div>
         </div>
+
+        <Field label="Adjustment Type *">
+          <Select value={adjType} onValueChange={setAdjType}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="— Select type —" />
+            </SelectTrigger>
+            <SelectContent>
+              {ADJ_TYPES.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Adjustment Qty * (signed)">

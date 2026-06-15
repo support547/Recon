@@ -312,6 +312,99 @@ export async function getShipmentActionOverlay(): Promise<
   return buildActionOverlay();
 }
 
+export type MissingShipmentRow = {
+  shipmentId: string;
+  shipmentName: string | null;
+  shipTo: string | null;
+  status: string | null;
+  store: string | null;
+  totalSkus: number | null;
+  unitsExpected: number | null;
+  unitsLocated: number | null;
+  createdDate: string | null;
+  lastUpdated: string | null;
+};
+
+/**
+ * Shipping-Queue (ShipmentStatus) shipment IDs that are NOT present in the
+ * Shipped-to-FBA master (ShippedToFba) — reports the user likely forgot to
+ * upload on the Shipped side.
+ *
+ * Detection (queue-only):
+ *   master    = ShippedToFba.shipmentId   (deletedAt: null)
+ *   candidate = ShipmentStatus.shipmentId (deletedAt: null)
+ *   missing   = candidate \ master
+ * Filters on queue rows:
+ *   - createdDate within the CURRENT calendar year (computed at runtime; this
+ *     intentionally resets at the year boundary — no hardcoded year).
+ *   - status NOT matching /cancel/i or /delet/i.
+ */
+export async function getMissingShipments(): Promise<MissingShipmentRow[]> {
+  // Current calendar year, computed at runtime — resets at the year boundary.
+  const year = new Date().getFullYear();
+  const yearStart = new Date(year, 0, 1);
+  const nextYearStart = new Date(year + 1, 0, 1);
+
+  const [shippedRows, statusRows] = await Promise.all([
+    prisma.shippedToFba.findMany({
+      where: { deletedAt: null },
+      select: { shipmentId: true },
+    }),
+    prisma.shipmentStatus.findMany({
+      where: {
+        deletedAt: null,
+        createdDate: { gte: yearStart, lt: nextYearStart },
+      },
+      select: {
+        shipmentId: true,
+        shipmentName: true,
+        shipTo: true,
+        status: true,
+        store: true,
+        totalSkus: true,
+        unitsExpected: true,
+        unitsLocated: true,
+        createdDate: true,
+        lastUpdated: true,
+      },
+    }),
+  ]);
+
+  // Master set — shipments already logged on the Shipped side.
+  const shippedSet = new Set<string>();
+  for (const s of shippedRows) {
+    const sid = String(s.shipmentId ?? "").trim();
+    if (sid) shippedSet.add(sid);
+  }
+
+  const CANCELLED_RE = /cancel|delet/i;
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+  const out: MissingShipmentRow[] = [];
+  for (const s of statusRows) {
+    const sid = String(s.shipmentId ?? "").trim();
+    if (!sid) continue;
+    if (shippedSet.has(sid)) continue; // matched master → skip
+    if (CANCELLED_RE.test(String(s.status ?? ""))) continue; // cancelled/deleted
+    out.push({
+      shipmentId: sid,
+      shipmentName: s.shipmentName ?? null,
+      shipTo: s.shipTo ?? null,
+      status: s.status ?? null,
+      store: s.store ?? null,
+      totalSkus: s.totalSkus ?? null,
+      unitsExpected: s.unitsExpected ?? null,
+      unitsLocated: s.unitsLocated ?? null,
+      createdDate: iso(s.createdDate ?? null),
+      lastUpdated: iso(s.lastUpdated ?? null),
+    });
+  }
+
+  // Most recent created first.
+  out.sort((a, b) => (b.createdDate ?? "").localeCompare(a.createdDate ?? ""));
+  return out;
+}
+
 export async function saveShipmentReconCaseAction(
   raw: unknown,
 ): Promise<MutationResult<{ id: string }>> {

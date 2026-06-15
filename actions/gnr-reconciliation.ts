@@ -207,7 +207,7 @@ export async function saveGnrAdjustmentAction(raw: unknown): Promise<MutationRes
         msku: v.usedMsku,
         asin: v.asin,
         reconType: ReconType.GNR,
-        adjType: AdjType.QUANTITY,
+        adjType: (v.adjType as AdjType) ?? AdjType.QUANTITY,
         qtyBefore: 0,
         qtyAdjusted: v.qtyAdjusted,
         qtyAfter: v.qtyAdjusted,
