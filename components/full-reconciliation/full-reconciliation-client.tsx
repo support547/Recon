@@ -135,6 +135,7 @@ export function FullReconciliationClient({
 
   function exportCsv() {
     const headers = [
+      "Ship Date",
       "MSKU", "ASIN", "FNSKU", "Title",
       "Shipped", "Receipts", "Shortage", "Sold",
       "Returns", "Reimb Qty", "Reimb $", "Removal Rcpt",
@@ -153,6 +154,7 @@ export function FullReconciliationClient({
     for (const r of filteredRows) {
       lines.push(
         [
+          r.latestShipDate,
           r.msku, r.asin, r.fnsku, r.title,
           r.shippedQty, r.receiptQty, r.shortageQty, r.soldQty,
           r.returnQty, r.reimbQty, r.reimbAmt.toFixed(2), r.removalRcptQty,

@@ -51,6 +51,7 @@ const COLS: { key: ColKey; label: string }[] = [
 ];
 
 export const FULL_RECON_COLUMNS = [
+  { id: "shipDate", label: "Ship Date" },
   { id: "msku", label: "MSKU / Title" },
   { id: "asin", label: "ASIN" },
   { id: "fnsku", label: "FNSKU" },
@@ -140,6 +141,11 @@ export function FullReconTable({
       <table className="w-full caption-bottom text-sm">
         <TableHeader className="sticky top-14 z-20 bg-slate-100 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
           <TableRow>
+            {show("shipDate") && (
+              <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
+                Ship Date
+              </TableHead>
+            )}
             {show("msku") && (
               <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
                 MSKU / Title
@@ -242,6 +248,11 @@ function RowItem({
   const shortageCls = row.shortageQty > 0 ? "text-red-600 font-bold" : row.shortageQty < 0 ? "text-amber-600 font-bold" : "text-emerald-600";
   return (
     <TableRow className="hover:bg-slate-50">
+      {show("shipDate") && (
+        <TableCell className="whitespace-nowrap font-mono text-[11px] text-slate-600">
+          {row.latestShipDate || "—"}
+        </TableCell>
+      )}
       {show("msku") && (
         <TableCell>
           <button

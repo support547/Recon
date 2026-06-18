@@ -162,6 +162,7 @@ type ShippedAgg = {
   title: string;
   asin: string;
   shippedQty: number;
+  latestShip: Date | null;
   statuses: Set<string>;
   details: ShipmentDetail[];
 };
@@ -182,12 +183,16 @@ export function aggregateShipped(
         title: trimStr(r.title),
         asin: trimStr(r.asin),
         shippedQty: 0,
+        latestShip: null,
         statuses: new Set<string>(),
         details: [],
       };
       m.set(fnsku, prev);
     }
     prev.shippedQty += r.quantity || 0;
+    if (r.shipDate && (!prev.latestShip || r.shipDate > prev.latestShip)) {
+      prev.latestShip = r.shipDate;
+    }
     if (!prev.msku && r.msku) prev.msku = trimStr(r.msku);
     if (!prev.title && r.title) prev.title = trimStr(r.title);
     if (!prev.asin && r.asin) prev.asin = trimStr(r.asin);
@@ -804,6 +809,7 @@ export function composeFullReconRow(input: {
     msku: shipped.msku || "",
     title: shipped.title,
     asin: shipped.asin,
+    latestShipDate: fmtDate(shipped.latestShip),
     shippedQty: shipped.shippedQty,
     receiptQty,
     shortageQty: shipped.shippedQty - receiptQty,

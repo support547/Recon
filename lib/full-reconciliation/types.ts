@@ -56,6 +56,7 @@ export type FullReconRow = {
   msku: string;
   title: string;
   asin: string;
+  latestShipDate: string;
   shippedQty: number;
   receiptQty: number;
   shortageQty: number;
