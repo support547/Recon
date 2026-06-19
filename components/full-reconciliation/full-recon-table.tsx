@@ -51,7 +51,7 @@ const COLS: { key: ColKey; label: string }[] = [
 ];
 
 export const FULL_RECON_COLUMNS = [
-  { id: "shipDate", label: "Ship Date" },
+  { id: "shipDate", label: "Closed Date" },
   { id: "msku", label: "MSKU / Title" },
   { id: "asin", label: "ASIN" },
   { id: "fnsku", label: "FNSKU" },
@@ -78,6 +78,8 @@ export const FULL_RECON_COLUMNS = [
 export function FullReconTable({
   rows,
   colFilters,
+  closedDateSort = null,
+  onCycleClosedDateSort,
   onToggleCol,
   onOpenDetail,
   onOpenAction,
@@ -87,6 +89,8 @@ export function FullReconTable({
 }: {
   rows: FullReconRow[];
   colFilters: Set<ColKey>;
+  closedDateSort?: "desc" | "asc" | null;
+  onCycleClosedDateSort?: () => void;
   onToggleCol: (k: ColKey) => void;
   onOpenDetail: (row: FullReconRow) => void;
   onOpenAction: (row: FullReconRow) => void;
@@ -98,6 +102,12 @@ export function FullReconTable({
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(15);
   React.useEffect(() => { setPage(1); }, [rows]);
+
+  const handleCycleSort = () => {
+    onCycleClosedDateSort?.();
+    setPage(1);
+  };
+
   const pagedRows = rows.slice((page - 1) * pageSize, page * pageSize);
   const colTotals = React.useMemo(() => {
     const t: Record<ColKey, number> = {
@@ -114,7 +124,7 @@ export function FullReconTable({
       t.returnQty += r.returnQty;
       t.reimbQty += r.reimbQty;
       t.removalRcptQty += r.removalRcptQty;
-      t.replQty += r.replQty;
+      t.replQty -= r.replQty;  // displayed as outflow (negative)
       t.gnrQty += r.gnrQty;
       t.fcNetQty += r.fcNetQty;
       t.endingBalance += r.endingBalance;
@@ -143,7 +153,26 @@ export function FullReconTable({
           <TableRow>
             {show("shipDate") && (
               <TableHead className="whitespace-nowrap h-11 text-[10px] font-bold uppercase tracking-wider text-slate-700 px-3">
-                Ship Date
+                <button
+                  type="button"
+                  onClick={handleCycleSort}
+                  className="inline-flex items-center gap-1 hover:text-blue-600"
+                  title={
+                    closedDateSort === "desc"
+                      ? `Sorted newest first across all ${rows.length} rows · click for oldest first`
+                      : closedDateSort === "asc"
+                        ? `Sorted oldest first across all ${rows.length} rows · click to clear`
+                        : `Click to sort all ${rows.length} rows by closed date (newest first)`
+                  }
+                >
+                  <span>Closed Date</span>
+                  <span className={cn(
+                    "text-[10px] leading-none",
+                    closedDateSort ? "text-blue-600" : "text-slate-400",
+                  )}>
+                    {closedDateSort === "desc" ? "▼" : closedDateSort === "asc" ? "▲" : "⇅"}
+                  </span>
+                </button>
               </TableHead>
             )}
             {show("msku") && (
@@ -250,7 +279,7 @@ function RowItem({
     <TableRow className="hover:bg-slate-50">
       {show("shipDate") && (
         <TableCell className="whitespace-nowrap font-mono text-[11px] text-slate-600">
-          {row.latestShipDate || "—"}
+          {row.latestCloseDate || "—"}
         </TableCell>
       )}
       {show("msku") && (
@@ -295,10 +324,14 @@ function RowItem({
           <ShippedCell row={row} />
         </TableCell>
       )}
-      {show("receiptQty") && <TableCell className="text-right font-mono text-xs">{nz(row.receiptQty)}</TableCell>}
+      {show("receiptQty") && (
+        <TableCell className="text-right font-mono text-xs">
+          <ReceiptCell row={row} />
+        </TableCell>
+      )}
       {show("shortageQty") && (
         <TableCell className={cn("text-right font-mono text-xs", shortageCls)}>
-          {row.shortageQty === 0 ? "0" : row.shortageQty}
+          <ShortageCell row={row} />
         </TableCell>
       )}
       {show("soldQty") && (
@@ -390,9 +423,99 @@ function RowItem({
   );
 }
 
-function nz(v: number) {
-  if (v === 0) return <span className="text-slate-400">—</span>;
-  return v.toLocaleString();
+function ShortageCell({ row }: { row: FullReconRow }) {
+  const display = row.shortageQty === 0 ? "0" : row.shortageQty;
+  const hasAny =
+    row.shortageQty !== 0 ||
+    row.shipmentReimbQty > 0 ||
+    row.shipmentAdjQty !== 0 ||
+    row.shipmentCaseCount > 0;
+  if (!hasAny) return <span>{display}</span>;
+
+  const adjMag = Math.abs(row.shipmentAdjQty);
+  const totalActioned =
+    (row.shipmentCaseApproved > 0 ? row.shipmentCaseApproved : row.shipmentCaseClaimed) + adjMag;
+  const pending = Math.max(0, row.shortageQty - row.shipmentReimbQty);
+  const effectivePending = Math.max(0, pending - totalActioned);
+
+  let badge: string;
+  if (row.shortageQty <= 0) badge = "Matched";
+  else if (row.shipmentReimbQty >= row.shortageQty) badge = "Reimbursed";
+  else if (row.shipmentCaseApproved >= row.shortageQty) badge = "Reimbursed";
+  else if (effectivePending <= 0 && totalActioned > 0) badge = "Action Taken";
+  else if (row.shipmentCaseTopStatus === "OPEN" || row.shipmentCaseTopStatus === "IN_PROGRESS")
+    badge = "Case Raised";
+  else if (totalActioned > 0) badge = "In Progress";
+  else badge = "Take Action";
+
+  const caseStatusLabel =
+    row.shipmentCaseTopStatus ||
+    (row.shipmentCaseCount > 0
+      ? `${row.shipmentCaseCount} case${row.shipmentCaseCount > 1 ? "s" : ""}`
+      : "—");
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-help">{display}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="text-[11px]">
+        <div className="space-y-0.5">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+            Shipment Recon view
+          </div>
+          <div><b>Shortage:</b> {row.shortageQty}</div>
+          <div className="border-t border-slate-700 pt-0.5">
+            <b>Reimb Qty:</b> {row.shipmentReimbQty}
+            {row.shipmentReimbAmt > 0 ? ` · $${row.shipmentReimbAmt.toFixed(2)}` : ""}
+            <span className="ml-1 text-[10px] text-slate-400">(Lost_Inbound)</span>
+          </div>
+          <div>
+            <b>Adjustment Qty:</b> {row.shipmentAdjQty}
+          </div>
+          <div><b>Case Status:</b> {caseStatusLabel}</div>
+          {row.shipmentCaseCount > 0 ? (
+            <div>
+              <b>Cases:</b> {row.shipmentCaseCount} · claimed {row.shipmentCaseClaimed} · approved {row.shipmentCaseApproved}
+            </div>
+          ) : null}
+          {pending > 0 ? <div><b>Pending:</b> {pending}</div> : null}
+          <div className="border-t border-slate-700 pt-0.5"><b>Status:</b> {badge}</div>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ReceiptCell({ row }: { row: FullReconRow }) {
+  if (row.receiptQty === 0) return <span className="text-slate-400">—</span>;
+  if (!row.receiptDetails.length) {
+    return <span>{row.receiptQty.toLocaleString()}</span>;
+  }
+  return (
+    <CellHoverPopover
+      trigger={row.receiptQty.toLocaleString()}
+      title="Receipts"
+      count={row.receiptDetails.length}
+      width={420}
+    >
+      {row.receiptDetails.map((d, i) => (
+        <div
+          key={i}
+          className="border-b border-border/60 px-2 py-1 last:border-b-0"
+        >
+          <div className="flex justify-between gap-2">
+            <span className="font-mono">{d.shipmentId}</span>
+            <span className="font-mono tabular-nums">{d.qty}</span>
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            FC: {d.fc}
+            {d.receiptDate ? ` · ${d.receiptDate}` : ""}
+          </div>
+        </div>
+      ))}
+    </CellHoverPopover>
+  );
 }
 
 function ShippedCell({ row }: { row: FullReconRow }) {
@@ -521,14 +644,10 @@ function RemovalCell({ row }: { row: FullReconRow }) {
 
 function ReplCell({ row }: { row: FullReconRow }) {
   if (row.replQty === 0) return <span className="text-slate-400">—</span>;
-  if (row.replReturnQty === 0 && row.replReimbQty === 0) return <span className="text-slate-400">—</span>;
-  const display = row.replReturnQty > 0
-    ? <span className="font-bold text-emerald-600">+{row.replReturnQty}</span>
-    : <span className="font-bold text-red-600">−{row.replReimbQty}</span>;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="cursor-help">{display}</span>
+        <span className="cursor-help font-bold text-red-600">−{row.replQty}</span>
       </TooltipTrigger>
       <TooltipContent side="top" className="text-[11px]">
         <div className="space-y-0.5">
@@ -618,7 +737,7 @@ function EndingBalCell({ row }: { row: FullReconRow }) {
           <div>Returns: <b className="text-emerald-300">+{row.returnQty}</b></div>
           <div>Reimb: <b className="text-red-300">−{row.reimbQty}</b></div>
           <div>Removal Rcpt: <b className="text-red-300">−{row.removalRcptQty}</b></div>
-          <div>Replacements: <b>{row.replReturnQty > 0 ? `+${row.replReturnQty}` : `−${row.replReimbQty}`}</b></div>
+          <div>Replacements: <b className="text-red-300">−{row.replQty}</b></div>
           <div>GNR: <b className="text-red-300">−{row.gnrQty}</b></div>
           <div>FC: <b>{row.fcNetQty > 0 ? `+${row.fcNetQty}` : row.fcNetQty}</b></div>
           <div className="border-t border-slate-700 pt-0.5"><b>= {row.endingBalance}</b></div>

@@ -67,6 +67,7 @@ export function FullReconciliationClient({
   const [statusFilter, setStatusFilter] = React.useState<string>(ALL);
   const [shortageFilter, setShortageFilter] = React.useState<string>(ALL);
   const [colFilters, setColFilters] = React.useState<Set<ColKey>>(new Set());
+  const [closedDateSort, setClosedDateSort] = React.useState<"desc" | "asc" | null>(null);
   const [colVis, setColVis] = useColumnVisibility(
     "fullRecon.cols",
     FULL_RECON_COLUMNS,
@@ -102,7 +103,7 @@ export function FullReconciliationClient({
   }, [reload]);
 
   const filteredRows = React.useMemo(() => {
-    return rows.filter((r) => {
+    const filtered = rows.filter((r) => {
       if (shortageFilter === "yes" && r.shortageQty <= 0) return false;
       if (shortageFilter === "no" && r.shortageQty > 0) return false;
       if (statusFilter !== ALL && r.reconStatus !== (statusFilter as FullReconStatus)) return false;
@@ -111,7 +112,17 @@ export function FullReconciliationClient({
       }
       return true;
     });
-  }, [rows, statusFilter, shortageFilter, colFilters]);
+    if (!closedDateSort) return filtered;
+    const dir = closedDateSort === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = a.latestCloseDate || "";
+      const bv = b.latestCloseDate || "";
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av < bv ? -1 * dir : av > bv ? 1 * dir : 0;
+    });
+  }, [rows, statusFilter, shortageFilter, colFilters, closedDateSort]);
 
   function toggleCol(k: ColKey) {
     setColFilters((prev) => {
@@ -135,7 +146,7 @@ export function FullReconciliationClient({
 
   function exportCsv() {
     const headers = [
-      "Ship Date",
+      "Closed Date",
       "MSKU", "ASIN", "FNSKU", "Title",
       "Shipped", "Receipts", "Shortage", "Sold",
       "Returns", "Reimb Qty", "Reimb $", "Removal Rcpt",
@@ -154,7 +165,7 @@ export function FullReconciliationClient({
     for (const r of filteredRows) {
       lines.push(
         [
-          r.latestShipDate,
+          r.latestCloseDate,
           r.msku, r.asin, r.fnsku, r.title,
           r.shippedQty, r.receiptQty, r.shortageQty, r.soldQty,
           r.returnQty, r.reimbQty, r.reimbAmt.toFixed(2), r.removalRcptQty,
@@ -273,6 +284,12 @@ export function FullReconciliationClient({
             visibility={colVis}
             rows={filteredRows}
             colFilters={colFilters}
+            closedDateSort={closedDateSort}
+            onCycleClosedDateSort={() =>
+              setClosedDateSort((prev) =>
+                prev === null ? "desc" : prev === "desc" ? "asc" : null,
+              )
+            }
             onToggleCol={toggleCol}
             onOpenDetail={(r) => { setDetailRow(r); setDetailOpen(true); }}
             onOpenAction={(r) => { setActionRow(r); setActionOpen(true); }}

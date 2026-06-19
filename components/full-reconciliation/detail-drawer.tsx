@@ -66,9 +66,7 @@ export function DetailDrawer({
             <Row label="Returns">+{row.returnQty}</Row>
             <Row label="Reimb">−{row.reimbQty}</Row>
             <Row label="Removal Rcpt">−{row.removalRcptQty}</Row>
-            <Row label="Replacements">
-              {row.replReturnQty > 0 ? `+${row.replReturnQty}` : row.replReimbQty > 0 ? `−${row.replReimbQty}` : "0"}
-            </Row>
+            <Row label="Replacements">−{row.replQty}</Row>
             <Row label="GNR Qty">−{row.gnrQty}</Row>
             <Row label="FC Transfer">{row.fcNetQty > 0 ? `+${row.fcNetQty}` : row.fcNetQty}</Row>
           </Section>

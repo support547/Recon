@@ -157,7 +157,7 @@ const SHORT_LABEL: Record<string, string> = {
   fcTransfer:  "take action",
   gnr:         "take action",
   adjustment:  "take action",
-  full:        "action",
+  full:        "take action",
 };
 
 function cardBorderStyle(tone: "red" | "amber" | "green"): React.CSSProperties {
@@ -357,6 +357,7 @@ export function ReconDashboardClient(props: DashboardProps) {
           if (cfg.key === "fcTransfer") return <FcTransferModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
           if (cfg.key === "gnr") return <GnrModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
           if (cfg.key === "adjustment") return <AdjustmentModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
+          if (cfg.key === "full") return <FullModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
           return <ModuleCard key={cfg.key} cfg={cfg} stats={stats} />;
         })}
       </section>
@@ -1012,7 +1013,36 @@ function AdjustmentModuleCard({
   );
 }
 
-// ── Standard module card (Full) ──
+// ── Full Inventory card: 2×2 grid — Matched | Over / Reimbursed | No Snapshot ──
+// secondary[0]=Matched [1]=Over [2]=Reimbursed [3]=No Snapshot (SKU counts).
+// primaryValue/takeAction = SKUs needing action -> header pill + take-action badge.
+function FullModuleCard({
+  cfg,
+  stats,
+}: {
+  cfg: ModuleCardConfig;
+  stats: ModuleStats;
+}) {
+  const tone = moduleStatus(stats);
+  return (
+    <div className="flex flex-col gap-0 px-3 py-2.5" style={cardBorderStyle(tone)}>
+      <CardHeader cfg={cfg} stats={stats} tone={tone} />
+      <div className="grid grid-cols-2 gap-1.5 py-1">
+        <StatBox label="Matched"     value={stats.secondary[0]?.value ?? 0} tone="emerald" />
+        <StatBox label="Over"        value={stats.secondary[1]?.value ?? 0} tone="blue" />
+        <StatBox
+          label="Reimbursed"
+          value={stats.secondary[2]?.value ?? 0}
+          tone={(stats.secondary[2]?.value ?? 0) > 0 ? "amber" : "slate"}
+        />
+        <StatBox label="No Snapshot" value={stats.secondary[3]?.value ?? 0} tone="slate" />
+      </div>
+      <CardBottom cfg={cfg} stats={stats} hideCaseActions />
+    </div>
+  );
+}
+
+// ── Standard module card (fallback) ──
 function ModuleCard({
   cfg,
   stats,

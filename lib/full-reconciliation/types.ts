@@ -16,6 +16,13 @@ export type ShipmentDetail = {
   receiptDate: string;
 };
 
+export type ReceiptDetail = {
+  shipmentId: string;
+  qty: number;
+  fc: string;
+  receiptDate: string;
+};
+
 export type ReturnDetail = {
   qty: number;
   status: string;
@@ -56,9 +63,10 @@ export type FullReconRow = {
   msku: string;
   title: string;
   asin: string;
-  latestShipDate: string;
+  latestCloseDate: string;
   shippedQty: number;
   receiptQty: number;
+  receiptDetails: ReceiptDetail[];
   shortageQty: number;
   soldQty: number;
   latestRecvDate: string;
@@ -108,6 +116,16 @@ export type FullReconRow = {
   fbaAdjTotal: number;
   endingBalance: number;
   reconStatus: FullReconStatus;
+  // Shipment-recon view: same FNSKU but using shipment-recon's data filters
+  // (Lost_Inbound reimbs, SHIPMENT-typed cases & adjustments). Surfaced in
+  // the Shortage cell hover so the Full-Recon tooltip mirrors Shipment Recon.
+  shipmentReimbQty: number;
+  shipmentReimbAmt: number;
+  shipmentCaseCount: number;
+  shipmentCaseTopStatus: string;
+  shipmentCaseClaimed: number;
+  shipmentCaseApproved: number;
+  shipmentAdjQty: number;
 };
 
 export type FullReconStats = {

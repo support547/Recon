@@ -2,14 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { AdjType, CaseStatus, Prisma, ReconType } from "@prisma/client";
+// ReconType used both for case creation (FBA_BALANCE) and to scope the
+// shipment-recon shortage-hover dataset (ReconType.SHIPMENT).
 
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
 import { summaryStats } from "@/lib/full-reconciliation/aggregate";
 import {
   aggregateAdjByFnsku,
-  aggregateByFnskuWithLatest,
   aggregateCasesByFnsku,
+  aggregateReceipts,
+  aggregateShipmentAdjustments,
+  aggregateShipmentCases,
+  aggregateShipmentLostInboundReimb,
   aggregateFbaSummary,
   aggregateFcByFnsku,
   aggregateGnrByFnsku,
@@ -89,6 +94,8 @@ export async function getFullReconData(
     fbaSummaryRows,
     shipStatusRows,
     receiptForLatestRows,
+    shipmentCaseRows,
+    shipmentAdjRows,
   ] = await Promise.all([
     prisma.shippedToFba.findMany({
       where: shippedWhere,
@@ -99,7 +106,10 @@ export async function getFullReconData(
     }),
     prisma.fbaReceipt.findMany({
       where: { deletedAt: null },
-      select: { fnsku: true, quantity: true, receiptDate: true, shipmentId: true },
+      select: {
+        fnsku: true, quantity: true, receiptDate: true,
+        shipmentId: true, fulfillmentCenter: true,
+      },
     }),
     prisma.salesData.findMany({
       where: { deletedAt: null },
@@ -180,6 +190,14 @@ export async function getFullReconData(
       where: { deletedAt: null, shipmentId: { not: null } },
       select: { shipmentId: true, receiptDate: true },
     }),
+    prisma.caseTracker.findMany({
+      where: { deletedAt: null, reconType: ReconType.SHIPMENT },
+      select: { fnsku: true, status: true, unitsClaimed: true, unitsApproved: true },
+    }),
+    prisma.manualAdjustment.findMany({
+      where: { deletedAt: null, reconType: ReconType.SHIPMENT },
+      select: { fnsku: true, qtyAdjusted: true },
+    }),
   ]);
 
   // Shipment status map
@@ -204,9 +222,7 @@ export async function getFullReconData(
     shipStatusMap,
     shipLatestReceiptMap,
   );
-  const receiptsAgg = aggregateByFnskuWithLatest(
-    receiptRows.map((r) => ({ fnsku: r.fnsku, quantity: r.quantity, date: r.receiptDate })),
-  );
+  const receiptsAgg = aggregateReceipts(receiptRows);
   const salesAgg = aggregateSalesNonZero(saleRows);
   const returnsAgg = aggregateReturns(returnRows);
   const reimbAgg = aggregateReimbursements(reimbRows);
@@ -216,6 +232,11 @@ export async function getFullReconData(
   const adjAgg = aggregateAdjByFnsku(adjRows);
   const fcAgg = aggregateFcByFnsku(fcRows);
   const fbaSummaryAgg = aggregateFbaSummary(fbaSummaryRows);
+
+  // Shipment-recon view (powers Shortage cell hover)
+  const shipmentReimbAgg = aggregateShipmentLostInboundReimb(reimbRows);
+  const shipmentCaseAgg = aggregateShipmentCases(shipmentCaseRows);
+  const shipmentAdjAgg = aggregateShipmentAdjustments(shipmentAdjRows);
 
   // Replacement lookup maps
   const returnsByMskuOrder = buildReturnsByMskuOrderFromRows(
@@ -252,6 +273,9 @@ export async function getFullReconData(
         repl,
         fc: fcAgg.get(fnsku),
         fbaSummary: fbaSummaryAgg.get(fnsku),
+        shipmentReimb: shipmentReimbAgg.get(fnsku),
+        shipmentCase: shipmentCaseAgg.get(fnsku),
+        shipmentAdjQty: shipmentAdjAgg.get(fnsku),
         today,
       }),
     );

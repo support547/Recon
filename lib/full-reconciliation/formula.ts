@@ -3,6 +3,7 @@ import type {
   FullReconRow,
   FullReconStatus,
   GnrDetail,
+  ReceiptDetail,
   RemovalRcptDetail,
   ReimbDetail,
   ReplStatus,
@@ -55,6 +56,7 @@ export type ReceiptRow = {
   quantity: number;
   receiptDate: Date | null;
   shipmentId: string | null;
+  fulfillmentCenter: string | null;
 };
 
 export type SaleRow = {
@@ -162,7 +164,7 @@ type ShippedAgg = {
   title: string;
   asin: string;
   shippedQty: number;
-  latestShip: Date | null;
+  latestClose: Date | null;
   statuses: Set<string>;
   details: ShipmentDetail[];
 };
@@ -183,16 +185,13 @@ export function aggregateShipped(
         title: trimStr(r.title),
         asin: trimStr(r.asin),
         shippedQty: 0,
-        latestShip: null,
+        latestClose: null,
         statuses: new Set<string>(),
         details: [],
       };
       m.set(fnsku, prev);
     }
     prev.shippedQty += r.quantity || 0;
-    if (r.shipDate && (!prev.latestShip || r.shipDate > prev.latestShip)) {
-      prev.latestShip = r.shipDate;
-    }
     if (!prev.msku && r.msku) prev.msku = trimStr(r.msku);
     if (!prev.title && r.title) prev.title = trimStr(r.title);
     if (!prev.asin && r.asin) prev.asin = trimStr(r.asin);
@@ -201,6 +200,9 @@ export function aggregateShipped(
     const status = shipmentId ? shipStatusMap.get(shipmentId) ?? "Unknown" : "Unknown";
     prev.statuses.add(status);
     const rcptDate = shipmentId ? shipmentLatestReceiptMap.get(shipmentId) ?? null : null;
+    if (rcptDate && (!prev.latestClose || rcptDate > prev.latestClose)) {
+      prev.latestClose = rcptDate;
+    }
     prev.details.push({
       shipmentId,
       shipDate: fmtDate(r.shipDate),
@@ -213,6 +215,68 @@ export function aggregateShipped(
 }
 
 type FnskuQtyDate = { qty: number; latest: Date | null };
+
+type ReceiptAgg = { qty: number; latest: Date | null; details: ReceiptDetail[] };
+
+export function aggregateReceipts(rows: ReceiptRow[]): Map<string, ReceiptAgg> {
+  type GroupBucket = {
+    shipmentId: string;
+    fc: string;
+    qty: number;
+    latestDate: Date | null;
+  };
+  const groups = new Map<string, Map<string, GroupBucket>>();
+  const latestByFnsku = new Map<string, Date | null>();
+  const qtyByFnsku = new Map<string, number>();
+
+  for (const r of rows) {
+    const fnsku = trimStr(r.fnsku);
+    if (!fnsku) continue;
+    const shipmentId = trimStr(r.shipmentId) || "—";
+    const fc = trimStr(r.fulfillmentCenter) || "—";
+    const subKey = `${shipmentId}|${fc}`;
+    let outer = groups.get(fnsku);
+    if (!outer) {
+      outer = new Map<string, GroupBucket>();
+      groups.set(fnsku, outer);
+    }
+    let bucket = outer.get(subKey);
+    if (!bucket) {
+      bucket = { shipmentId, fc, qty: 0, latestDate: null };
+      outer.set(subKey, bucket);
+    }
+    const q = r.quantity || 0;
+    bucket.qty += q;
+    if (r.receiptDate && (!bucket.latestDate || r.receiptDate > bucket.latestDate)) {
+      bucket.latestDate = r.receiptDate;
+    }
+    qtyByFnsku.set(fnsku, (qtyByFnsku.get(fnsku) ?? 0) + q);
+    const prevLatest = latestByFnsku.get(fnsku) ?? null;
+    if (r.receiptDate && (!prevLatest || r.receiptDate > prevLatest)) {
+      latestByFnsku.set(fnsku, r.receiptDate);
+    }
+  }
+
+  const out = new Map<string, ReceiptAgg>();
+  for (const [fnsku, sub] of groups) {
+    const details: ReceiptDetail[] = [];
+    for (const b of sub.values()) {
+      details.push({
+        shipmentId: b.shipmentId,
+        qty: b.qty,
+        fc: b.fc,
+        receiptDate: fmtDate(b.latestDate),
+      });
+    }
+    details.sort((a, b) => b.receiptDate.localeCompare(a.receiptDate));
+    out.set(fnsku, {
+      qty: qtyByFnsku.get(fnsku) ?? 0,
+      latest: latestByFnsku.get(fnsku) ?? null,
+      details,
+    });
+  }
+  return out;
+}
 
 export function aggregateByFnskuWithLatest(
   rows: { fnsku: string | null; quantity: number; date: Date | null }[],
@@ -521,6 +585,86 @@ export function aggregateCasesByFnsku(rows: CaseRow[]): Map<string, CaseAgg> {
 
 type AdjAgg = { qty: number; count: number };
 
+// Shipment-recon view aggregators (separate filters from full-recon).
+// Used to power the Shortage cell hover so it mirrors Shipment Recon data.
+
+const CASE_STATUS_RANK: Record<string, number> = {
+  CLOSED: 1,
+  REJECTED: 2,
+  OPEN: 3,
+  IN_PROGRESS: 4,
+  RESOLVED: 5,
+};
+
+export type ShipmentReimbAgg = { qty: number; amount: number };
+export type ShipmentCaseAgg = {
+  count: number;
+  topStatus: string;
+  claimed: number;
+  approved: number;
+};
+
+export function aggregateShipmentLostInboundReimb(
+  rows: ReimbRow[],
+): Map<string, ShipmentReimbAgg> {
+  const m = new Map<string, ShipmentReimbAgg>();
+  for (const r of rows) {
+    if (String(r.reason ?? "").trim() !== "Lost_Inbound") continue;
+    const fnsku = trimStr(r.fnsku);
+    if (!fnsku) continue;
+    const prev = m.get(fnsku) ?? { qty: 0, amount: 0 };
+    prev.qty += r.quantity || 0;
+    prev.amount += r.amount ? Number(r.amount.toString()) : 0;
+    m.set(fnsku, prev);
+  }
+  return m;
+}
+
+export function aggregateShipmentCases(
+  rows: {
+    fnsku: string | null;
+    status: string | null;
+    unitsClaimed: number;
+    unitsApproved: number;
+  }[],
+): Map<string, ShipmentCaseAgg> {
+  const m = new Map<string, ShipmentCaseAgg>();
+  for (const r of rows) {
+    const fnsku = trimStr(r.fnsku);
+    if (!fnsku) continue;
+    const prev = m.get(fnsku) ?? {
+      count: 0,
+      topStatus: "",
+      claimed: 0,
+      approved: 0,
+    };
+    prev.count += 1;
+    prev.claimed += r.unitsClaimed || 0;
+    prev.approved += r.unitsApproved || 0;
+    const st = trimStr(r.status);
+    if (
+      st &&
+      (CASE_STATUS_RANK[st] ?? 0) > (CASE_STATUS_RANK[prev.topStatus] ?? 0)
+    ) {
+      prev.topStatus = st;
+    }
+    m.set(fnsku, prev);
+  }
+  return m;
+}
+
+export function aggregateShipmentAdjustments(
+  rows: { fnsku: string | null; qtyAdjusted: number }[],
+): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    const fnsku = trimStr(r.fnsku);
+    if (!fnsku) continue;
+    m.set(fnsku, (m.get(fnsku) ?? 0) + (r.qtyAdjusted || 0));
+  }
+  return m;
+}
+
 export function aggregateAdjByFnsku(rows: AdjRow[]): Map<string, AdjAgg> {
   const m = new Map<string, AdjAgg>();
   for (const r of rows) {
@@ -547,22 +691,27 @@ export function aggregateReplacementsByMsku(
   returnsByMskuOrder: Map<string, number>,
   reimbsByMskuOrder: Map<string, { qty: number; amount: number }>,
 ): Map<string, ReplAgg> {
-  // Per replacement row, look up returns + reimbs by msku+(replOrder OR origOrder)
+  // Per replacement row, look up returns + reimbs by msku+(replOrder OR origOrder).
+  // Only count the replacement toward inventory outflow when a matching customer
+  // return exists on either order — un-matched replacements are treated as
+  // pending (waiting for return data) so they don't depress the calc balance.
   const m = new Map<string, ReplAgg>();
   for (const r of rows) {
     const msku = trimStr(r.msku);
     if (!msku) continue;
+    const replOrd = trimStr(r.replacementOrderId);
+    const origOrd = trimStr(r.originalOrderId);
+    const retByRepl = replOrd ? returnsByMskuOrder.get(`${msku}|${replOrd}`) ?? 0 : 0;
+    const retByOrig = origOrd ? returnsByMskuOrder.get(`${msku}|${origOrd}`) ?? 0 : 0;
+    const matchedReturn = retByRepl + retByOrig;
+    if (matchedReturn <= 0) continue;
     let prev = m.get(msku);
     if (!prev) {
       prev = { qty: 0, returnQty: 0, reimbQty: 0, reimbAmt: 0, status: "Pending" };
       m.set(msku, prev);
     }
     prev.qty += r.quantity || 0;
-    const replOrd = trimStr(r.replacementOrderId);
-    const origOrd = trimStr(r.originalOrderId);
-    const retByRepl = replOrd ? returnsByMskuOrder.get(`${msku}|${replOrd}`) ?? 0 : 0;
-    const retByOrig = origOrd ? returnsByMskuOrder.get(`${msku}|${origOrd}`) ?? 0 : 0;
-    prev.returnQty += retByRepl + retByOrig;
+    prev.returnQty += matchedReturn;
     const riByRepl = replOrd ? reimbsByMskuOrder.get(`${msku}|${replOrd}`) : undefined;
     const riByOrig = origOrd ? reimbsByMskuOrder.get(`${msku}|${origOrd}`) : undefined;
     if (riByRepl) { prev.reimbQty += riByRepl.qty; prev.reimbAmt += riByRepl.amount; }
@@ -759,7 +908,7 @@ export function computeReconStatus(
 export function composeFullReconRow(input: {
   fnsku: string;
   shipped: ShippedAgg;
-  receipts: FnskuQtyDate | undefined;
+  receipts: ReceiptAgg | undefined;
   sales: FnskuQtyDate | undefined;
   returns: ReturnAgg | undefined;
   reimb: ReimbAgg | undefined;
@@ -770,6 +919,9 @@ export function composeFullReconRow(input: {
   repl: ReplAgg | undefined;
   fc: FcAgg | undefined;
   fbaSummary: FbaSummaryAgg | undefined;
+  shipmentReimb: ShipmentReimbAgg | undefined;
+  shipmentCase: ShipmentCaseAgg | undefined;
+  shipmentAdjQty: number | undefined;
   today: Date;
 }): FullReconRow {
   const { fnsku, shipped } = input;
@@ -784,10 +936,10 @@ export function composeFullReconRow(input: {
 
   const replRet = input.repl?.returnQty ?? 0;
   const replReimb = input.repl?.reimbQty ?? 0;
-  const replContrib = replRet > 0 ? replRet : replReimb > 0 ? -replReimb : 0;
+  const replQty = input.repl?.qty ?? 0;
 
   const endingBalance =
-    receiptQty - soldQty + returnQty - reimbQty - removalRcptQty + replContrib - gnrQty + fcNet;
+    receiptQty - soldQty + returnQty - reimbQty - removalRcptQty - replQty - gnrQty + fcNet;
 
   const fbaEnding = input.fbaSummary?.endingBalance ?? null;
   const reconStatus = computeReconStatus(endingBalance, fbaEnding, reimbQty);
@@ -809,9 +961,10 @@ export function composeFullReconRow(input: {
     msku: shipped.msku || "",
     title: shipped.title,
     asin: shipped.asin,
-    latestShipDate: fmtDate(shipped.latestShip),
+    latestCloseDate: fmtDate(shipped.latestClose),
     shippedQty: shipped.shippedQty,
     receiptQty,
+    receiptDetails: input.receipts?.details ?? [],
     shortageQty: shipped.shippedQty - receiptQty,
     soldQty,
     latestRecvDate: fmtDate(latestRecv),
@@ -861,6 +1014,13 @@ export function composeFullReconRow(input: {
     fbaAdjTotal: input.fbaSummary?.adjTotal ?? 0,
     endingBalance,
     reconStatus,
+    shipmentReimbQty: input.shipmentReimb?.qty ?? 0,
+    shipmentReimbAmt: input.shipmentReimb?.amount ?? 0,
+    shipmentCaseCount: input.shipmentCase?.count ?? 0,
+    shipmentCaseTopStatus: input.shipmentCase?.topStatus ?? "",
+    shipmentCaseClaimed: input.shipmentCase?.claimed ?? 0,
+    shipmentCaseApproved: input.shipmentCase?.approved ?? 0,
+    shipmentAdjQty: input.shipmentAdjQty ?? 0,
   };
 }
 
