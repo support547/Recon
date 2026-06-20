@@ -25,6 +25,8 @@ export type DataExplorerFilters = {
   shipmentStatus?: string;
   settlementId?: string;
   transactionStatus?: string;
+  transactionType?: string;
+  accountType?: string;
   unitStatus?: string;
   flag?: string;
   adjStore?: string;
@@ -181,6 +183,11 @@ export async function getDataExplorerStoreOptions(): Promise<string[]> {
       distinct: ["store"],
       select: { store: true },
     }),
+    prisma.settlementReport.findMany({
+      where: { deletedAt: null, store: { not: null } },
+      distinct: ["store"],
+      select: { store: true },
+    }),
   ]);
   const set = new Set<string>();
   for (const rows of chunks) {
@@ -211,6 +218,7 @@ export async function getDataExplorerTabStats(): Promise<{
     adjustments,
     gnr_report,
     payment_repository,
+    settlement_report,
   ] = await Promise.all([
     prisma.shippedToFba.count({ where: { deletedAt: null } }),
     prisma.shippedToFba.count({
@@ -231,6 +239,7 @@ export async function getDataExplorerTabStats(): Promise<{
     prisma.inventoryAdjustment.count({ where: { deletedAt: null } }),
     prisma.gnrReport.count({ where: { deletedAt: null } }),
     prisma.paymentRepository.count({ where: { deletedAt: null } }),
+    prisma.settlementReport.count({ where: { deletedAt: null } }),
   ]);
 
   const uploads = await prisma.uploadedFile.groupBy({
@@ -260,6 +269,7 @@ export async function getDataExplorerTabStats(): Promise<{
       adjustments,
       gnr_report,
       payment_repository,
+      settlement_report,
     },
     lastUploadedAt,
   };
@@ -1795,6 +1805,112 @@ export async function getPaymentRepository(
       fbaFees: dec(r.fbaFees),
       total: dec(r.total),
       transactionStatus: r.transactionStatus,
+      store: r.store,
+    })),
+    total,
+    page: p,
+    pageSize: ps,
+  };
+}
+
+export async function getSettlementReport(
+  filters?: DataExplorerFilters,
+  page?: number,
+  pageSize?: number,
+): Promise<
+  PaginatedResult<{
+    postedDate: string | null;
+    settlementId: string | null;
+    accountType: string | null;
+    transactionType: string | null;
+    orderId: string | null;
+    sku: string | null;
+    amountType: string | null;
+    amountDescription: string | null;
+    amount: string | null;
+    quantityPurchased: number | null;
+    marketplaceName: string | null;
+    store: string | null;
+  }>
+> {
+  const { skip, page: p, pageSize: ps } = normalizePagination(page, pageSize);
+  const sw = storeEq(filters?.store);
+  const q = filters?.search?.trim();
+  const { from, to } = parseDateRange(filters);
+  const sid = filters?.settlementId?.trim();
+  const ttype = filters?.transactionType?.trim();
+  const atype = filters?.accountType?.trim();
+
+  const where: Prisma.SettlementReportWhereInput = {
+    deletedAt: null,
+    ...(sw !== undefined ? { store: sw } : {}),
+    ...(from || to
+      ? {
+          postedDate: {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          },
+        }
+      : {}),
+    ...(sid ? { settlementId: { contains: sid, mode: "insensitive" } } : {}),
+    ...(ttype
+      ? { transactionType: { contains: ttype, mode: "insensitive" } }
+      : {}),
+    ...(atype ? { accountType: atype } : {}),
+    ...(q
+      ? {
+          OR: [
+            { orderId: { contains: q, mode: "insensitive" } },
+            { sku: { contains: q, mode: "insensitive" } },
+            { settlementId: { contains: q, mode: "insensitive" } },
+            { transactionType: { contains: q, mode: "insensitive" } },
+            { amountType: { contains: q, mode: "insensitive" } },
+            { amountDescription: { contains: q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+
+  const [total, rows] = await Promise.all([
+    prisma.settlementReport.count({ where }),
+    prisma.settlementReport.findMany({
+      where,
+      orderBy: [{ postedDate: "desc" }, { id: "desc" }],
+      skip,
+      take: ps,
+      select: {
+        postedDate: true,
+        settlementId: true,
+        accountType: true,
+        transactionType: true,
+        orderId: true,
+        sku: true,
+        amountType: true,
+        amountDescription: true,
+        amount: true,
+        quantityPurchased: true,
+        marketplaceName: true,
+        store: true,
+      },
+    }),
+  ]);
+  const ACCOUNT_LABELS: Record<string, string> = {
+    STANDARD_ORDERS: "Standard Orders",
+    INVOICED_ORDERS: "Invoiced Orders",
+  };
+  return {
+    data: rows.map((r) => ({
+      postedDate: r.postedDate ? r.postedDate.toISOString().slice(0, 10) : null,
+      settlementId: r.settlementId,
+      accountType: r.accountType ? ACCOUNT_LABELS[r.accountType] ?? r.accountType : null,
+      transactionType: r.transactionType,
+      orderId: r.orderId,
+      sku: r.sku,
+      amountType: r.amountType,
+      amountDescription: r.amountDescription,
+      amount: dec(r.amount),
+      quantityPurchased: r.quantityPurchased ?? null,
+      marketplaceName: r.marketplaceName,
       store: r.store,
     })),
     total,
@@ -3349,6 +3465,117 @@ export async function getDataExplorerSummary(
     };
   }
 
+  if (tab === "settlement_report") {
+    const { from, to } = parseDateRange(filters);
+    const sid = filters?.settlementId?.trim();
+    const ttype = filters?.transactionType?.trim();
+    const atype = filters?.accountType?.trim();
+    const q = filters?.search?.trim();
+    const where: Prisma.SettlementReportWhereInput = {
+      deletedAt: null,
+      ...(sw !== undefined ? { store: sw } : {}),
+      ...(from || to
+        ? {
+            postedDate: {
+              ...(from ? { gte: from } : {}),
+              ...(to ? { lte: to } : {}),
+            },
+          }
+        : {}),
+      ...(sid ? { settlementId: { contains: sid, mode: "insensitive" } } : {}),
+      ...(ttype
+        ? { transactionType: { contains: ttype, mode: "insensitive" } }
+        : {}),
+      ...(atype ? { accountType: atype } : {}),
+      ...(q
+        ? {
+            OR: [
+              { orderId: { contains: q, mode: "insensitive" } },
+              { sku: { contains: q, mode: "insensitive" } },
+              { settlementId: { contains: q, mode: "insensitive" } },
+              { transactionType: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+    const [cnt, sumAmt, settlements, skus, byType, dateRange] = await Promise.all([
+      prisma.settlementReport.count({ where }),
+      prisma.settlementReport.aggregate({ where, _sum: { amount: true } }),
+      prisma.settlementReport.findMany({
+        where,
+        distinct: ["settlementId"],
+        select: { settlementId: true },
+      }),
+      prisma.settlementReport.findMany({
+        where,
+        distinct: ["sku"],
+        select: { sku: true },
+      }),
+      prisma.settlementReport.groupBy({
+        by: ["transactionType"],
+        where,
+        _count: { id: true },
+      }),
+      prisma.settlementReport.aggregate({
+        where,
+        _min: { postedDate: true },
+        _max: { postedDate: true },
+      }),
+    ]);
+    const num = (v: unknown) => Number.parseFloat(v?.toString?.() ?? "0") || 0;
+    const minD = dateRange._min.postedDate
+      ? dateRange._min.postedDate.toISOString().slice(0, 10)
+      : "—";
+    const maxD = dateRange._max.postedDate
+      ? dateRange._max.postedDate.toISOString().slice(0, 10)
+      : "—";
+    return {
+      cards: [
+        { id: "r", label: "Rows", value: cnt.toLocaleString(), tone: "blue" },
+        {
+          id: "set",
+          label: "Settlements",
+          value: settlements
+            .filter((x) => x.settlementId?.trim())
+            .length.toLocaleString(),
+          tone: "teal",
+        },
+        {
+          id: "sku",
+          label: "SKUs",
+          value: skus.filter((x) => x.sku?.trim()).length.toLocaleString(),
+          tone: "purple",
+        },
+        {
+          id: "amt",
+          label: "Σ Amount",
+          value: num(sumAmt._sum.amount).toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }),
+          tone: "green",
+        },
+        {
+          id: "dr",
+          label: "Date Range",
+          value: minD,
+          sub: `→ ${maxD}`,
+          tone: "orange",
+        },
+      ],
+      miniTables: [
+        {
+          title: "By Transaction Type",
+          headers: ["Type", "Rows"],
+          rows: byType.map((r) => [
+            r.transactionType ?? "—",
+            String(r._count.id),
+          ]),
+        },
+      ],
+    };
+  }
+
   return empty;
 }
 
@@ -3423,6 +3650,10 @@ export async function fetchDataExplorerTab(
       >;
     case "payment_repository":
       return getPaymentRepository(filters, page, pageSize) as Promise<
+        PaginatedResult<Record<string, unknown>>
+      >;
+    case "settlement_report":
+      return getSettlementReport(filters, page, pageSize) as Promise<
         PaginatedResult<Record<string, unknown>>
       >;
     default:

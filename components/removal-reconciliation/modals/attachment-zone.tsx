@@ -8,6 +8,8 @@ import {
   deleteRemovalReceiptAttachment,
   uploadRemovalReceiptAttachment,
 } from "@/actions/removal-reconciliation";
+import { useCanDelete } from "@/components/auth/permissions-context";
+import { PermissionModule } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +40,7 @@ export function AttachmentZone({
   const [busy, setBusy] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const canDelete = useCanDelete(PermissionModule.RECONCILIATION);
 
   React.useEffect(() => {
     setItems(initial ?? []);
@@ -167,16 +170,18 @@ export function AttachmentZone({
               <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
                 {fmtSize(a.size)}
               </span>
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="outline"
-                disabled={busy || disabled}
-                onClick={() => onDelete(a.url)}
-                aria-label="Delete attachment"
-              >
-                <Trash2 className="size-3" aria-hidden />
-              </Button>
+              {canDelete ? (
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="outline"
+                  disabled={busy || disabled}
+                  onClick={() => onDelete(a.url)}
+                  aria-label="Delete attachment"
+                >
+                  <Trash2 className="size-3" aria-hidden />
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>

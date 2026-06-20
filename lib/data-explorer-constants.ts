@@ -14,6 +14,7 @@ export const DATA_EXPLORER_TAB_IDS = [
   "adjustments",
   "gnr_report",
   "payment_repository",
+  "settlement_report",
 ] as const;
 
 export type DataExplorerTabId = (typeof DATA_EXPLORER_TAB_IDS)[number];
@@ -36,6 +37,7 @@ export const DATA_EXPLORER_TABS: {
   { id: "adjustments", label: "Adjustments" },
   { id: "gnr_report", label: "GNR Report" },
   { id: "payment_repository", label: "Payment Repository" },
+  { id: "settlement_report", label: "Settlement Report" },
 ];
 
 export function isDataExplorerTabId(v: string): v is DataExplorerTabId {

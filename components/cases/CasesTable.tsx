@@ -14,6 +14,8 @@ import {
 import { ExternalLink, FileText, Pencil, Trash2 } from "lucide-react";
 
 import type { CaseTrackerRow } from "@/actions/cases";
+import { useCanDelete } from "@/components/auth/permissions-context";
+import { PermissionModule } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +44,7 @@ type CasesTableProps = {
 export function CasesTable({ data, onEdit, onDelete }: CasesTableProps) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const canDelete = useCanDelete(PermissionModule.RECONCILIATION);
 
   const columns = React.useMemo<ColumnDef<CaseTrackerRow>[]>(
     () => [
@@ -233,20 +236,22 @@ export function CasesTable({ data, onEdit, onDelete }: CasesTableProps) {
             >
               <Pencil className="size-3.5" />
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="icon-xs"
-              aria-label="Delete case"
-              onClick={() => onDelete(row.original)}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+            {canDelete ? (
+              <Button
+                type="button"
+                variant="destructive"
+                size="icon-xs"
+                aria-label="Delete case"
+                onClick={() => onDelete(row.original)}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
         ),
       },
     ],
-    [onDelete, onEdit],
+    [canDelete, onDelete, onEdit],
   );
 
   const table = useReactTable({

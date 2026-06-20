@@ -5,6 +5,8 @@ import { Lock, Trash2, Unlock } from "lucide-react";
 import { toast } from "sonner";
 
 import { deleteUploadBatch, setUploadLocked } from "@/actions/uploads";
+import { useCanDelete } from "@/components/auth/permissions-context";
+import { PermissionModule } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +44,7 @@ export function UploadHistory({ rows, onMutated }: UploadHistoryProps) {
     null,
   );
   const [busy, startTransition] = React.useTransition();
+  const canDelete = useCanDelete(PermissionModule.REPORTS);
 
   const totalRowsForConfirm =
     (confirmRow?.rowCount ?? 0) + (confirmRow?.rowsSkipped ?? 0);
@@ -101,8 +104,12 @@ export function UploadHistory({ rows, onMutated }: UploadHistoryProps) {
                     Skipped
                   </TableHead>
                   <TableHead className="text-right">Uploaded At</TableHead>
-                  <TableHead className="w-[80px] text-center">Lock</TableHead>
-                  <TableHead className="w-[80px] text-center">Delete</TableHead>
+                  {canDelete ? (
+                    <TableHead className="w-[80px] text-center">Lock</TableHead>
+                  ) : null}
+                  {canDelete ? (
+                    <TableHead className="w-[80px] text-center">Delete</TableHead>
+                  ) : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -134,38 +141,42 @@ export function UploadHistory({ rows, onMutated }: UploadHistoryProps) {
                     <TableCell className="text-right text-[11px] text-muted-foreground">
                       {formatDate(r.uploadedAt)}
                     </TableCell>
-                    <TableCell className="text-center">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        disabled={busy}
-                        aria-label={
-                          r.isLocked ? "Unlock upload" : "Lock upload"
-                        }
-                        onClick={() => onToggleLock(r)}
-                      >
-                        {r.isLocked ? (
-                          <Lock className="size-4 text-amber-600" />
-                        ) : (
-                          <Unlock className="size-4 text-muted-foreground" />
-                        )}
-                      </Button>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        disabled={r.isLocked || busy}
-                        aria-label="Delete upload batch"
-                        onClick={() => setConfirmRow(r)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </TableCell>
+                    {canDelete ? (
+                      <TableCell className="text-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          disabled={busy}
+                          aria-label={
+                            r.isLocked ? "Unlock upload" : "Lock upload"
+                          }
+                          onClick={() => onToggleLock(r)}
+                        >
+                          {r.isLocked ? (
+                            <Lock className="size-4 text-amber-600" />
+                          ) : (
+                            <Unlock className="size-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    ) : null}
+                    {canDelete ? (
+                      <TableCell className="text-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          disabled={r.isLocked || busy}
+                          aria-label="Delete upload batch"
+                          onClick={() => setConfirmRow(r)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))}
               </TableBody>

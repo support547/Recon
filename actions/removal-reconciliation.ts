@@ -5,6 +5,12 @@ import { Prisma, ReconType, CaseStatus, RemovalReceiptStatus, WareHouseStatus, F
 
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  authzErrorToMutationResult,
+  PermissionLevel,
+  PermissionModule,
+  requireLevel,
+} from "@/lib/auth/rbac";
 import { summaryStats } from "@/lib/removal-reconciliation/aggregate";
 import { computeRemovalRow } from "@/lib/removal-reconciliation/formula";
 import { buildCaseMap, buildReceiptMap, buildShipmentMap } from "@/lib/removal-reconciliation/matching";
@@ -769,9 +775,9 @@ export async function unlockReceiptRow(receiptId: string): Promise<MutationResul
 
 export async function deleteReceipt(receiptId: string): Promise<MutationResult> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.RECONCILIATION, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   try {
     await prisma.removalReceipt.update({
@@ -931,9 +937,9 @@ export async function deleteRemovalReceiptAttachment(
   url: string,
 ): Promise<MutationResult<{ attachments: AttachmentEntry[] }>> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.RECONCILIATION, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   if (!receiptId.trim() || !url.trim()) {
     return { ok: false, error: "receiptId and url required." };

@@ -31,7 +31,8 @@ import { Pagination } from "@/components/shared/Pagination";
 import { saveWarehouseBilling } from "@/actions/removal-reconciliation";
 import type { RemovalReceiptRow } from "@/lib/removal-reconciliation/types";
 import { caseStatusBadgeClass, formatEnumLabel } from "@/lib/cases-ui";
-import type { CaseStatus } from "@prisma/client";
+import { useCanDelete } from "@/components/auth/permissions-context";
+import { PermissionModule, type CaseStatus } from "@prisma/client";
 
 export function ReceiptsTable({
   rows,
@@ -666,6 +667,7 @@ function ReceiptActions({
   onUnlock: (row: RemovalReceiptRow) => void;
   onDelete: (row: RemovalReceiptRow) => void;
 }) {
+  const canDelete = useCanDelete(PermissionModule.RECONCILIATION);
   const isLocked = (row.postAction && row.postAction.length > 0) || row.reimbQty > 0;
   if (isLocked) {
     const lockLabel = row.reimbQty > 0 ? `💰 ${row.postAction || "Reimbursed"}` : `✓ ${row.postAction}`;
@@ -706,14 +708,16 @@ function ReceiptActions({
       >
         <DollarSign className="size-3" aria-hidden />
       </button>
-      <button
-        type="button"
-        onClick={() => onDelete(row)}
-        className="flex size-6 items-center justify-center rounded bg-red-600 text-white hover:bg-red-700"
-        title="Delete"
-      >
-        <Trash2 className="size-3" aria-hidden />
-      </button>
+      {canDelete ? (
+        <button
+          type="button"
+          onClick={() => onDelete(row)}
+          className="flex size-6 items-center justify-center rounded bg-red-600 text-white hover:bg-red-700"
+          title="Delete"
+        >
+          <Trash2 className="size-3" aria-hidden />
+        </button>
+      ) : null}
     </div>
   );
 }

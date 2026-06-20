@@ -1021,6 +1021,81 @@ const PAYMENT_REPOSITORY: ExplorerColumnSpec[] = [
   },
 ];
 
+const SETTLEMENT_REPORT: ExplorerColumnSpec[] = [
+  {
+    accessorKey: "postedDate",
+    header: "Posted Date",
+    kind: "date",
+    cell: "mono10",
+  },
+  {
+    accessorKey: "settlementId",
+    header: "Settlement ID",
+    kind: "text",
+    cell: "mono10",
+  },
+  {
+    accessorKey: "accountType",
+    header: "Account Type",
+    kind: "text",
+    cell: "chipTeal",
+  },
+  {
+    accessorKey: "store",
+    header: "Store",
+    kind: "text",
+    cell: "chipGrey",
+  },
+  {
+    accessorKey: "transactionType",
+    header: "Transaction Type",
+    kind: "text",
+    cell: "chipBlue",
+  },
+  {
+    accessorKey: "orderId",
+    header: "Order ID",
+    kind: "text",
+    cell: "mono10",
+  },
+  {
+    accessorKey: "sku",
+    header: "SKU",
+    kind: "text",
+    cell: "mono10",
+  },
+  {
+    accessorKey: "amountType",
+    header: "Amount Type",
+    kind: "text",
+    cell: "truncate140",
+  },
+  {
+    accessorKey: "amountDescription",
+    header: "Amount Description",
+    kind: "text",
+    cell: "truncate160",
+  },
+  {
+    accessorKey: "amount",
+    header: "Amount",
+    kind: "money",
+    cell: "moneyRightBold",
+  },
+  {
+    accessorKey: "quantityPurchased",
+    header: "Qty",
+    kind: "integer",
+    cell: "mono",
+  },
+  {
+    accessorKey: "marketplaceName",
+    header: "Marketplace",
+    kind: "text",
+    cell: "chipGrey",
+  },
+];
+
 export const DATA_EXPLORER_TAB_COLUMNS: Record<
   DataExplorerTabId,
   ExplorerColumnSpec[]
@@ -1039,6 +1114,7 @@ export const DATA_EXPLORER_TAB_COLUMNS: Record<
   adjustments: ADJUSTMENTS,
   gnr_report: GNR_REPORT,
   payment_repository: PAYMENT_REPOSITORY,
+  settlement_report: SETTLEMENT_REPORT,
 };
 
 export function getDataExplorerColumns(

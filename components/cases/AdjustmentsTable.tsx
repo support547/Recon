@@ -14,6 +14,8 @@ import {
 import { Pencil, Trash2 } from "lucide-react";
 
 import type { ManualAdjustmentRow } from "@/lib/manual-adjustment-serialize";
+import { useCanDelete } from "@/components/auth/permissions-context";
+import { PermissionModule } from "@prisma/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,6 +46,7 @@ export function AdjustmentsTable({
 }: AdjustmentsTableProps) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const canDelete = useCanDelete(PermissionModule.RECONCILIATION);
 
   const columns = React.useMemo<ColumnDef<ManualAdjustmentRow>[]>(
     () => [
@@ -205,20 +208,22 @@ export function AdjustmentsTable({
             >
               <Pencil className="size-3.5" />
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              size="icon-xs"
-              aria-label="Delete adjustment"
-              onClick={() => onDelete(row.original)}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+            {canDelete ? (
+              <Button
+                type="button"
+                variant="destructive"
+                size="icon-xs"
+                aria-label="Delete adjustment"
+                onClick={() => onDelete(row.original)}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
         ),
       },
     ],
-    [onDelete, onEdit],
+    [canDelete, onDelete, onEdit],
   );
 
   const table = useReactTable({

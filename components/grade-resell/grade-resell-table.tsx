@@ -11,10 +11,11 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { GradeResellStatus } from "@prisma/client";
+import { GradeResellStatus, PermissionModule } from "@prisma/client";
 import { CheckCircle2, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import type { GradeResellItemRow } from "@/actions/grade-resell";
+import { useCanDelete } from "@/components/auth/permissions-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -88,6 +89,7 @@ export function GradeResellTable({
 }: GradeResellTableProps) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
+  const canDelete = useCanDelete(PermissionModule.RECONCILIATION);
 
   const columns = React.useMemo<ColumnDef<GradeResellItemRow>[]>(
     () => [
@@ -300,13 +302,17 @@ export function GradeResellTable({
                       <CheckCircle2 className="mr-2 size-3.5" /> Mark as sold
                     </DropdownMenuItem>
                   ) : null}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-600 focus:bg-red-50 focus:text-red-700"
-                    onSelect={() => onDelete(item)}
-                  >
-                    <Trash2 className="mr-2 size-3.5" /> Delete
-                  </DropdownMenuItem>
+                  {canDelete ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-red-600 focus:bg-red-50 focus:text-red-700"
+                        onSelect={() => onDelete(item)}
+                      >
+                        <Trash2 className="mr-2 size-3.5" /> Delete
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -314,7 +320,7 @@ export function GradeResellTable({
         },
       },
     ],
-    [onDelete, onEdit, onMarkSold],
+    [canDelete, onDelete, onEdit, onMarkSold],
   );
 
   const table = useReactTable({

@@ -18,6 +18,12 @@ import {
 } from "@/lib/manual-adjustment-serialize";
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  authzErrorToMutationResult,
+  PermissionLevel,
+  PermissionModule,
+  requireLevel,
+} from "@/lib/auth/rbac";
 import { serializeCaseTrackerRow } from "@/lib/case-tracker-serialize";
 import {
   buildLostInboundReimbDetailMap,
@@ -654,9 +660,9 @@ export async function listShipmentCaAdjustments(filters: {
 
 export async function deleteShipmentCaCase(id: string): Promise<MutationResult> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.RECONCILIATION, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   return deleteCase(id);
 }
@@ -665,9 +671,9 @@ export async function deleteShipmentCaAdjustment(
   id: string,
 ): Promise<MutationResult> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.RECONCILIATION, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   return deleteAdjustment(id);
 }

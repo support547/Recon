@@ -17,6 +17,12 @@ import {
   ManualAdjustmentFullUpdateSchema,
 } from "@/lib/validations/cases";
 import { requireAuth } from "@/actions/auth";
+import {
+  authzErrorToMutationResult,
+  PermissionLevel,
+  PermissionModule,
+  requireLevel,
+} from "@/lib/auth/rbac";
 
 export type CaseFilters = {
   status?: CaseStatus | "";
@@ -227,9 +233,9 @@ export async function updateCase(
 
 export async function deleteCase(id: string): Promise<MutationResult> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.RECONCILIATION, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   try {
     const result = await prisma.caseTracker.updateMany({
@@ -389,9 +395,9 @@ export async function updateAdjustment(
 
 export async function deleteAdjustment(id: string): Promise<MutationResult> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.RECONCILIATION, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   try {
     const result = await prisma.manualAdjustment.updateMany({

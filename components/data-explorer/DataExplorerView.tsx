@@ -770,6 +770,66 @@ export function DataExplorerView({
         </>
       ) : null}
 
+      {tab === "settlement_report" ? (
+        <>
+          {fi(
+            "Account Type",
+            <Select
+              value={draft.accountType?.trim() ? draft.accountType : "__all__"}
+              onValueChange={(v) =>
+                updateDraft({ accountType: v === "__all__" ? undefined : v })
+              }
+            >
+              <SelectTrigger className={`${FI_INPUT} h-[30px]`}>
+                <SelectValue placeholder="All" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All</SelectItem>
+                <SelectItem value="STANDARD_ORDERS">Standard Orders</SelectItem>
+                <SelectItem value="INVOICED_ORDERS">Invoiced Orders</SelectItem>
+              </SelectContent>
+            </Select>,
+          )}
+          {fi(
+            "Settlement ID",
+            <Input
+              className={FI_INPUT}
+              value={draft.settlementId ?? ""}
+              onChange={(e) => updateDraft({ settlementId: e.target.value })}
+            />,
+          )}
+          {fi(
+            "Transaction Type",
+            <Input
+              className={FI_INPUT}
+              placeholder="Order / Refund / Adjustment…"
+              value={draft.transactionType ?? ""}
+              onChange={(e) =>
+                updateDraft({ transactionType: e.target.value })
+              }
+            />,
+          )}
+          {fi(
+            "From Date",
+            <Input
+              type="date"
+              className={FI_INPUT}
+              value={draft.dateFrom ?? ""}
+              onChange={(e) => updateDraft({ dateFrom: e.target.value })}
+            />,
+          )}
+          {fi(
+            "To Date",
+            <Input
+              type="date"
+              className={FI_INPUT}
+              value={draft.dateTo ?? ""}
+              onChange={(e) => updateDraft({ dateTo: e.target.value })}
+            />,
+          )}
+        </>
+      ) : null}
+
       {[
         "fba_receipts",
         "sales_data",
@@ -784,6 +844,7 @@ export function DataExplorerView({
         "shipment_status",
         "fba_summary",
         "payment_repository",
+        "settlement_report",
       ].includes(tab) &&
       tab !== "adjustments" ? (
         <>
@@ -826,6 +887,7 @@ export function DataExplorerView({
         "replacements",
         "gnr_report",
         "payment_repository",
+        "settlement_report",
       ].includes(tab) ? null : (
         <>
           {fi(

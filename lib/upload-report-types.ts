@@ -19,6 +19,35 @@ export const REPORT_TYPE_VALUES = [
 
 export type ReportTypeValue = (typeof REPORT_TYPE_VALUES)[number];
 
+/* Settlement Report extras — Amazon distinguishes two account types and
+ * the seller operates in multiple marketplaces. Both selectors are required
+ * at upload time and are persisted on every inserted row. */
+export const SETTLEMENT_ACCOUNT_TYPES = [
+  "STANDARD_ORDERS",
+  "INVOICED_ORDERS",
+] as const;
+export type SettlementAccountType = (typeof SETTLEMENT_ACCOUNT_TYPES)[number];
+
+export const SETTLEMENT_ACCOUNT_TYPE_LABELS: Record<
+  SettlementAccountType,
+  string
+> = {
+  STANDARD_ORDERS: "Standard Orders",
+  INVOICED_ORDERS: "Invoiced Orders",
+};
+
+export const SETTLEMENT_STORES = ["USA", "CA"] as const;
+export type SettlementStore = (typeof SETTLEMENT_STORES)[number];
+
+export function isSettlementAccountType(
+  v: string,
+): v is SettlementAccountType {
+  return (SETTLEMENT_ACCOUNT_TYPES as readonly string[]).includes(v);
+}
+export function isSettlementStore(v: string): v is SettlementStore {
+  return (SETTLEMENT_STORES as readonly string[]).includes(v);
+}
+
 export type UploadHistoryRow = {
   id: string;
   reportType: string;

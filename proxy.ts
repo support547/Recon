@@ -9,6 +9,17 @@ import { auth } from "@/auth";
 // set AUTH_ENABLED=true in `.env`.
 const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
 
+// Admin-only path prefixes. The proxy provides a COARSE redirect for
+// non-admin browsers; the real security boundary is each server action's
+// requireLevel/requireAdmin guard, which reads from the DB on every call.
+const ADMIN_PATH_PREFIXES = ["/settings/users", "/settings/audit", "/admin"];
+
+function isAdminPath(pathname: string): boolean {
+  return ADMIN_PATH_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 export const proxy = auth((req) => {
   if (!AUTH_ENABLED) return NextResponse.next();
 
@@ -30,6 +41,16 @@ export const proxy = auth((req) => {
 
   if (isLoggedIn && isLoginPage) {
     return NextResponse.redirect(new URL("/", req.url));
+  }
+
+  // ADMIN route gate. Role lives in the JWT (req.auth.user.role) so we don't
+  // need a DB read here. Role changes propagate to JWT on next sign-in; the
+  // server-action guards do the DB read that catches mid-session changes.
+  if (isLoggedIn && isAdminPath(pathname)) {
+    const role = req.auth?.user?.role;
+    if (role !== "ADMIN") {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
   }
 
   return NextResponse.next();

@@ -5,11 +5,23 @@ import { Download, Loader2, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  SETTLEMENT_ACCOUNT_TYPE_LABELS,
+  SETTLEMENT_ACCOUNT_TYPES,
+  SETTLEMENT_STORES,
   type ReportTypeValue,
+  type SettlementAccountType,
+  type SettlementStore,
   type UploadFileResult,
   uploadResultDescription,
 } from "@/lib/upload-report-types";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const ACCEPT =
@@ -48,6 +60,10 @@ export function UploadZone({
   const [progress, setProgress] = React.useState(0);
   const [showProgress, setShowProgress] = React.useState(false);
   const [result, setResult] = React.useState<ResultMsg>(null);
+  const [accountType, setAccountType] = React.useState<"" | SettlementAccountType>(
+    "",
+  );
+  const [store, setStore] = React.useState<"" | SettlementStore>("");
   const inputRef = React.useRef<HTMLInputElement>(null);
   const progressTimer = React.useRef<ReturnType<typeof setInterval> | null>(
     null,
@@ -58,6 +74,8 @@ export function UploadZone({
     setFile(null);
     setShowProgress(false);
     setProgress(0);
+    setAccountType("");
+    setStore("");
     if (progressTimer.current) {
       clearInterval(progressTimer.current);
       progressTimer.current = null;
@@ -106,10 +124,19 @@ export function UploadZone({
     }
   };
 
+  const isSettlement = selectedType === "settlement_report";
+  const settlementMetaReady = !isSettlement || (accountType && store);
+
   const handleUpload = () => {
     if (!file) {
       toast.error("Choose a file", {
         description: "Drop a CSV, TSV, or Excel file, or click to browse.",
+      });
+      return;
+    }
+    if (isSettlement && (!accountType || !store)) {
+      toast.error("Pick Account Type and Store", {
+        description: "Settlement Report uploads require both selectors.",
       });
       return;
     }
@@ -127,6 +154,10 @@ export function UploadZone({
       const fd = new FormData();
       fd.set("report_type", selectedType);
       fd.set("file", file);
+      if (isSettlement) {
+        fd.set("account_type", accountType);
+        fd.set("store", store);
+      }
 
       try {
         const httpRes = await fetch("/api/uploads", {
@@ -191,6 +222,55 @@ export function UploadZone({
       </div>
 
       <div className="p-5">
+        {isSettlement ? (
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-foreground">
+                Account Type <span className="text-destructive">*</span>
+              </label>
+              <Select
+                value={accountType || undefined}
+                onValueChange={(v) =>
+                  setAccountType(v as SettlementAccountType)
+                }
+                disabled={isPending}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select account type…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SETTLEMENT_ACCOUNT_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {SETTLEMENT_ACCOUNT_TYPE_LABELS[t]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-foreground">
+                Store <span className="text-destructive">*</span>
+              </label>
+              <Select
+                value={store || undefined}
+                onValueChange={(v) => setStore(v as SettlementStore)}
+                disabled={isPending}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select store…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SETTLEMENT_STORES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        ) : null}
+
         <input
           ref={inputRef}
           type="file"
@@ -241,7 +321,7 @@ export function UploadZone({
           <Button
             type="button"
             onClick={handleUpload}
-            disabled={disabled || !file}
+            disabled={disabled || !file || !settlementMetaReady}
             className="min-w-[120px]"
           >
             {isPending ? (

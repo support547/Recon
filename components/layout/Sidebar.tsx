@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import * as React from "react";
 import { useEffect, useState } from "react";
 import {
   ArrowLeftRight,
@@ -12,6 +13,7 @@ import {
   Database,
   DollarSign,
   FolderOpen,
+  History,
   LayoutDashboard,
   Layers,
   Package,
@@ -19,10 +21,13 @@ import {
   Receipt,
   RefreshCw,
   RotateCcw,
+  Settings,
   ShoppingCart,
   Tag,
   Truck,
   Upload,
+  UserCircle,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
@@ -57,7 +62,12 @@ const RECON_CHILDREN: NavLeaf[] = [
   { type: "link", href: "/full-reconciliation", label: "Full Inventory Recon", icon: Boxes },
 ];
 
-const NAV_ITEMS: NavItem[] = [
+const SETTINGS_CHILDREN: NavLeaf[] = [
+  { type: "link", href: "/settings/users", label: "Users", icon: Users },
+  { type: "link", href: "/settings/audit", label: "Audit Log", icon: History },
+];
+
+const BASE_NAV_ITEMS: NavItem[] = [
   { type: "link", href: "/", label: "Dashboard", icon: LayoutDashboard },
   { type: "link", href: "/upload", label: "Upload Reports", icon: Upload },
   { type: "link", href: "/data-explorer", label: "Data Explorer", icon: Database },
@@ -74,9 +84,25 @@ const NAV_ITEMS: NavItem[] = [
   { type: "link", href: "/sales-orders", label: "Sales Orders", icon: ShoppingCart },
 ];
 
+const PROFILE_ITEM: NavLeaf = {
+  type: "link",
+  href: "/profile",
+  label: "My Profile",
+  icon: UserCircle,
+};
+
+const SETTINGS_GROUP: NavGroup = {
+  type: "group",
+  id: "settings",
+  label: "Settings",
+  icon: Settings,
+  children: SETTINGS_CHILDREN,
+};
+
 type SidebarProps = {
   mobileOpen: boolean;
   onMobileOpenChange: (open: boolean) => void;
+  role: "ADMIN" | "VENDOR" | "VIEWER" | null;
 };
 
 function isActiveRoute(pathname: string, href: string) {
@@ -88,12 +114,18 @@ function groupHasActiveChild(pathname: string, group: NavGroup) {
   return group.children.some((c) => isActiveRoute(pathname, c.href));
 }
 
-export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
+export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) {
   const pathname = usePathname();
+
+  const navItems = React.useMemo<NavItem[]>(() => {
+    const items: NavItem[] = [...BASE_NAV_ITEMS, PROFILE_ITEM];
+    if (role === "ADMIN") items.push(SETTINGS_GROUP);
+    return items;
+  }, [role]);
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
-    for (const item of NAV_ITEMS) {
+    for (const item of navItems) {
       if (item.type === "group") {
         init[item.id] = groupHasActiveChild(pathname, item);
       }
@@ -105,7 +137,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
     setOpenGroups((prev) => {
       const next = { ...prev };
       let changed = false;
-      for (const item of NAV_ITEMS) {
+      for (const item of navItems) {
         if (item.type === "group" && groupHasActiveChild(pathname, item) && !next[item.id]) {
           next[item.id] = true;
           changed = true;
@@ -113,7 +145,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
       }
       return changed ? next : prev;
     });
-  }, [pathname]);
+  }, [pathname, navItems]);
 
   const handleNavigate = () => {
     onMobileOpenChange(false);
@@ -158,7 +190,7 @@ export function Sidebar({ mobileOpen, onMobileOpenChange }: SidebarProps) {
           className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 py-3"
           aria-label="Primary"
         >
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             if (item.type === "link") {
               const { href, label, icon: Icon } = item;
               const active = isActiveRoute(pathname, href);

@@ -30,6 +30,40 @@ enum UserRole {
   VIEWER
 }
 
+enum PermissionModule {
+  REPORTS
+  RECONCILIATION
+  SETTLEMENTS
+  PAYMENTS
+  DATA_EXPLORER
+  USERS
+  AUDIT
+  SETTINGS
+}
+
+enum PermissionLevel {
+  NONE
+  VIEW
+  EDIT
+  FULL
+}
+
+enum AuditAction {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  USER_CREATED
+  USER_UPDATED
+  USER_ROLE_CHANGED
+  USER_SUSPENDED
+  USER_REACTIVATED
+  USER_DELETED
+  USER_PASSWORD_RESET
+  PERMISSION_OVERRIDE_SET
+  PERMISSION_OVERRIDE_CLEARED
+  PROFILE_UPDATED
+  PROFILE_PASSWORD_CHANGED
+}
+
 enum CaseStatus {
   OPEN
   IN_PROGRESS
@@ -97,20 +131,68 @@ enum FinalStatus {
 // =============================================================
 
 model User {
-  id           String    @id @default(cuid())
-  name         String
-  email        String    @unique
-  passwordHash String
-  role         UserRole  @default(VIEWER)
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  passwordHash       String
+  role               UserRole  @default(VIEWER)
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  lastLoginAt        DateTime?
+  // Admin-managed profile / contact detail. All optional, filled after creation.
+  designation        String?
+  mobile             String?
+  dateJoined         DateTime? @map("date_joined")
+  address            String?
+  department         String?
+  employeeId         String?   @unique @map("employee_id")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  permissionOverrides UserPermissionOverride[]
+  auditLogs           AuditLog[]               @relation("AuditActor")
 
   @@index([email])
   @@index([role])
   @@map("users")
+}
+
+model UserPermissionOverride {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  module    PermissionModule
+  level     PermissionLevel
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module])
+  @@index([userId])
+  @@map("user_permission_overrides")
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  actorId     String?     @map("actor_id")
+  actorEmail  String?     @map("actor_email")
+  action      AuditAction
+  targetType  String?     @map("target_type")
+  targetId    String?     @map("target_id")
+  targetEmail String?     @map("target_email")
+  summary     String
+  metadata    Json?
+  ipAddress   String?     @map("ip_address")
+  createdAt   DateTime    @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 // =============================================================
@@ -758,6 +840,7 @@ model SettlementReport {
   quantityPurchased        Int?      @map("quantity_purchased")
   promotionId              String?   @map("promotion_id")
   store                    String?
+  accountType              String?   @map("account_type")
   uploadedAt               DateTime  @default(now()) @map("uploaded_at")
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
@@ -767,6 +850,8 @@ model SettlementReport {
   @@index([transactionType])
   @@index([orderId])
   @@index([sku])
+  @@index([accountType])
+  @@index([settlementId, accountType, store])
   @@index([postedDate])
   @@index([store])
   @@map("settlement_report")

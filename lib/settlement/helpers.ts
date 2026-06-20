@@ -31,8 +31,8 @@ export const SETTLEMENT_VARIABLE_FEE_PER_UNIT = 1.8;
 /** Best posted date per line (file column posted-date, else date part of posted-date-time). */
 export const SETTLEMENT_EFFECTIVE_POSTED_MAX = `MAX(
   CASE
-    WHEN TRIM(COALESCE(posted_date::text, '')) <> '' THEN TRIM(posted_date::text)
-    WHEN TRIM(COALESCE(posted_date_time::text, '')) <> '' THEN TRIM(SPLIT_PART(REGEXP_REPLACE(TRIM(posted_date_time::text), 'T', ' '), ' ', 1))
+    WHEN posted_date IS NOT NULL THEN TO_CHAR(posted_date, 'YYYY-MM-DD')
+    WHEN posted_date_time IS NOT NULL THEN TO_CHAR(posted_date_time, 'YYYY-MM-DD')
     ELSE NULL
   END
 )`;
@@ -50,6 +50,12 @@ export function settlementOtherLineQtyExpr(): string {
       THEN GREATEST(0, ROUND(ABS(COALESCE(amount, 0)::numeric) / ${SETTLEMENT_VARIABLE_FEE_PER_UNIT}::numeric))::int
     ELSE 0
   END)`;
+}
+
+/** Cleaned, lower-cased, whitespace-stripped amount_description for pivots. */
+export function settlementDescExpr(colRef = "amount_description"): string {
+  const clean = `REPLACE(REPLACE(TRIM(COALESCE(${colRef}, '')), CHR(160), ''), CHR(65279), '')`;
+  return `LOWER(REGEXP_REPLACE(${clean}, '[[:space:]]+', '', 'g'))`;
 }
 
 export type SettlementAmountPivot = {

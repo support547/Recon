@@ -2,13 +2,19 @@ import * as React from "react";
 
 import { auth } from "@/auth";
 import { DashboardShell } from "@/components/layout/DashboardShell";
+import { getEffectiveLevelsForCurrentUser } from "@/lib/auth/rbac";
+
+const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
 
 export default async function DashboardLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
+  const [session, permissions] = await Promise.all([
+    auth(),
+    getEffectiveLevelsForCurrentUser(),
+  ]);
   const user = session?.user
     ? {
         id: session.user.id,
@@ -16,7 +22,21 @@ export default async function DashboardLayout({
         email: session.user.email ?? null,
         role: session.user.role,
       }
-    : null;
+    : !AUTH_ENABLED
+      ? {
+          // Stub admin so the Settings nav is navigable while auth is disabled
+          // during development. The real security boundary is in server actions,
+          // not the UI.
+          id: "system",
+          name: "System",
+          email: "system@local",
+          role: "ADMIN" as const,
+        }
+      : null;
 
-  return <DashboardShell user={user}>{children}</DashboardShell>;
+  return (
+    <DashboardShell user={user} permissions={permissions}>
+      {children}
+    </DashboardShell>
+  );
 }

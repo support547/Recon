@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { LogOut, Menu, UserRound } from "lucide-react";
+import { LogOut, Menu, UserCircle, UserRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { signOutAction } from "@/actions/auth";
@@ -34,6 +34,9 @@ const ROUTE_TITLES: Record<string, string> = {
   "/settlement-report": "Settlement Report",
   "/sales-reconciliation": "Sales Reconciliation",
   "/sales-orders": "Sales Orders",
+  "/profile": "My Profile",
+  "/settings/users": "User Management",
+  "/settings/audit": "Audit Log",
 };
 
 function titleFromPath(pathname: string) {
@@ -124,36 +127,41 @@ export function Header({ onMenuClick, user }: HeaderProps) {
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="gap-2"
+                size="icon-sm"
+                className="rounded-full"
                 aria-label="Account menu"
               >
                 <UserRound className="size-4 text-muted-foreground" aria-hidden />
-                <span className="hidden max-w-[180px] truncate text-xs sm:inline">
-                  {user.email ?? user.name ?? "Account"}
-                </span>
-                <Badge
-                  variant="outline"
-                  className={`hidden font-normal sm:inline-flex ${roleColor(user.role)}`}
-                >
-                  {user.role}
-                </Badge>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
-              <DropdownMenuLabel className="space-y-0.5">
+              <DropdownMenuLabel className="space-y-1">
                 <p className="truncate text-xs font-semibold">
-                  {user.name ?? user.email}
+                  {user.name ?? user.email ?? "Account"}
                 </p>
-                {user.name && user.email ? (
+                {user.email ? (
                   <p className="truncate text-[11px] text-muted-foreground">
                     {user.email}
                   </p>
                 ) : null}
-                <p className="text-[11px] text-muted-foreground">
-                  Role: {user.role}
-                </p>
+                <div className="pt-1">
+                  <Badge
+                    variant="outline"
+                    className={`font-normal ${roleColor(user.role)}`}
+                  >
+                    {user.role}
+                  </Badge>
+                </div>
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  router.push("/profile");
+                }}
+              >
+                <UserCircle className="mr-2 size-3.5" /> My Profile
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 disabled={signingOut}

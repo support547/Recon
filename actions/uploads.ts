@@ -9,13 +9,24 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   REPORT_TYPE_VALUES,
+  SETTLEMENT_ACCOUNT_TYPE_LABELS,
+  isSettlementAccountType,
+  isSettlementStore,
   type ReportTypeValue,
+  type SettlementAccountType,
+  type SettlementStore,
   type UploadFileResult,
   type UploadHistoryRow,
   type UploadMutationResult,
   type UploadSummaryRow,
 } from "@/lib/upload-report-types";
 import { requireAuth } from "@/actions/auth";
+import {
+  authzErrorToMutationResult,
+  PermissionLevel,
+  PermissionModule,
+  requireLevel,
+} from "@/lib/auth/rbac";
 
 const REVALIDATE_PATHS = [
   "/upload",
@@ -174,6 +185,14 @@ export async function setUploadLocked(
   id: string,
   isLocked: boolean,
 ): Promise<UploadMutationResult> {
+  // Lock/unlock is an administrative gate on uploaded reports — protects a
+  // batch from being deleted. Same risk level as delete itself, so FULL is
+  // required. VENDOR (EDIT on REPORTS) cannot toggle it.
+  try {
+    await requireLevel(PermissionModule.REPORTS, PermissionLevel.FULL);
+  } catch (e) {
+    return authzErrorToMutationResult(e);
+  }
   try {
     await prisma.uploadedFile.update({
       where: { id },
@@ -189,9 +208,9 @@ export async function setUploadLocked(
 /** Deletes the upload log row and all fact rows stamped with the same `uploadedAt` for that batch. */
 export async function deleteUploadBatch(id: string): Promise<UploadMutationResult> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.REPORTS, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   const uf = await prisma.uploadedFile.findUnique({ where: { id } });
   if (!uf) return { ok: false, error: "Upload not found." };
@@ -288,6 +307,30 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
   if (!(file instanceof File)) {
     return { ok: false, error: "No file was uploaded." };
   }
+
+  // Settlement Report requires two extra selectors on the form: Amazon
+  // account type (Standard / Invoiced) and store (USA / CA). Validate
+  // before opening the transaction.
+  let settlementAccountType: SettlementAccountType | undefined;
+  let settlementStore: SettlementStore | undefined;
+  if (reportType === "settlement_report") {
+    const at = String(formData.get("account_type") ?? "").trim();
+    const st = String(formData.get("store") ?? "").trim();
+    if (!at || !st) {
+      return {
+        ok: false,
+        error: "Settlement Report requires Account Type and Store.",
+      };
+    }
+    if (!isSettlementAccountType(at)) {
+      return { ok: false, error: `Unknown account type: ${at}` };
+    }
+    if (!isSettlementStore(st)) {
+      return { ok: false, error: `Unknown store: ${st}` };
+    }
+    settlementAccountType = at;
+    settlementStore = st;
+  }
   if (file.size === 0) {
     return { ok: false, error: "The file is empty." };
   }
@@ -350,7 +393,10 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
               case "removal_shipments":
                 return processRemovalShipments(tx, rows, batchAt);
               case "settlement_report":
-                return processSettlementReport(tx, rows, batchAt);
+                return processSettlementReport(tx, rows, batchAt, {
+                  accountType: settlementAccountType!,
+                  store: settlementStore!,
+                });
               default:
                 throw new Error("Unsupported report type.");
             }
@@ -2640,18 +2686,42 @@ async function processPaymentRepository(
   const iStatus = findCol("transaction status");
   const iRelease = findCol("transaction release date", "release date");
 
-  const wideHeaderRow = allRows.find((r, i) => i > 0 && r && r.length >= 28);
-  const looksPayment =
-    hdr.some((h) => h.includes("settlement") && h.includes("id")) ||
-    (iProdSales !== -1 && iFba !== -1) ||
-    (iDate !== -1 &&
-      iTotal !== -1 &&
-      (iSku !== -1 || iDesc !== -1)) ||
-    Boolean(wideHeaderRow);
-
-  if (!looksPayment) {
+  // Hard reject — Settlement Report v2 flat-file uses hyphen-separated
+  // headers that overlap conceptually ("settlement-id" vs "settlement id",
+  // "transaction-type" vs "type"). The previous heuristic gate let those
+  // through. Detect the hyphen-form markers explicitly and bounce the file
+  // back so it can be uploaded under the right report type.
+  const settlementMarkers = [
+    "settlement-id",
+    "settlement-start-date",
+    "settlement-end-date",
+    "amount-type",
+    "amount-description",
+    "posted-date-time",
+    "transaction-type",
+  ];
+  const settlementHits = settlementMarkers.filter((m) => hdr.includes(m));
+  if (settlementHits.length >= 3) {
     throw new Error(
-      "Not Payment Repository — expected settlement id, totals, and SKU/description style columns.",
+      "Not Payment Repository — this looks like an Amazon Settlement Report (flat-file v2). " +
+        "Use the Settlement Report upload type instead.",
+    );
+  }
+
+  // Hard require — Payment Repository canonical headers (space form,
+  // lowercase). Reject if any are missing.
+  const REQUIRED_PAYMENT = [
+    "date/time",
+    "settlement id",
+    "type",
+    "product sales",
+    "fba fees",
+  ] as const;
+  const missingPayment = REQUIRED_PAYMENT.filter((h) => !hdr.includes(h));
+  if (missingPayment.length > 0) {
+    throw new Error(
+      `Not a valid Payment Repository — missing required column(s): ${missingPayment.join(", ")}. ` +
+        "Expected the Amazon Unified Transaction CSV (Payment Repository) headers.",
     );
   }
 
@@ -2810,9 +2880,68 @@ async function processPaymentRepository(
     return createHash("sha256").update(parts.join("\x1f")).digest("hex");
   };
 
+  // Canonical-key fingerprint — resilient to whitespace, quoting, date format,
+  // and decimal precision differences between re-exports of the same row.
+  // rowHash alone misses dupes when Amazon reformats fields between downloads
+  // (e.g. "1-Jan-26" vs "2026-01-01 00:00:00", "0" vs "0.00", smart quotes).
+  const normStr = (v: string | null | undefined): string =>
+    (v ?? "")
+      .toString()
+      .toLowerCase()
+      .replace(/[‘’“”"']/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const normDec = (v: unknown): string => {
+    if (v == null) return "";
+    try {
+      const d = v instanceof Prisma.Decimal ? v : new Prisma.Decimal(v as never);
+      return d.toFixed(2);
+    } catch {
+      return "";
+    }
+  };
+  const normDate = (v: string | null | undefined): string => {
+    const s = (v ?? "").toString().trim();
+    if (!s) return "";
+    const iso = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      const yr = d.getUTCFullYear();
+      const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dy = String(d.getUTCDate()).padStart(2, "0");
+      return `${yr}-${mo}-${dy}`;
+    }
+    return normStr(s);
+  };
+  type CanonRow = Pick<
+    PayRow,
+    | "settlementId"
+    | "lineType"
+    | "orderId"
+    | "sku"
+    | "description"
+    | "quantity"
+    | "total"
+    | "productSales"
+    | "postedDatetime"
+  >;
+  const canonicalKeyOf = (r: CanonRow): string =>
+    [
+      normStr(r.settlementId),
+      normStr(r.lineType),
+      normStr(r.orderId),
+      normStr(r.sku),
+      normStr(r.description),
+      String(r.quantity ?? 0),
+      normDec(r.total),
+      normDec(r.productSales),
+      normDate(r.postedDatetime),
+    ].join("|");
+
   let ins = 0;
   let sk = 0;
-  const valid = rows.map((r) => ({ r, hash: hashOf(r) }));
+  const valid = rows.map((r) => ({ r, hash: hashOf(r), key: canonicalKeyOf(r) }));
 
   if (valid.length > 0) {
     const existingSet = await fetchExistingHashes(
@@ -2823,8 +2952,52 @@ async function processPaymentRepository(
           select: { rowHash: true },
         }),
     );
-    for (const { r, hash } of valid) {
-      if (existingSet.has(hash)) { sk += 1; continue; }
+
+    // Second-pass: fetch any existing rows that share a settlement-id with
+    // the incoming batch and build a canonical-key set. Catches re-uploads
+    // whose rowHash drifted because of cosmetic field differences.
+    const incomingSettleIds = Array.from(
+      new Set(
+        valid
+          .map((v) => v.r.settlementId)
+          .filter((s): s is string => typeof s === "string" && s.length > 0),
+      ),
+    );
+    const existingKeySet = new Set<string>();
+    if (incomingSettleIds.length > 0) {
+      const dbRows = await tx.paymentRepository.findMany({
+        where: { settlementId: { in: incomingSettleIds } },
+        select: {
+          settlementId: true,
+          lineType: true,
+          orderId: true,
+          sku: true,
+          description: true,
+          quantity: true,
+          total: true,
+          productSales: true,
+          postedDatetime: true,
+        },
+      });
+      for (const e of dbRows) existingKeySet.add(canonicalKeyOf(e));
+    }
+    // Also dedupe within the incoming batch so an identical row repeated
+    // inside a single file is not inserted twice.
+    const batchKeySet = new Set<string>();
+    const batchHashSet = new Set<string>();
+
+    for (const { r, hash, key } of valid) {
+      if (
+        existingSet.has(hash) ||
+        existingKeySet.has(key) ||
+        batchHashSet.has(hash) ||
+        batchKeySet.has(key)
+      ) {
+        sk += 1;
+        continue;
+      }
+      batchHashSet.add(hash);
+      batchKeySet.add(key);
       await tx.$executeRaw`
         INSERT INTO "payment_repository" (
           "id", "postedDatetime", "settlementId", "lineType", "orderId", "sku", "description", "quantity",
@@ -3035,6 +3208,7 @@ async function processSettlementReport(
   tx: Tx,
   allRows: string[][],
   batchAt: Date,
+  meta: { accountType: SettlementAccountType; store: SettlementStore },
 ): Promise<ProcessOutcome> {
   const hdr = (allRows[0] ?? []).map((c) =>
     String(c ?? "")
@@ -3043,7 +3217,37 @@ async function processSettlementReport(
       .replace(/['"]/g, "")
       .replace(/﻿/g, ""),
   );
+
+  // Strict format gate — Amazon flat-file Settlement Report v2 uses hyphen-
+  // separated canonical headers (settlement-id, amount-type, …). Other
+  // Amazon exports (Payment Repository, Sales, Reimbursements) reuse some of
+  // these tokens with spaces. Match the exact hyphen form so a wrong file
+  // can't slip through.
+  const REQUIRED = [
+    "settlement-id",
+    "settlement-start-date",
+    "settlement-end-date",
+    "total-amount",
+    "transaction-type",
+    "amount-type",
+    "amount-description",
+    "amount",
+    "posted-date-time",
+  ] as const;
+  const missing = REQUIRED.filter((h) => !hdr.includes(h));
+  if (missing.length > 0) {
+    throw new Error(
+      `Not a valid Settlement Report — missing required column(s): ${missing.join(", ")}. ` +
+        "Expected the Amazon flat-file Settlement Report v2 (hyphen-separated headers).",
+    );
+  }
+
   const findCol = (...terms: string[]) => {
+    for (const t of terms) {
+      const tl = t.toLowerCase();
+      const i = hdr.findIndex((h) => h === tl);
+      if (i !== -1) return i;
+    }
     for (const t of terms) {
       const tl = t.toLowerCase();
       const i = hdr.findIndex((h) => h.includes(tl));
@@ -3052,13 +3256,9 @@ async function processSettlementReport(
     return -1;
   };
 
-  const iSettleId = findCol("settlement-id", "settlement id");
-  const iAmtType = findCol("amount-type", "amount type");
-  const iAmtDesc = findCol("amount-description", "amount description");
-
-  if (iSettleId === -1 && iAmtType === -1 && iAmtDesc === -1) {
-    throw new Error("Not a Settlement Report — wrong file format.");
-  }
+  const iSettleId = findCol("settlement-id");
+  const iAmtType = findCol("amount-type");
+  const iAmtDesc = findCol("amount-description");
 
   const iStart = findCol("settlement-start-date", "settlement start");
   const iEnd = findCol("settlement-end-date", "settlement end");
@@ -3135,6 +3335,8 @@ async function processSettlementReport(
       orderItemCode: strOrNull(get(row, iOIC)),
       postedDate: dateOrNull(get(row, iPosted)),
       postedDateTime: dateOrNull(get(row, iPostedDt)),
+      store: meta.store,
+      accountType: meta.accountType,
       uploadedAt: batchAt,
     });
   }
@@ -3148,12 +3350,64 @@ async function processSettlementReport(
     return { totalRows: 0, rowsInserted: 0, rowsSkipped: 0 };
   }
 
+  // Dedup against prior uploads. Each Amazon Settlement Report carries a
+  // unique settlement-id stamped on every row. If any of the incoming
+  // settlement-ids already exist in the DB, skip those rows so re-uploading
+  // the same file (or a file overlapping a prior batch) doesn't double-count.
+  const incomingIds = Array.from(
+    new Set(
+      records
+        .map((r) => r.settlementId)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+
+  let existingIds = new Set<string>();
+  if (incomingIds.length > 0) {
+    // Scope dedup by (settlementId, accountType, store) so the same settlement
+    // can be uploaded once per account/store combination.
+    const existing = await tx.settlementReport.findMany({
+      where: {
+        settlementId: { in: incomingIds },
+        accountType: meta.accountType,
+        store: meta.store,
+      },
+      select: { settlementId: true },
+      distinct: ["settlementId"],
+    });
+    existingIds = new Set(
+      existing
+        .map((r) => r.settlementId)
+        .filter((v): v is string => typeof v === "string"),
+    );
+  }
+
+  if (existingIds.size > 0 && existingIds.size === incomingIds.length) {
+    const idList = Array.from(existingIds).join(", ");
+    const label = SETTLEMENT_ACCOUNT_TYPE_LABELS[meta.accountType];
+    throw new Error(
+      `Settlement Report already uploaded for ${meta.store}/${label} — settlement-id(s) ${idList} exist. Delete the prior upload first if you need to replace it.`,
+    );
+  }
+
+  const fresh = records.filter(
+    (r) => !r.settlementId || !existingIds.has(r.settlementId),
+  );
+
+  if (fresh.length === 0) {
+    return {
+      totalRows: dataRows.length,
+      rowsInserted: 0,
+      rowsSkipped: dataRows.length,
+    };
+  }
+
   // Settlement Report is append-only; no unique key, so just createMany.
-  await tx.settlementReport.createMany({ data: records });
+  await tx.settlementReport.createMany({ data: fresh });
 
   return {
     totalRows: dataRows.length,
-    rowsInserted: records.length,
-    rowsSkipped: dataRows.length - records.length,
+    rowsInserted: fresh.length,
+    rowsSkipped: dataRows.length - fresh.length,
   };
 }

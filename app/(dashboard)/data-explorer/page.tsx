@@ -67,6 +67,8 @@ export default async function DataExplorerPage({
     shipmentStatus: parseParam(sp, "shipmentStatus"),
     settlementId: parseParam(sp, "settlementId"),
     transactionStatus: parseParam(sp, "transactionStatus"),
+    transactionType: parseParam(sp, "transactionType"),
+    accountType: parseParam(sp, "accountType"),
     unitStatus: parseParam(sp, "unitStatus"),
     flag: parseParam(sp, "flag"),
     adjStore: parseParam(sp, "adjStore"),

@@ -7,6 +7,12 @@ import { revalidatePath } from "next/cache";
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
 import {
+  authzErrorToMutationResult,
+  PermissionLevel,
+  PermissionModule,
+  requireLevel,
+} from "@/lib/auth/rbac";
+import {
   GradeResellCreateSchema,
   GradeResellMarkAsSoldSchema,
   GradeResellUpdateSchema,
@@ -255,9 +261,9 @@ export async function deleteGradeResellItem(
   id: string,
 ): Promise<MutationResult> {
   try {
-    await requireAuth();
+    await requireLevel(PermissionModule.RECONCILIATION, PermissionLevel.FULL);
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unauthorized." };
+    return authzErrorToMutationResult(e);
   }
   try {
     const result = await prisma.gradeResellItem.updateMany({
