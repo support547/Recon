@@ -1,151 +1,245 @@
 "use server";
 
+import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/prisma";
 import {
-  SETTLEMENT_EFFECTIVE_POSTED_MAX,
-  SETTLEMENT_VARIABLE_FEE_PER_UNIT,
-  settlementAmountPivotExpr,
-  settlementTabFilter,
-} from "@/lib/settlement/helpers";
+  PermissionLevel,
+  PermissionModule,
+  requireLevel,
+} from "@/lib/auth/rbac";
+import {
+  computeSalesRecon,
+  type SalesReconKpis,
+  type SalesReconRow,
+  type SalesReconSalesInput,
+  type SalesReconSettlementInput,
+  type SalesReconStatus,
+} from "@/lib/payment-reconciliation/sales-recon";
 
-export type SalesReconRollupRow = {
-  order_id: string;
-  sku_norm: string;
-  settlement_ids: string[];
-  qty: number;
-  sales_amount: string;
-  fba_fees: string;
-  fba_commission: string;
-  variable_fee: string;
-  other_charges: string;
-  total_amount: string;
+export type SalesReconFilters = {
+  from?: string | null;
+  to?: string | null;
+  store?: string | null;
+  statuses?: SalesReconStatus[] | null;
+  search?: string | null;
 };
 
-export type SalesReconRollupResult = {
-  orders: SalesReconRollupRow[];
-  refunds: SalesReconRollupRow[];
+export type SalesReconPayload = {
+  rows: SalesReconRow[];
+  kpis: SalesReconKpis;
+  referenceDate: string;
 };
 
-/** GET /api/sales-recon/settlement-rollup — orders + refunds rolled up by normalized (order_id, sku). */
-export async function getSalesReconRollup(): Promise<SalesReconRollupResult> {
-  const P = settlementAmountPivotExpr();
-  const twOrders = settlementTabFilter("orders");
-  const twRefunds = settlementTabFilter("refunds");
-  const baseOrders = `FROM settlement_report WHERE ${twOrders} AND order_id IS NOT NULL AND TRIM(COALESCE(order_id::text,'')) <> ''`;
-  const baseRefunds = `FROM settlement_report WHERE ${twRefunds} AND order_id IS NOT NULL AND TRIM(COALESCE(order_id::text,'')) <> ''`;
-  const oidExpr = `TRIM(REPLACE(REPLACE(COALESCE(order_id::text, ''), CHR(160), ''), CHR(65279), ''))`;
-  const skuExpr = `LOWER(TRIM(REPLACE(REPLACE(COALESCE(sku::text, ''), CHR(160), ''), CHR(65279), '')))`;
+function dec(d: Prisma.Decimal | null | undefined): number {
+  if (d == null) return 0;
+  if (typeof d === "number") return d;
+  return Number(d.toString());
+}
 
-  const ordersSql = `
-    WITH t AS (
-      SELECT settlement_id,
-             ${SETTLEMENT_EFFECTIVE_POSTED_MAX} AS posted_date,
-             order_id, sku, order_item_code,
-             MAX(quantity_purchased) AS qty,
-             ${P.sales} AS sales_amount,
-             ${P.fbaFees} AS fba_fees,
-             ${P.commission} AS fba_commission,
-             ${P.variableFee} AS variable_fee,
-             ${P.other} AS other_charges,
-             ${P.total} AS total_amount
-      ${baseOrders}
-      GROUP BY settlement_id, order_id, sku, order_item_code
-    )
-    SELECT
-      ${oidExpr} AS order_id,
-      ${skuExpr} AS sku_norm,
-      COALESCE(array_agg(DISTINCT NULLIF(TRIM(settlement_id::text), '')), ARRAY[]::text[]) AS settlement_ids,
-      SUM(qty)::bigint AS qty,
-      SUM(sales_amount)::numeric(16,4) AS sales_amount,
-      SUM(fba_fees)::numeric(16,4) AS fba_fees,
-      SUM(fba_commission)::numeric(16,4) AS fba_commission,
-      SUM(variable_fee)::numeric(16,4) AS variable_fee,
-      SUM(other_charges)::numeric(16,4) AS other_charges,
-      SUM(total_amount)::numeric(16,4) AS total_amount
-    FROM t
-    GROUP BY ${oidExpr}, ${skuExpr}
-    ORDER BY ${oidExpr}, ${skuExpr}
-  `;
+function maxDate(dates: (Date | null | undefined)[]): Date | null {
+  let max: Date | null = null;
+  for (const d of dates) {
+    if (!d) continue;
+    if (!max || d.getTime() > max.getTime()) max = d;
+  }
+  return max;
+}
 
-  const refundsSql = `
-    WITH u AS (
-      SELECT
-        t.settlement_id,
-        t.posted_date,
-        t.order_id,
-        t.sku,
-        t.order_item_code,
-        COALESCE(
-          ROUND(ABS(t.variable_fee::numeric) / ${SETTLEMENT_VARIABLE_FEE_PER_UNIT}::numeric, 0),
-          0
-        )::int AS line_qty,
-        t.sales_amount,
-        t.fba_fees,
-        t.fba_commission,
-        t.variable_fee,
-        t.other_charges,
-        t.total_amount
-      FROM (
-        SELECT settlement_id, order_id, sku, order_item_code,
-               ${SETTLEMENT_EFFECTIVE_POSTED_MAX} AS posted_date,
-               ${P.sales} AS sales_amount,
-               ${P.fbaFees} AS fba_fees,
-               ${P.commission} AS fba_commission,
-               ${P.variableFee} AS variable_fee,
-               ${P.other} AS other_charges,
-               ${P.total} AS total_amount
-        ${baseRefunds}
-        GROUP BY settlement_id, order_id, sku, order_item_code
-      ) t
-    )
-    SELECT
-      ${oidExpr} AS order_id,
-      ${skuExpr} AS sku_norm,
-      COALESCE(array_agg(DISTINCT NULLIF(TRIM(settlement_id::text), '')), ARRAY[]::text[]) AS settlement_ids,
-      SUM(line_qty)::bigint AS qty,
-      SUM(sales_amount)::numeric(16,4) AS sales_amount,
-      SUM(fba_fees)::numeric(16,4) AS fba_fees,
-      SUM(fba_commission)::numeric(16,4) AS fba_commission,
-      SUM(variable_fee)::numeric(16,4) AS variable_fee,
-      SUM(other_charges)::numeric(16,4) AS other_charges,
-      SUM(total_amount)::numeric(16,4) AS total_amount
-    FROM u
-    GROUP BY ${oidExpr}, ${skuExpr}
-    ORDER BY ${oidExpr}, ${skuExpr}
-  `;
+export async function getSalesReconData(
+  filters: SalesReconFilters = {},
+): Promise<SalesReconPayload> {
+  await requireLevel(PermissionModule.PAYMENTS, PermissionLevel.VIEW);
 
-  const [orders, refunds] = await Promise.all([
-    prisma.$queryRawUnsafe<Record<string, unknown>[]>(ordersSql),
-    prisma.$queryRawUnsafe<Record<string, unknown>[]>(refundsSql),
+  const salesWhere: Prisma.SalesDataWhereInput = { deletedAt: null };
+  if (filters.from) {
+    salesWhere.saleDate = {
+      ...(salesWhere.saleDate as object | undefined),
+      gte: new Date(filters.from),
+    };
+  }
+  if (filters.to) {
+    salesWhere.saleDate = {
+      ...(salesWhere.saleDate as object | undefined),
+      lte: new Date(filters.to + "T23:59:59"),
+    };
+  }
+  if (filters.store && filters.store.trim() !== "") {
+    salesWhere.store = filters.store.trim();
+  }
+
+  const [salesRaw, settlementRaw] = await Promise.all([
+    prisma.salesData.findMany({
+      where: salesWhere,
+      select: {
+        orderId: true,
+        saleDate: true,
+        store: true,
+        asin: true,
+        msku: true,
+        fnsku: true,
+        fc: true,
+        quantity: true,
+        productAmount: true,
+      },
+    }),
+    prisma.settlementReport.findMany({
+      where: {
+        deletedAt: null,
+        transactionType: { in: ["Order", "Refund"] },
+      },
+      select: {
+        orderId: true,
+        settlementId: true,
+        accountType: true,
+        store: true,
+        transactionType: true,
+        amountType: true,
+        amountDescription: true,
+        amount: true,
+        quantityPurchased: true,
+        postedDate: true,
+        depositDate: true,
+        sku: true,
+      },
+    }),
   ]);
 
-  return {
-    orders: orders.map(serialize),
-    refunds: refunds.map(serialize),
-  };
-}
-
-function serialize(r: Record<string, unknown>): SalesReconRollupRow {
-  return {
-    order_id: String(r.order_id ?? ""),
-    sku_norm: String(r.sku_norm ?? ""),
-    settlement_ids: Array.isArray(r.settlement_ids)
-      ? (r.settlement_ids as unknown[]).filter(Boolean).map((s) => String(s))
-      : [],
-    qty: Number(r.qty ?? 0),
-    sales_amount: decimalToStr(r.sales_amount),
-    fba_fees: decimalToStr(r.fba_fees),
-    fba_commission: decimalToStr(r.fba_commission),
-    variable_fee: decimalToStr(r.variable_fee),
-    other_charges: decimalToStr(r.other_charges),
-    total_amount: decimalToStr(r.total_amount),
-  };
-}
-
-function decimalToStr(v: unknown): string {
-  if (v == null) return "0";
-  if (typeof v === "object" && v !== null && "toString" in v) {
-    return String((v as { toString(): string }).toString());
+  const settlementByOrderSku = new Map<string, Set<string>>();
+  for (const s of settlementRaw) {
+    if (!s.orderId) continue;
+    const set = settlementByOrderSku.get(s.orderId) ?? new Set<string>();
+    if (s.sku) set.add(s.sku);
+    settlementByOrderSku.set(s.orderId, set);
   }
-  return String(v);
+
+  const salesIn: SalesReconSalesInput[] = salesRaw.map((s) => ({
+    orderId: s.orderId,
+    saleDate: s.saleDate,
+    store: s.store,
+    asin: s.asin,
+    msku: s.msku,
+    fnsku: s.fnsku,
+    fc: s.fc,
+    quantity: s.quantity,
+    productAmount: dec(s.productAmount),
+  }));
+  const settlementIn: SalesReconSettlementInput[] = settlementRaw.map((s) => ({
+    orderId: s.orderId,
+    settlementId: s.settlementId,
+    accountType: s.accountType,
+    store: s.store,
+    transactionType: s.transactionType,
+    amountType: s.amountType,
+    amountDescription: s.amountDescription,
+    amount: dec(s.amount),
+    quantityPurchased: s.quantityPurchased,
+    postedDate: s.postedDate,
+    depositDate: s.depositDate,
+  }));
+
+  const refDeposit = maxDate(settlementRaw.map((s) => s.depositDate));
+  const refPosted = maxDate(settlementRaw.map((s) => s.postedDate));
+  const referenceDate = refDeposit ?? refPosted ?? new Date();
+
+  const computed = computeSalesRecon(salesIn, settlementIn, { referenceDate });
+
+  let rows = computed.rows;
+
+  const statusFilter =
+    filters.statuses && filters.statuses.length > 0
+      ? new Set<SalesReconStatus>(filters.statuses)
+      : null;
+  if (statusFilter) {
+    rows = rows.filter((r) => statusFilter.has(r.status));
+  }
+
+  if (filters.search && filters.search.trim() !== "") {
+    const q = filters.search.trim().toLowerCase();
+    rows = rows.filter((r) => {
+      if (r.orderId.toLowerCase().includes(q)) return true;
+      if (r.msku.toLowerCase().includes(q)) return true;
+      if (r.store.toLowerCase().includes(q)) return true;
+      if (r.settlementStore.toLowerCase().includes(q)) return true;
+      if (r.lineItems.some((li) => li.msku.toLowerCase().includes(q))) {
+        return true;
+      }
+      const skus = settlementByOrderSku.get(r.orderId);
+      if (skus) {
+        for (const sku of skus) {
+          if (sku.toLowerCase().includes(q)) return true;
+        }
+      }
+      return false;
+    });
+  }
+
+  const recomputeKpis = statusFilter || (filters.search && filters.search.trim() !== "");
+  const kpis: SalesReconKpis = recomputeKpis
+    ? rebuildKpis(rows, computed.kpis.reverseOrphanCount)
+    : computed.kpis;
+
+  return {
+    rows,
+    kpis,
+    referenceDate: referenceDate.toISOString().split("T")[0],
+  };
+}
+
+function rebuildKpis(
+  rows: SalesReconRow[],
+  reverseOrphanCount: number,
+): SalesReconKpis {
+  const k: SalesReconKpis = {
+    totalOrders: 0,
+    totalSaleValue: 0,
+    paidCount: 0,
+    paidNet: 0,
+    partiallyPaidCount: 0,
+    partiallyPaidValue: 0,
+    waitingCount: 0,
+    waitingValue: 0,
+    takeActionCount: 0,
+    takeActionValue: 0,
+    replacementCount: 0,
+    replacementQty: 0,
+    refundedCount: 0,
+    refundedValue: 0,
+    totalFees: 0,
+    totalNet: 0,
+    reverseOrphanCount,
+  };
+  for (const r of rows) {
+    k.totalOrders += 1;
+    k.totalSaleValue += r.saleValue;
+    k.totalFees += r.setCommission + r.setFbaFees + r.setVarFee;
+    k.totalNet += r.netPaid;
+    switch (r.status) {
+      case "PAID":
+        k.paidCount += 1;
+        k.paidNet += r.netPaid;
+        break;
+      case "PARTIALLY_PAID":
+        k.partiallyPaidCount += 1;
+        k.partiallyPaidValue += r.saleValue;
+        break;
+      case "WAITING_PAYMENT":
+        k.waitingCount += 1;
+        k.waitingValue += r.saleValue;
+        break;
+      case "TAKE_ACTION":
+        k.takeActionCount += 1;
+        k.takeActionValue += r.saleValue;
+        break;
+      case "REPLACEMENT":
+        k.replacementCount += 1;
+        k.replacementQty += r.soldQty;
+        break;
+      case "REFUNDED":
+        k.refundedCount += 1;
+        k.refundedValue += r.saleValue;
+        break;
+    }
+  }
+  return k;
 }

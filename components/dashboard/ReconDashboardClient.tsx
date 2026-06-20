@@ -488,9 +488,7 @@ export function ReconDashboardClient(props: DashboardProps) {
         <div className="flex flex-wrap items-center gap-2">
           <QuickLink href="/upload" icon={Upload} label="Upload Reports" />
           <QuickLink href="/data-explorer" icon={Database} label="Data Explorer" />
-          <QuickLink href="/settlement-report" icon={Receipt} label="Settlement Report" />
-          <QuickLink href="/sales-reconciliation" icon={DollarSign} label="Sales Recon" />
-          <QuickLink href="/sales-orders" icon={ShoppingCart} label="Sales Orders" />
+          <QuickLink href="/settlement-report" icon={Receipt} label="Settlement Breakup" />
         </div>
       </section>
         </>

@@ -9,9 +9,10 @@ import {
   Box,
   Boxes,
   ChevronDown,
+  ClipboardCheck,
   ClipboardList,
+  Coins,
   Database,
-  DollarSign,
   FolderOpen,
   History,
   LayoutDashboard,
@@ -22,12 +23,12 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
-  ShoppingCart,
   Tag,
   Truck,
   Upload,
   UserCircle,
   Users,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -62,6 +63,12 @@ const RECON_CHILDREN: NavLeaf[] = [
   { type: "link", href: "/full-reconciliation", label: "Full Inventory Recon", icon: Boxes },
 ];
 
+const PAYMENT_RECON_CHILDREN: NavLeaf[] = [
+  { type: "link", href: "/payment-reconciliation/sales-recon", label: "Sales Recon", icon: ClipboardCheck },
+  { type: "link", href: "/settlement-report", label: "Settlement Recon", icon: Receipt },
+  { type: "link", href: "/payment-reconciliation/fees-reimbursements", label: "Fees & Reimbursements", icon: Coins },
+];
+
 const SETTINGS_CHILDREN: NavLeaf[] = [
   { type: "link", href: "/settings/users", label: "Users", icon: Users },
   { type: "link", href: "/settings/audit", label: "Audit Log", icon: History },
@@ -78,10 +85,14 @@ const BASE_NAV_ITEMS: NavItem[] = [
     icon: Layers,
     children: RECON_CHILDREN,
   },
+  {
+    type: "group",
+    id: "payment-reconciliation",
+    label: "Payment Reconciliation",
+    icon: Wallet,
+    children: PAYMENT_RECON_CHILDREN,
+  },
   { type: "link", href: "/cases-adjustments", label: "Cases & Adjustments", icon: FolderOpen },
-  { type: "link", href: "/settlement-report", label: "Settlement Report", icon: Receipt },
-  { type: "link", href: "/sales-reconciliation", label: "Sales Recon", icon: DollarSign },
-  { type: "link", href: "/sales-orders", label: "Sales Orders", icon: ShoppingCart },
 ];
 
 const PROFILE_ITEM: NavLeaf = {
@@ -168,19 +179,19 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) 
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col border-r border-slate-800/60 bg-slate-900 text-slate-100 shadow-2xl transition-transform duration-200 ease-out lg:translate-x-0 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col border-r border-zinc-200 bg-zinc-100 text-zinc-700 shadow-2xl transition-transform duration-200 ease-out lg:translate-x-0 lg:shadow-none",
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
       >
-        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-slate-800/60 px-4">
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-zinc-200 px-4">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-inner">
             <Box className="size-[18px]" aria-hidden />
           </div>
           <div className="min-w-0 leading-tight">
-            <div className="truncate text-sm font-semibold tracking-tight text-white">
+            <div className="truncate text-sm font-semibold tracking-tight text-zinc-900">
               InvenSync
             </div>
-            <div className="truncate text-[10px] font-medium uppercase tracking-wider text-slate-400">
+            <div className="truncate text-[10px] font-medium uppercase tracking-wider text-zinc-500">
               FBA Inventory ERP
             </div>
           </div>
@@ -202,14 +213,14 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) 
                   className={cn(
                     "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
                     active
-                      ? "border-l-2 border-blue-400 bg-blue-500/15 text-white"
-                      : "border-l-2 border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-100",
+                      ? "border-l-2 border-indigo-600 bg-indigo-50 text-indigo-700"
+                      : "border-l-2 border-transparent text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900",
                   )}
                 >
                   <Icon
                     className={cn(
                       "size-[18px] shrink-0",
-                      active ? "text-blue-400" : "text-slate-500",
+                      active ? "text-indigo-600" : "text-zinc-400",
                     )}
                     aria-hidden
                   />
@@ -232,21 +243,21 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) 
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
                     hasActiveChild
-                      ? "border-l-2 border-blue-400 bg-blue-500/10 text-white"
-                      : "border-l-2 border-transparent text-slate-300 hover:bg-slate-800/60 hover:text-slate-100",
+                      ? "border-l-2 border-indigo-600 bg-indigo-50 text-indigo-700"
+                      : "border-l-2 border-transparent text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900",
                   )}
                 >
                   <Icon
                     className={cn(
                       "size-[18px] shrink-0",
-                      hasActiveChild ? "text-blue-400" : "text-slate-500",
+                      hasActiveChild ? "text-indigo-600" : "text-zinc-400",
                     )}
                     aria-hidden
                   />
                   <span className="flex-1 truncate text-left">{label}</span>
                   <ChevronDown
                     className={cn(
-                      "size-4 shrink-0 text-slate-500 transition-transform duration-200",
+                      "size-4 shrink-0 text-zinc-400 transition-transform duration-200",
                       isOpen ? "rotate-180" : "rotate-0",
                     )}
                     aria-hidden
@@ -268,14 +279,14 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) 
                           className={cn(
                             "flex items-center gap-2.5 rounded-lg px-3 py-1.5 text-[12.5px] font-medium transition-colors",
                             active
-                              ? "border-l-2 border-blue-400 bg-blue-500/15 text-white"
-                              : "border-l-2 border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-100",
+                              ? "border-l-2 border-indigo-600 bg-indigo-50 text-indigo-700"
+                              : "border-l-2 border-transparent text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900",
                           )}
                         >
                           <ChildIcon
                             className={cn(
                               "size-[16px] shrink-0",
-                              active ? "text-blue-400" : "text-slate-500",
+                              active ? "text-indigo-600" : "text-zinc-400",
                             )}
                             aria-hidden
                           />
@@ -290,11 +301,11 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) 
           })}
         </nav>
 
-        <div className="shrink-0 border-t border-slate-800/60 px-3 py-3 text-[11px] text-slate-500">
-          <div className="rounded-lg bg-slate-800/40 px-2.5 py-2 leading-relaxed">
-            <span className="font-medium text-slate-300">Environment</span>
-            <span className="mx-1.5 text-slate-600">·</span>
-            <span className="text-slate-400">Local</span>
+        <div className="shrink-0 border-t border-zinc-200 px-3 py-3 text-[11px] text-zinc-500">
+          <div className="rounded-lg bg-zinc-200/60 px-2.5 py-2 leading-relaxed">
+            <span className="font-medium text-zinc-700">Environment</span>
+            <span className="mx-1.5 text-zinc-400">·</span>
+            <span className="text-zinc-500">Local</span>
           </div>
         </div>
       </aside>

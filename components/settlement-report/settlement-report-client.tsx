@@ -246,7 +246,7 @@ export function SettlementReportClient({
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-4">
         <div>
           <h2 className="text-xl font-semibold tracking-tight">
-            Settlement Report
+            Settlement Breakup
           </h2>
           <p className="mt-0.5 max-w-2xl text-xs text-muted-foreground">
             Amazon settlement summary — orders, refunds, and other line items.
