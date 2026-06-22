@@ -18,6 +18,7 @@ import {
   LayoutDashboard,
   Layers,
   Package,
+  PackageCheck,
   SlidersHorizontal,
   Receipt,
   RefreshCw,
@@ -65,6 +66,7 @@ const RECON_CHILDREN: NavLeaf[] = [
 
 const PAYMENT_RECON_CHILDREN: NavLeaf[] = [
   { type: "link", href: "/payment-reconciliation/sales-recon", label: "Sales Recon", icon: ClipboardCheck },
+  { type: "link", href: "/payment-reconciliation/inbound-recon", label: "Inbound Recon", icon: PackageCheck },
   { type: "link", href: "/settlement-report", label: "Settlement Recon", icon: Receipt },
   { type: "link", href: "/payment-reconciliation/fees-reimbursements", label: "Fees & Reimbursements", icon: Coins },
 ];
