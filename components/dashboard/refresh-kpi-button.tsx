@@ -17,9 +17,20 @@ type RefreshKpiButtonProps = {
    * If omitted the button only triggers router.refresh().
    */
   refreshAction?: () => Promise<RefreshActionResult>;
+  /** Button label. Defaults to "Refresh KPIs". */
+  label?: string;
+  /**
+   * Format the success toast given the rowsUpserted count returned by
+   * the server action. Defaults to the KPI-style "Refreshed N SKUs." message.
+   */
+  successMessage?: (rowsUpserted: number | undefined) => string;
 };
 
-export function RefreshKpiButton({ refreshAction }: RefreshKpiButtonProps) {
+export function RefreshKpiButton({
+  refreshAction,
+  label = "Refresh KPIs",
+  successMessage,
+}: RefreshKpiButtonProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
 
@@ -31,11 +42,15 @@ export function RefreshKpiButton({ refreshAction }: RefreshKpiButtonProps) {
           toast.error(res.error);
           return;
         }
-        toast.success(
-          res.rowsUpserted != null
-            ? `Refreshed ${res.rowsUpserted.toLocaleString()} SKUs.`
-            : "Reconciliation summary refreshed.",
-        );
+        if (successMessage) {
+          toast.success(successMessage(res.rowsUpserted));
+        } else {
+          toast.success(
+            res.rowsUpserted != null
+              ? `Refreshed ${res.rowsUpserted.toLocaleString()} SKUs.`
+              : "Reconciliation summary refreshed.",
+          );
+        }
       } else {
         toast.info("Refreshing dashboard…");
       }
@@ -59,7 +74,7 @@ export function RefreshKpiButton({ refreshAction }: RefreshKpiButtonProps) {
         className={`size-3.5 ${pending ? "animate-spin" : ""}`}
         aria-hidden
       />
-      Refresh KPIs
+      {label}
     </Button>
   );
 }

@@ -21,6 +21,7 @@ import {
   type UploadSummaryRow,
 } from "@/lib/upload-report-types";
 import { requireAuth } from "@/actions/auth";
+import { syncInboundSnapshotsForShipmentIds } from "@/actions/inbound-recon";
 import {
   authzErrorToMutationResult,
   PermissionLevel,
@@ -1875,6 +1876,21 @@ async function processShipmentStatus(
         ins += 1;
       }
     }
+  }
+
+  const batchShipmentIds = Array.from(byShipmentId.keys());
+  if (batchShipmentIds.length > 0) {
+    // Deferred so the surrounding $transaction commits before snapshot
+    // lookups run — otherwise the new ShipmentStatus rows aren't visible
+    // to a separate Prisma connection yet.
+    setImmediate(() => {
+      void syncInboundSnapshotsForShipmentIds(batchShipmentIds).catch((err) => {
+        console.warn(
+          "[upload] inbound snapshot sync after shipment_status upload failed:",
+          err instanceof Error ? err.message : err,
+        );
+      });
+    });
   }
 
   return { totalRows: rows.length, rowsInserted: ins + upd, rowsSkipped: sk };

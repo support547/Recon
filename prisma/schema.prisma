@@ -1039,3 +1039,32 @@ model ReconciliationSummary {
   @@index([store])
   @@map("reconciliation_summary")
 }
+
+model InboundShipment {
+  id               String    @id @default(cuid())
+  shipmentId       String                                // Amazon Shipment ID, e.g. FBA197CMP0XH
+  manualProcFee    Decimal?  @db.Decimal(12, 2) @map("manual_proc_fee")    // FBA manual processing fee
+  placementFee     Decimal?  @db.Decimal(12, 2) @map("placement_fee")      // Total inbound placement service fees
+  partneredCarrier Decimal?  @db.Decimal(12, 2) @map("partnered_carrier")  // Amazon partnered carrier cost
+
+  // Snapshot fields copied from ShipmentStatus at upsert / Shipping Queue upload.
+  shipmentName     String?
+  createdDate      DateTime?
+  lastUpdated      DateTime?
+  unitsLocated     Int?
+  shipmentStatus   String?
+  shipTo           String?
+
+  // Actuals pulled from SettlementReport (sums per inbound fee description).
+  settledTransport Decimal? @db.Decimal(12, 2)
+  settledPlacement Decimal? @db.Decimal(12, 2)
+  settlementIds    String?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@index([shipmentId])
+  @@map("inbound_shipments")
+}
+

@@ -116,6 +116,10 @@ const TABLES: Record<string, TableSpec> = {
     prismaModel: "paymentRepository",
     searchFields: ["settlementId", "orderId", "sku"],
   },
+  inbound_shipments: {
+    prismaModel: "inboundShipment",
+    searchFields: ["shipmentId"],
+  },
 };
 
 function csvEscape(v: unknown): string {
