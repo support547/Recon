@@ -1,4 +1,4 @@
-# FBA Reconciliation ERP
+# Edubooks ERP — FBA Reconciliation System
 
 Next.js 16 + TypeScript + Prisma + PostgreSQL app for reconciling Amazon FBA inventory across shipments, sales, returns, removals, FC transfers, replacements, GNR, adjustments, and settlements.
 
@@ -59,7 +59,7 @@ Middleware lives in `proxy.ts` (Next.js 16 convention — replaces `middleware.t
 
 | Report | Target table | Source |
 |---|---|---|
-| `shipped_to_fba` | `shipped_to_fba` | InvenSync export |
+| `shipped_to_fba` | `shipped_to_fba` | Edubooks export |
 | `sales_data` | `sales_data` | Amazon Sales (Flat File) |
 | `fba_receipts` | `fba_receipts` | Inventory Event Detail |
 | `customer_returns` | `customer_returns` | FBA Customer Returns |

@@ -138,6 +138,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = u.id;
         token.role = u.role;
         token.companyId = u.companyId;
+        return token;
+      }
+
+      // Subsequent calls (no fresh `user`): the cookie is being restored.
+      // Re-validate the user still exists and is active in the control DB; if
+      // not, return null to invalidate the session and clear the cookie. Why:
+      // a stale `token.id` from a previous login (after a control-DB reset,
+      // hard delete, or suspension) would otherwise 500 every downstream
+      // getTenantPrisma() call instead of bouncing the user back to /login.
+      if (token?.id) {
+        try {
+          const dbUser = await controlPrisma.user.findUnique({
+            where: { id: token.id },
+            select: { isActive: true, role: true, companyId: true },
+          });
+          if (!dbUser || !dbUser.isActive) return null;
+          // Keep role/companyId fresh so admin changes propagate on next request.
+          token.role = dbUser.role;
+          token.companyId = dbUser.companyId;
+        } catch {
+          // Transient control-DB error: keep the token instead of logging
+          // every user out on a single blip.
+        }
       }
       return token;
     },

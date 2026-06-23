@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { redirect } from "next/navigation";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
@@ -66,7 +67,9 @@ export const getTenantPrisma = cache(async (): Promise<PrismaClient> => {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) {
-    throw new Error("Unauthorized: no active session.");
+    // No active session (cookie missing or just invalidated by the jwt
+    // callback): bounce to /login instead of surfacing a 500 to the user.
+    redirect("/login");
   }
 
   const user = await controlPrisma.user.findUnique({
@@ -74,7 +77,10 @@ export const getTenantPrisma = cache(async (): Promise<PrismaClient> => {
     select: { isActive: true, company: { select: { databaseUrl: true } } },
   });
   if (!user || !user.isActive) {
-    throw new Error("Unauthorized: user not found or inactive.");
+    // Defense in depth: the jwt callback already returns null on this case,
+    // but a stale in-memory token could slip past in dev with HMR. Redirect
+    // so the next request goes through fresh auth.
+    redirect("/login");
   }
   return getTenantPrismaByUrl(user.company.databaseUrl);
 });

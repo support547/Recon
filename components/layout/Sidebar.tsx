@@ -1,12 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 import { useEffect, useState } from "react";
 import {
   ArrowLeftRight,
-  Box,
   Boxes,
   ChevronDown,
   ClipboardCheck,
@@ -186,15 +186,20 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) 
         )}
       >
         <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-zinc-200 px-4">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-inner">
-            <Box className="size-[18px]" aria-hidden />
-          </div>
+          <Image
+            src="/edubooks-logo.svg"
+            alt="Edubooks ERP"
+            width={36}
+            height={36}
+            priority
+            className="size-9 shrink-0"
+          />
           <div className="min-w-0 leading-tight">
             <div className="truncate text-sm font-semibold tracking-tight text-zinc-900">
-              InvenSync
+              Edubooks ERP
             </div>
-            <div className="truncate text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-              FBA Inventory ERP
+            <div className="truncate text-[10px] font-medium text-zinc-500">
+              FBA Reconciliation System
             </div>
           </div>
         </div>
