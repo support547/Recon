@@ -2,16 +2,16 @@ import * as React from "react";
 
 import { BootstrapForm } from "@/components/auth/bootstrap-form";
 import { LoginForm } from "@/components/auth/login-form";
-import { prisma } from "@/lib/prisma";
+import { controlPrisma } from "@/lib/control-prisma";
 
 export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
   let userCount = 0;
   try {
-    userCount = await prisma.user.count();
+    userCount = await controlPrisma.user.count();
   } catch {
-    // DB unreachable — fall through to login form; signIn will surface error.
+    // Control DB unreachable — fall through to login form; signIn will surface error.
   }
 
   const bootstrapping = userCount === 0;

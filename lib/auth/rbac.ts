@@ -177,6 +177,8 @@ export type AuthSession = {
   email: string;
   name: string;
   role: UserRole;
+  /** Empty when AUTH_ENABLED=false (dev stub). */
+  companyId: string;
 };
 
 /**
@@ -193,6 +195,7 @@ export async function requireSession(): Promise<AuthSession> {
       email: "system@local",
       name: "System",
       role: UserRole.ADMIN,
+      companyId: "system",
     };
   }
   const session = await auth();
@@ -204,6 +207,7 @@ export async function requireSession(): Promise<AuthSession> {
     email: session.user.email ?? "",
     name: session.user.name ?? "",
     role: session.user.role as UserRole,
+    companyId: session.user.companyId,
   };
 }
 
@@ -219,6 +223,7 @@ export async function getOptionalSession(): Promise<AuthSession | null> {
       email: "system@local",
       name: "System",
       role: UserRole.ADMIN,
+      companyId: "system",
     };
   }
   const session = await auth();
@@ -228,6 +233,7 @@ export async function getOptionalSession(): Promise<AuthSession | null> {
     email: session.user.email ?? "",
     name: session.user.name ?? "",
     role: session.user.role as UserRole,
+    companyId: session.user.companyId,
   };
 }
 

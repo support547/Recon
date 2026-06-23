@@ -2,7 +2,7 @@ import "server-only";
 import { headers } from "next/headers";
 import { AuditAction, Prisma } from "@prisma/client";
 
-import { prisma } from "@/lib/prisma";
+import { getTenantPrisma, getTenantPrismaByUrl } from "@/lib/prisma";
 
 export { AuditAction };
 
@@ -15,23 +15,19 @@ export type AuditMetadata =
 
 export type RecordAuditInput = {
   action: AuditAction;
-  /** Null for failed logins and system-generated events; an actor id otherwise. */
   actorId?: string | null;
-  /** Snapshot — preserved even if the actor user is later deleted. */
   actorEmail?: string | null;
   targetType?: string | null;
   targetId?: string | null;
   targetEmail?: string | null;
   summary: string;
   metadata?: AuditMetadata;
-  /** Optional override; otherwise read from the incoming request headers. */
   ipAddress?: string | null;
+  /** Explicit tenant DB URL (used by login flow where session isn't ready
+   *  yet). When omitted, the tenant client is resolved from the session. */
+  databaseUrl?: string | null;
 };
 
-/**
- * Best-effort client IP from common reverse-proxy headers. Returns null when
- * we cannot derive one (e.g. called outside a request scope).
- */
 async function readClientIp(): Promise<string | null> {
   try {
     const h = await headers();
@@ -55,16 +51,13 @@ function normalizeMetadata(
   return metadata as Prisma.InputJsonValue;
 }
 
-/**
- * Append-only audit log writer. Writes exactly one row and never updates or
- * deletes existing rows. Failures are swallowed and logged — audit writes
- * MUST NOT break the calling action (e.g. a successful login must not be
- * rejected because the audit insert hit a transient DB error).
- */
 export async function recordAudit(input: RecordAuditInput): Promise<void> {
   const ipAddress = input.ipAddress ?? (await readClientIp());
 
   try {
+    const prisma = input.databaseUrl
+      ? getTenantPrismaByUrl(input.databaseUrl)
+      : await getTenantPrisma();
     await prisma.auditLog.create({
       data: {
         action: input.action,

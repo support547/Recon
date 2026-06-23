@@ -4,10 +4,13 @@ import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { UserRole } from "@prisma/client";
 
 import { auth, signIn, signOut } from "@/auth";
-import { prisma } from "@/lib/prisma";
+import {
+  controlPrisma,
+  UserRole,
+} from "@/lib/control-prisma";
+import { getTenantPrismaByUrl } from "@/lib/prisma";
 
 export type AuthMutationResult<T = void> =
   | { ok: true; data?: T }
@@ -43,35 +46,55 @@ const ChangePasswordSchema = z
 
 const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
 
-/** Used by every mutating server action to gate access.
- *
- *  While the ERP is being built (AUTH_ENABLED !== "true") this returns a stub
- *  system user so mutations succeed without a session. Flip AUTH_ENABLED=true
- *  in .env once the auth flow is reactivated.
- */
+/** Auth-gate for every mutating server action.
+ *  Returns the control-DB identity of the caller plus the resolved tenant
+ *  databaseUrl, so callers can pass it straight to getTenantPrismaByUrl when
+ *  they want to avoid the session round-trip in getTenantPrisma. */
 export async function requireAuth(): Promise<{
   id: string;
   email: string;
   role: UserRole;
   name: string;
+  companyId: string;
+  databaseUrl: string;
 }> {
   if (!AUTH_ENABLED) {
+    const devUrl = process.env.DEV_TENANT_DATABASE_URL ?? "";
     return {
       id: "system",
       email: "system@local",
       role: UserRole.ADMIN,
       name: "System",
+      companyId: "system",
+      databaseUrl: devUrl,
     };
   }
   const session = await auth();
   if (!session?.user?.id) {
     throw new Error("Unauthorized: please sign in.");
   }
+  const user = await controlPrisma.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      companyId: true,
+      isActive: true,
+      company: { select: { databaseUrl: true } },
+    },
+  });
+  if (!user || !user.isActive) {
+    throw new Error("Unauthorized: user not found or inactive.");
+  }
   return {
-    id: session.user.id,
-    email: session.user.email ?? "",
-    role: session.user.role as UserRole,
-    name: session.user.name ?? "",
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    name: user.name ?? user.email,
+    companyId: user.companyId,
+    databaseUrl: user.company.databaseUrl,
   };
 }
 
@@ -123,9 +146,9 @@ export async function signOutAction(): Promise<void> {
 }
 
 /**
- * Create a user. The very first user created in the system is automatically
- * promoted to ADMIN regardless of the requested role. Subsequent creations
- * require an authenticated ADMIN caller.
+ * Create a user inside the caller's tenant. Dual-write: control DB holds the
+ * auth credentials; the tenant DB gets a matching User row so FK-bearing
+ * tables (audit_logs.actor, user_permission_overrides.user) resolve.
  */
 export async function createUser(
   raw: unknown,
@@ -136,33 +159,42 @@ export async function createUser(
   }
   const v = parsed.data;
 
-  const existingCount = await prisma.user.count();
-  if (existingCount > 0) {
-    try {
-      await requireRole(UserRole.ADMIN);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Forbidden.";
-      return { ok: false, error: msg };
-    }
+  let caller;
+  try {
+    caller = await requireRole(UserRole.ADMIN);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Forbidden.";
+    return { ok: false, error: msg };
   }
 
-  const existing = await prisma.user.findUnique({
+  const existing = await controlPrisma.user.findUnique({
     where: { email: v.email },
   });
   if (existing) return { ok: false, error: "Email already registered." };
 
   const passwordHash = await bcrypt.hash(v.password, 12);
-  const role = existingCount === 0 ? UserRole.ADMIN : v.role;
+  const tenantPrisma = getTenantPrismaByUrl(caller.databaseUrl);
 
   try {
-    const user = await prisma.user.create({
+    const user = await controlPrisma.user.create({
       data: {
         name: v.name,
         email: v.email,
         passwordHash,
-        role,
+        role: v.role,
+        companyId: caller.companyId,
       },
       select: { id: true, role: true },
+    });
+    // Mirror into tenant DB so audit/permission FKs resolve.
+    await tenantPrisma.user.create({
+      data: {
+        id: user.id,
+        name: v.name,
+        email: v.email,
+        passwordHash,
+        role: v.role,
+      },
     });
     revalidatePath("/");
     return { ok: true, data: user };
@@ -190,7 +222,9 @@ export async function changePassword(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid." };
   }
 
-  const dbUser = await prisma.user.findUnique({ where: { id: user.id } });
+  const dbUser = await controlPrisma.user.findUnique({
+    where: { id: user.id },
+  });
   if (!dbUser) return { ok: false, error: "User not found." };
 
   const ok = await bcrypt.compare(
@@ -201,7 +235,7 @@ export async function changePassword(
 
   const newHash = await bcrypt.hash(parsed.data.newPassword, 12);
   try {
-    await prisma.user.update({
+    await controlPrisma.user.update({
       where: { id: user.id },
       data: { passwordHash: newHash },
     });

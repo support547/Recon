@@ -12,6 +12,7 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { controlPrisma } from "@/lib/control-prisma";
 import { recordAudit } from "@/lib/auth/audit";
 import {
   assertNotLastActiveAdmin,
@@ -227,6 +228,17 @@ export async function createUser(
       },
       select: { id: true, email: true, role: true },
     });
+    // Mirror auth credentials to control DB so this user can sign in.
+    await controlPrisma.user.create({
+      data: {
+        id: user.id,
+        email: v.email,
+        passwordHash,
+        name: v.name,
+        role: v.role,
+        companyId: admin.companyId,
+      },
+    });
     await recordAudit({
       action: AuditAction.USER_CREATED,
       actorId: admin.id,
@@ -337,6 +349,17 @@ export async function updateUser(
       },
       select: { id: true, email: true, role: true },
     });
+    // Mirror auth-critical fields to control DB.
+    if (v.name !== undefined || v.email !== undefined || v.role !== undefined) {
+      await controlPrisma.user.update({
+        where: { id: existing.id },
+        data: {
+          ...(v.name !== undefined ? { name: v.name } : {}),
+          ...(v.email !== undefined ? { email: v.email } : {}),
+          ...(v.role !== undefined ? { role: v.role } : {}),
+        },
+      });
+    }
 
     await recordAudit({
       action: AuditAction.USER_UPDATED,
@@ -440,6 +463,10 @@ export async function setUserActive(
 
   try {
     await prisma.user.update({
+      where: { id: existing.id },
+      data: { isActive: active },
+    });
+    await controlPrisma.user.update({
       where: { id: existing.id },
       data: { isActive: active },
     });
@@ -609,6 +636,10 @@ export async function resetUserPassword(
       where: { id: existing.id },
       data: { passwordHash, mustChangePassword: true },
     });
+    await controlPrisma.user.update({
+      where: { id: existing.id },
+      data: { passwordHash },
+    });
 
     await recordAudit({
       action: AuditAction.USER_PASSWORD_RESET,
@@ -656,6 +687,10 @@ export async function deleteUser(id: string): Promise<MutationResult> {
     await prisma.user.update({
       where: { id: existing.id },
       data: { deletedAt: new Date(), isActive: false },
+    });
+    await controlPrisma.user.update({
+      where: { id: existing.id },
+      data: { isActive: false },
     });
 
     await recordAudit({

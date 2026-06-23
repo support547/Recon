@@ -1,0 +1,50 @@
+// =============================================================
+// Control DB — single source of truth for tenants + auth.
+// Per-tenant business data lives in each company's own DB
+// (databaseUrl). DO NOT add business tables here.
+// =============================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../lib/control-prisma/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  VENDOR
+  VIEWER
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  databaseUrl String   @map("database_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  users User[]
+
+  @@map("companies")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String?
+  role         UserRole @default(VIEWER)
+  isActive     Boolean  @default(true) @map("is_active")
+  companyId    String   @map("company_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  lastLoginAt  DateTime? @map("last_login_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("users")
+}

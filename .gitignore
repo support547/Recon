@@ -23,3 +23,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Generated control Prisma client
+lib/control-prisma/generated/
