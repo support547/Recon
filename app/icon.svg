@@ -1,0 +1,6 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Edubooks">
+  <g fill="none" stroke="#F4B81B" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 78 14 Q 28 14, 28 32 Q 28 48, 78 46" />
+    <path d="M 78 54 Q 28 52, 28 70 Q 28 86, 78 86" />
+  </g>
+</svg>

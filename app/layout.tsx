@@ -28,7 +28,7 @@ const dmMono = DM_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FBA Reconciliation ERP",
+  title: "Edubooks ERP",
   description: "Amazon FBA inventory and settlement reconciliation",
 };
 
