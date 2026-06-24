@@ -614,6 +614,12 @@ async function processShipped(
   let nullShipmentTouched = false;
 
   if (isTsv) {
+    const row0Label = String(allRows[0]?.[0] ?? "").toLowerCase();
+    if (!row0Label.includes("shipment id") && !row0Label.includes("shipment-id")) {
+      throw new Error(
+        'Not a valid Shipped to FBA report — first row should label "Shipment ID".',
+      );
+    }
     const shipmentId = String(allRows[0]?.[1] ?? "").trim();
     const nameVal = String(allRows[1]?.[1] ?? "").trim();
     let shipDate: Date | null = null;
@@ -667,6 +673,38 @@ async function processShipped(
     );
     const findCol = (...names: string[]) =>
       header.findIndex((h) => names.some((n) => h === n));
+
+    const FOREIGN_MARKERS = [
+      "amazon order id",
+      "amazon-order-id",
+      "reimbursement-id",
+      "reimbursement id",
+      "removal-order-id",
+      "removal order id",
+      "return-date",
+      "return date",
+      "original-order-id",
+      "original order id",
+      "event type",
+      "event-type",
+      "adjustment-id",
+      "adjustment id",
+      "settlement-id",
+      "settlement id",
+      "transaction-type",
+      "transaction type",
+      "case-id",
+      "case id",
+    ];
+    const foreign = header.find((h) =>
+      FOREIGN_MARKERS.some((m) => h.includes(m)),
+    );
+    if (foreign) {
+      throw new Error(
+        `Not a valid Shipped to FBA report — file looks like a different report (found "${foreign}" column).`,
+      );
+    }
+
     const idx = {
       date: findCol("date"),
       shipmentId: findCol("shipment id", "shipment-id", "shipmentid"),
@@ -674,11 +712,11 @@ async function processShipped(
       title: findCol("title"),
       asin: findCol("asin"),
       fnsku: findCol("fnsku"),
-      shipped: findCol("shipped", "quantity", "qty", "shipped quantity"),
+      shipped: findCol("shipped", "shipped quantity", "shipped-quantity"),
     };
-    if (idx.msku === -1 || idx.shipped === -1) {
+    if (idx.msku === -1 || idx.shipped === -1 || idx.shipmentId === -1) {
       throw new Error(
-        'Not a valid Shipped to FBA report — need "Merchant SKU" and "Shipped" columns.',
+        'Not a valid Shipped to FBA report — need "Merchant SKU", "Shipment ID" and "Shipped" columns.',
       );
     }
 
