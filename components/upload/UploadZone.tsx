@@ -27,11 +27,24 @@ import { cn } from "@/lib/utils";
 const ACCEPT =
   ".csv,.tsv,.txt,.xlsx,.xlsm,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/tab-separated-values";
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 type ResultMsg =
   | { kind: "ok"; text: string }
   | { kind: "warn"; text: string }
   | { kind: "err"; text: string }
   | null;
+
+type PerFileResult = {
+  name: string;
+  size: number;
+  status: "pending" | "uploading" | "ok" | "error";
+  message: string | null;
+};
 
 type UploadZoneProps = {
   selectedType: ReportTypeValue;
@@ -55,11 +68,15 @@ export function UploadZone({
   React.useEffect(() => {
     onPendingChange?.(isPending);
   }, [isPending, onPendingChange]);
-  const [file, setFile] = React.useState<File | null>(null);
+  const [files, setFiles] = React.useState<File[]>([]);
   const [isDragging, setIsDragging] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [showProgress, setShowProgress] = React.useState(false);
   const [result, setResult] = React.useState<ResultMsg>(null);
+  const [multiResults, setMultiResults] = React.useState<PerFileResult[]>([]);
+  const [multiProgress, setMultiProgress] = React.useState<
+    { current: number; total: number } | null
+  >(null);
   const [accountType, setAccountType] = React.useState<"" | SettlementAccountType>(
     "",
   );
@@ -69,9 +86,13 @@ export function UploadZone({
     null,
   );
 
+  const isShipped = selectedType === "shipped_to_fba";
+
   React.useEffect(() => {
     setResult(null);
-    setFile(null);
+    setFiles([]);
+    setMultiResults([]);
+    setMultiProgress(null);
     setShowProgress(false);
     setProgress(0);
     setAccountType("");
@@ -89,11 +110,34 @@ export function UploadZone({
     };
   }, []);
 
-  const pickFiles = React.useCallback((list: FileList | null) => {
-    const next = list?.[0];
-    if (!next) return;
-    setFile(next);
-    setResult(null);
+  const pickFiles = React.useCallback(
+    (list: FileList | null) => {
+      if (!list || list.length === 0) return;
+      const incoming = Array.from(list);
+      if (selectedType === "shipped_to_fba") {
+        setFiles((prev) => {
+          const seen = new Set(prev.map((f) => `${f.name}::${f.size}`));
+          const merged = [...prev];
+          for (const f of incoming) {
+            const key = `${f.name}::${f.size}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(f);
+          }
+          return merged;
+        });
+        setMultiResults([]);
+        setResult(null);
+      } else {
+        setFiles([incoming[0]]);
+        setResult(null);
+      }
+    },
+    [selectedType],
+  );
+
+  const removeFileAt = React.useCallback((index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
   const handleDragEnter = (e: React.DragEvent) => {
@@ -128,7 +172,7 @@ export function UploadZone({
   const settlementMetaReady = !isSettlement || (accountType && store);
 
   const handleUpload = () => {
-    if (!file) {
+    if (files.length === 0) {
       toast.error("Choose a file", {
         description: "Drop a CSV, TSV, or Excel file, or click to browse.",
       });
@@ -145,6 +189,90 @@ export function UploadZone({
     setShowProgress(true);
     setProgress(0);
 
+    if (isShipped) {
+      const list = files;
+      const initial: PerFileResult[] = list.map((f) => ({
+        name: f.name,
+        size: f.size,
+        status: "pending",
+        message: null,
+      }));
+      setMultiResults(initial);
+      setMultiProgress({ current: 0, total: list.length });
+
+      startTransition(async () => {
+        for (let i = 0; i < list.length; i++) {
+          const f = list[i];
+          setMultiProgress({ current: i + 1, total: list.length });
+          setMultiResults((prev) =>
+            prev.map((r, idx) =>
+              idx === i ? { ...r, status: "uploading" } : r,
+            ),
+          );
+          setProgress(Math.round((i / list.length) * 90));
+
+          const fd = new FormData();
+          fd.set("report_type", selectedType);
+          fd.set("file", f);
+
+          try {
+            const httpRes = await fetch("/api/uploads", {
+              method: "POST",
+              body: fd,
+            });
+            const res = (await httpRes.json()) as UploadFileResult;
+            if (res.ok) {
+              const { description } = uploadResultDescription(
+                res.rowsInserted,
+                res.rowsSkipped,
+                res.totalInFile,
+                res.filename,
+              );
+              setMultiResults((prev) =>
+                prev.map((r, idx) =>
+                  idx === i
+                    ? { ...r, status: "ok", message: description }
+                    : r,
+                ),
+              );
+            } else {
+              setMultiResults((prev) =>
+                prev.map((r, idx) =>
+                  idx === i
+                    ? {
+                        ...r,
+                        status: "error",
+                        message: `❌ Error: ${res.error}`,
+                      }
+                    : r,
+                ),
+              );
+            }
+          } catch (err) {
+            const msg =
+              err instanceof Error ? err.message : "Something went wrong.";
+            setMultiResults((prev) =>
+              prev.map((r, idx) =>
+                idx === i
+                  ? { ...r, status: "error", message: `❌ Error: ${msg}` }
+                  : r,
+              ),
+            );
+          }
+        }
+        setProgress(100);
+        setMultiProgress(null);
+        setFiles([]);
+        if (inputRef.current) inputRef.current.value = "";
+        onUploaded();
+        setTimeout(() => {
+          setShowProgress(false);
+          setProgress(0);
+        }, 1500);
+      });
+      return;
+    }
+
     stopProgressTimer();
     progressTimer.current = setInterval(() => {
       setProgress((p) => Math.min(p + 15, 85));
@@ -153,7 +281,7 @@ export function UploadZone({
     startTransition(async () => {
       const fd = new FormData();
       fd.set("report_type", selectedType);
-      fd.set("file", file);
+      fd.set("file", files[0]);
       if (isSettlement) {
         fd.set("account_type", accountType);
         fd.set("store", store);
@@ -179,7 +307,7 @@ export function UploadZone({
             kind: variant === "warning" ? "warn" : "ok",
             text: description,
           });
-          setFile(null);
+          setFiles([]);
           if (inputRef.current) inputRef.current.value = "";
           onUploaded();
         } else {
@@ -274,6 +402,7 @@ export function UploadZone({
         <input
           ref={inputRef}
           type="file"
+          multiple={isShipped}
           accept={ACCEPT}
           className="sr-only"
           aria-hidden
@@ -310,18 +439,52 @@ export function UploadZone({
           <span className="inline-block rounded-md border border-border bg-muted/50 px-2.5 py-1 text-[10px] text-muted-foreground">
             CSV / TSV / XLSX / TXT
           </span>
-          {file ? (
+          {!isShipped && files[0] ? (
             <p className="mt-4 truncate text-xs text-primary">
-              Selected: <span className="font-mono">{file.name}</span>
+              Selected: <span className="font-mono">{files[0].name}</span>
+            </p>
+          ) : null}
+          {isShipped && files.length > 0 ? (
+            <p className="mt-4 text-xs text-primary">
+              {files.length} file{files.length === 1 ? "" : "s"} selected
             </p>
           ) : null}
         </button>
+
+        {isShipped && files.length > 0 ? (
+          <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-card text-xs">
+            {files.map((f, i) => (
+              <li
+                key={`${f.name}::${f.size}::${i}`}
+                className="flex items-center justify-between gap-2 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-foreground">
+                    {f.name}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {formatBytes(f.size)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFileAt(i)}
+                  disabled={disabled}
+                  aria-label={`Remove ${f.name}`}
+                  className="flex size-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-destructive hover:text-destructive disabled:opacity-50"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Button
             type="button"
             onClick={handleUpload}
-            disabled={disabled || !file || !settlementMetaReady}
+            disabled={disabled || files.length === 0 || !settlementMetaReady}
             className="min-w-[120px]"
           >
             {isPending ? (
@@ -333,17 +496,17 @@ export function UploadZone({
               "Upload"
             )}
           </Button>
-          {file ? (
+          {files.length > 0 ? (
             <Button
               type="button"
               variant="outline"
               disabled={disabled}
               onClick={() => {
-                setFile(null);
+                setFiles([]);
                 if (inputRef.current) inputRef.current.value = "";
               }}
             >
-              Clear file
+              {isShipped && files.length > 1 ? "Clear all" : "Clear file"}
             </Button>
           ) : null}
         </div>
@@ -354,18 +517,28 @@ export function UploadZone({
               <div
                 className={cn(
                   "h-full rounded-full transition-all duration-300",
-                  result?.kind === "err" ? "bg-destructive" : "bg-primary",
+                  (
+                    isShipped
+                      ? multiResults.some((r) => r.status === "error")
+                      : result?.kind === "err"
+                  )
+                    ? "bg-destructive"
+                    : "bg-primary",
                 )}
                 style={{ width: `${progress}%` }}
               />
             </div>
             <div className="mt-1.5 text-center text-[11px] text-muted-foreground">
-              {isPending ? `Uploading ${file?.name ?? ""}…` : "Done!"}
+              {isPending
+                ? isShipped && multiProgress
+                  ? `Uploading ${multiProgress.current} of ${multiProgress.total}…`
+                  : `Uploading ${files[0]?.name ?? ""}…`
+                : "Done!"}
             </div>
           </div>
         ) : null}
 
-        {result ? (
+        {!isShipped && result ? (
           <div
             className={cn(
               "mt-3 rounded-lg px-3.5 py-2.5 text-xs font-semibold",
@@ -379,6 +552,48 @@ export function UploadZone({
           >
             {result.text}
           </div>
+        ) : null}
+
+        {isShipped && multiResults.length > 0 ? (
+          <ul className="mt-3 divide-y divide-border rounded-lg border border-border bg-card text-xs">
+            {multiResults.map((r, i) => (
+              <li
+                key={`${r.name}::${r.size}::${i}`}
+                className="flex items-start justify-between gap-3 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono font-semibold text-foreground">
+                    {r.name}
+                  </div>
+                  <div
+                    className={cn(
+                      "mt-0.5 text-[11px]",
+                      r.status === "ok" &&
+                        "text-emerald-700 dark:text-emerald-300",
+                      r.status === "error" &&
+                        "text-red-700 dark:text-red-300",
+                      (r.status === "pending" || r.status === "uploading") &&
+                        "text-muted-foreground",
+                    )}
+                  >
+                    {r.status === "pending" && "Pending…"}
+                    {r.status === "uploading" && "Uploading…"}
+                    {(r.status === "ok" || r.status === "error") &&
+                      (r.message ?? "")}
+                  </div>
+                </div>
+                <span className="text-sm leading-none">
+                  {r.status === "ok"
+                    ? "✅"
+                    : r.status === "error"
+                      ? "❌"
+                      : r.status === "uploading"
+                        ? "⏳"
+                        : "○"}
+                </span>
+              </li>
+            ))}
+          </ul>
         ) : null}
 
         {selectedType === "shipped_to_fba" ? (
