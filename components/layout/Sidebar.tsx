@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
@@ -19,6 +18,7 @@ import {
   LayoutDashboard,
   Layers,
   Package,
+  Palette,
   SlidersHorizontal,
   Receipt,
   RefreshCw,
@@ -73,6 +73,7 @@ const PAYMENT_RECON_CHILDREN: NavLeaf[] = [
 
 const SETTINGS_CHILDREN: NavLeaf[] = [
   { type: "link", href: "/settings/users", label: "Users", icon: Users },
+  { type: "link", href: "/settings/branding", label: "Branding", icon: Palette },
   { type: "link", href: "/settings/audit", label: "Audit Log", icon: History },
 ];
 
@@ -116,6 +117,8 @@ type SidebarProps = {
   mobileOpen: boolean;
   onMobileOpenChange: (open: boolean) => void;
   role: "ADMIN" | "VENDOR" | "VIEWER" | null;
+  companyName?: string | null;
+  companyLogo?: string | null;
 };
 
 function isActiveRoute(pathname: string, href: string) {
@@ -127,8 +130,18 @@ function groupHasActiveChild(pathname: string, group: NavGroup) {
   return group.children.some((c) => isActiveRoute(pathname, c.href));
 }
 
-export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) {
+export function Sidebar({
+  mobileOpen,
+  onMobileOpenChange,
+  role,
+  companyName,
+  companyLogo,
+}: SidebarProps) {
   const pathname = usePathname();
+  const titleText = companyName ?? "Edubooks ERP";
+  // branding.logo may later hold an https:// object-storage URL instead of a
+  // data URL; <img> already supports both transparently.
+  const logoSrc = companyLogo ?? "/edubooks-logo.svg";
 
   const navItems = React.useMemo<NavItem[]>(() => {
     const items: NavItem[] = [...BASE_NAV_ITEMS, PROFILE_ITEM];
@@ -186,17 +199,17 @@ export function Sidebar({ mobileOpen, onMobileOpenChange, role }: SidebarProps) 
         )}
       >
         <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-zinc-200 px-4">
-          <Image
-            src="/edubooks-logo.svg"
-            alt="Edubooks ERP"
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={logoSrc}
+            alt={titleText}
             width={36}
             height={36}
-            priority
-            className="size-9 shrink-0"
+            className="size-9 shrink-0 object-contain"
           />
           <div className="min-w-0 leading-tight">
             <div className="truncate text-sm font-semibold tracking-tight text-zinc-900">
-              Edubooks ERP
+              {titleText}
             </div>
             <div className="truncate text-[10px] font-medium text-zinc-500">
               FBA Reconciliation System

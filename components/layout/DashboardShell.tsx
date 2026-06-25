@@ -21,10 +21,14 @@ type SessionUser = {
 export function DashboardShell({
   user,
   permissions,
+  companyName,
+  companyLogo,
   children,
 }: {
   user: SessionUser;
   permissions: EffectiveLevels | null;
+  companyName?: string | null;
+  companyLogo?: string | null;
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
@@ -40,6 +44,8 @@ export function DashboardShell({
             mobileOpen={mobileOpen}
             onMobileOpenChange={setMobileOpen}
             role={user?.role ?? null}
+            companyName={companyName ?? null}
+            companyLogo={companyLogo ?? null}
           />
           <div className="flex min-h-screen flex-col lg:pl-[240px]">
             <Header onMenuClick={() => setMobileOpen(true)} user={user} />

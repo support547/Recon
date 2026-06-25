@@ -1,11 +1,51 @@
+import type { Metadata } from "next";
 import * as React from "react";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { DashboardShell } from "@/components/layout/DashboardShell";
 import { getEffectiveLevelsForCurrentUser } from "@/lib/auth/rbac";
+import { controlPrisma } from "@/lib/control-prisma";
 
 const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
+const FALLBACK_COMPANY_NAME = "Edubooks ERP";
+
+type CompanyChrome = {
+  name: string;
+  branding: { logo?: string; displayName?: string };
+};
+
+function parseBranding(raw: unknown): { logo?: string; displayName?: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const obj = raw as Record<string, unknown>;
+  const out: { logo?: string; displayName?: string } = {};
+  if (typeof obj.displayName === "string") out.displayName = obj.displayName;
+  if (typeof obj.logo === "string") out.logo = obj.logo;
+  return out;
+}
+
+// React.cache dedupes within one request so generateMetadata and the layout
+// body share a single control-DB roundtrip.
+const getCompanyChrome = cache(
+  async (companyId: string): Promise<CompanyChrome | null> => {
+    const company = await controlPrisma.company.findUnique({
+      where: { id: companyId },
+      select: { name: true, branding: true },
+    });
+    if (!company) return null;
+    return { name: company.name, branding: parseBranding(company.branding) };
+  },
+);
+
+export async function generateMetadata(): Promise<Metadata> {
+  const session = await auth();
+  const companyId = session?.user?.companyId;
+  const chrome = companyId ? await getCompanyChrome(companyId) : null;
+  const displayName =
+    chrome?.branding.displayName ?? chrome?.name ?? FALLBACK_COMPANY_NAME;
+  return { title: `${displayName} — FBA Reconciliation` };
+}
 
 export default async function DashboardLayout({
   children,
@@ -41,8 +81,21 @@ export default async function DashboardLayout({
         role: "ADMIN" as const,
       };
 
+  const chrome = session?.user?.companyId
+    ? await getCompanyChrome(session.user.companyId)
+    : null;
+  const companyName = chrome
+    ? (chrome.branding.displayName ?? chrome.name)
+    : null;
+  const companyLogo = chrome?.branding.logo ?? null;
+
   return (
-    <DashboardShell user={user} permissions={permissions}>
+    <DashboardShell
+      user={user}
+      permissions={permissions}
+      companyName={companyName}
+      companyLogo={companyLogo}
+    >
       {children}
     </DashboardShell>
   );

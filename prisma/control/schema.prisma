@@ -25,6 +25,7 @@ model Company {
   slug        String   @unique
   databaseUrl String   @map("database_url")
   createdAt   DateTime @default(now()) @map("created_at")
+  branding    Json?
 
   users User[]
 
