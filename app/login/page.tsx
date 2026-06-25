@@ -1,12 +1,21 @@
 import * as React from "react";
+import { redirect } from "next/navigation";
 
+import { auth } from "@/auth";
 import { BootstrapForm } from "@/components/auth/bootstrap-form";
 import { LoginForm } from "@/components/auth/login-form";
 import { controlPrisma } from "@/lib/control-prisma";
 
 export const dynamic = "force-dynamic";
 
+const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
+
 export default async function LoginPage() {
+  if (AUTH_ENABLED) {
+    const session = await auth();
+    if (session?.user) redirect("/");
+  }
+
   let userCount = 0;
   try {
     userCount = await controlPrisma.user.count();

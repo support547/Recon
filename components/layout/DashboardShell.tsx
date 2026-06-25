@@ -2,6 +2,7 @@
 
 import * as React from "react";
 
+import { IdleLogout } from "@/components/auth/idle-logout";
 import {
   PermissionsProvider,
   type EffectiveLevels,
@@ -28,9 +29,12 @@ export function DashboardShell({
 }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
+  const idleEnabled = !!user && user.id !== "system";
+
   return (
     <PermissionsProvider value={permissions}>
       <HeaderActionsProvider>
+        <IdleLogout enabled={idleEnabled} />
         <div className="min-h-screen bg-white">
           <Sidebar
             mobileOpen={mobileOpen}

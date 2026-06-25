@@ -37,7 +37,11 @@ declare module "@auth/core/jwt" {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  session: { strategy: "jwt" },
+  // Cookie hard-cap of 1 hour. The client-side idle watcher enforces the
+  // 10-minute inactivity logout while a tab is open; this cap kicks in when
+  // the browser was closed/asleep so a stale cookie cannot resurrect a stale
+  // session.
+  session: { strategy: "jwt", maxAge: 60 * 60 },
   pages: { signIn: "/login" },
   trustHost: true,
   providers: [
