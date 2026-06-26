@@ -68,25 +68,27 @@ export async function getUploadHistory(
 }
 
 export async function getUploadSummaryByType(): Promise<UploadSummaryRow[]> {
-  const [
-    grouped,
-    latestPerType,
-    shippedAgg,
-    salesAgg,
-    receiptsAgg,
-    returnsAgg,
-    reimbAgg,
-    fcAgg,
-    replAgg,
-    gnrAgg,
-    removalsAgg,
-    remShipAgg,
-    shipStatusAgg,
-    fbaSummAgg,
-    invAdjAgg,
-    settlementAgg,
-    paymentRepoRows,
-  ] = await Promise.all([
+  const labels = [
+    "uploadedFile.groupBy",
+    "uploadedFile.latestPerType",
+    "shippedToFba",
+    "salesData",
+    "fbaReceipt",
+    "customerReturn",
+    "reimbursement",
+    "fcTransfer",
+    "replacement",
+    "gnrReport",
+    "fbaRemoval",
+    "removalShipment",
+    "shipmentStatus",
+    "fbaSummary",
+    "inventoryAdjustment",
+    "settlementReport",
+    "paymentRepository",
+  ] as const;
+
+  const settled = await Promise.allSettled([
     prisma.uploadedFile.groupBy({
       by: ["reportType"],
       _count: { _all: true },
@@ -115,70 +117,121 @@ export async function getUploadSummaryByType(): Promise<UploadSummaryRow[]> {
     prisma.paymentRepository.findMany({ select: { postedDatetime: true } }),
   ]);
 
-  let paymentMin: Date | null = null;
-  let paymentMax: Date | null = null;
-  for (const r of paymentRepoRows) {
-    const d = toDate(r.postedDatetime);
-    if (!d) continue;
-    if (!paymentMin || d < paymentMin) paymentMin = d;
-    if (!paymentMax || d > paymentMax) paymentMax = d;
-  }
-
-  const latestMap = new Map(
-    latestPerType.map((r) => [r.reportType, r.rowCount]),
-  );
-  const groupedMap = new Map(grouped.map((g) => [g.reportType, g]));
-
-  const latestDataDates: Record<string, Date | null> = {
-    shipped_to_fba: shippedAgg._max.shipDate,
-    sales_data: salesAgg._max.saleDate,
-    fba_receipts: receiptsAgg._max.receiptDate,
-    customer_returns: returnsAgg._max.returnDate,
-    reimbursements: reimbAgg._max.approvalDate,
-    fc_transfers: fcAgg._max.transferDate,
-    replacements: replAgg._max.shipmentDate,
-    gnr_report: gnrAgg._max.reportDate,
-    fba_removals: removalsAgg._max.requestDate,
-    removal_shipments: remShipAgg._max.shipmentDate,
-    shipment_status: shipStatusAgg._max.lastUpdated,
-    fba_summary: fbaSummAgg._max.summaryDate,
-    payment_repository: paymentMax,
-    adjustments: null,
-    inventory_adjustments: invAdjAgg._max.adjDate,
-    settlement_report: settlementAgg._max.postedDate,
+  const pick = <T,>(idx: number, fallback: T): T => {
+    const r = settled[idx];
+    if (r.status === "fulfilled") return r.value as T;
+    const err = r.reason;
+    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    const code =
+      err && typeof err === "object" && "code" in (err as Record<string, unknown>)
+        ? (err as { code?: unknown }).code
+        : undefined;
+    console.error(
+      `[summary] aggregate failed for table=${labels[idx]}: ${msg}${code !== undefined ? ` (code=${String(code)})` : ""}`,
+      err,
+    );
+    return fallback;
   };
 
-  const oldestDataDates: Record<string, Date | null> = {
-    shipped_to_fba: shippedAgg._min.shipDate,
-    sales_data: salesAgg._min.saleDate,
-    fba_receipts: receiptsAgg._min.receiptDate,
-    customer_returns: returnsAgg._min.returnDate,
-    reimbursements: reimbAgg._min.approvalDate,
-    fc_transfers: fcAgg._min.transferDate,
-    replacements: replAgg._min.shipmentDate,
-    gnr_report: gnrAgg._min.reportDate,
-    fba_removals: removalsAgg._min.requestDate,
-    removal_shipments: remShipAgg._min.shipmentDate,
-    shipment_status: shipStatusAgg._min.lastUpdated,
-    fba_summary: fbaSummAgg._min.summaryDate,
-    payment_repository: paymentMin,
-    adjustments: null,
-    inventory_adjustments: invAdjAgg._min.adjDate,
-    settlement_report: settlementAgg._min.postedDate,
-  };
+  try {
+    const grouped = pick<
+      Array<{
+        reportType: string;
+        _count: { _all: number };
+        _sum: { rowCount: number | null };
+        _max: { uploadedAt: Date | null };
+      }>
+    >(0, []);
+    const latestPerType = pick<Array<{ reportType: string; rowCount: number | null }>>(1, []);
+    const shippedAgg = pick(2, { _max: { shipDate: null as Date | null }, _min: { shipDate: null as Date | null } });
+    const salesAgg = pick(3, { _max: { saleDate: null as Date | null }, _min: { saleDate: null as Date | null } });
+    const receiptsAgg = pick(4, { _max: { receiptDate: null as Date | null }, _min: { receiptDate: null as Date | null } });
+    const returnsAgg = pick(5, { _max: { returnDate: null as Date | null }, _min: { returnDate: null as Date | null } });
+    const reimbAgg = pick(6, { _max: { approvalDate: null as Date | null }, _min: { approvalDate: null as Date | null } });
+    const fcAgg = pick(7, { _max: { transferDate: null as Date | null }, _min: { transferDate: null as Date | null } });
+    const replAgg = pick(8, { _max: { shipmentDate: null as Date | null }, _min: { shipmentDate: null as Date | null } });
+    const gnrAgg = pick(9, { _max: { reportDate: null as Date | null }, _min: { reportDate: null as Date | null } });
+    const removalsAgg = pick(10, { _max: { requestDate: null as Date | null }, _min: { requestDate: null as Date | null } });
+    const remShipAgg = pick(11, { _max: { shipmentDate: null as Date | null }, _min: { shipmentDate: null as Date | null } });
+    const shipStatusAgg = pick(12, { _max: { lastUpdated: null as Date | null }, _min: { lastUpdated: null as Date | null } });
+    const fbaSummAgg = pick(13, { _max: { summaryDate: null as Date | null }, _min: { summaryDate: null as Date | null } });
+    const invAdjAgg = pick(14, { _max: { adjDate: null as Date | null }, _min: { adjDate: null as Date | null } });
+    const settlementAgg = pick(15, { _max: { postedDate: null as Date | null }, _min: { postedDate: null as Date | null } });
+    const paymentRepoRows = pick<Array<{ postedDatetime: Date | string | null }>>(16, []);
 
-  return REPORT_TYPE_VALUES.map((rt) => {
-    const g = groupedMap.get(rt);
-    return {
-      reportType: rt,
-      uploadCount: g?._count._all ?? 0,
-      totalRows: g?._sum.rowCount ?? 0,
-      lastUpload: g?._max.uploadedAt ?? null,
-      lastRowCount: latestMap.get(rt) ?? 0,
-      latestInFile: latestDataDates[rt] ?? null,
-      oldestInFile: oldestDataDates[rt] ?? null,
+    let paymentMin: Date | null = null;
+    let paymentMax: Date | null = null;
+    for (const r of paymentRepoRows) {
+      const d = toDate(r.postedDatetime);
+      if (!d) continue;
+      if (!paymentMin || d < paymentMin) paymentMin = d;
+      if (!paymentMax || d > paymentMax) paymentMax = d;
+    }
+
+    const latestMap = new Map(
+      latestPerType.map((r) => [r.reportType, r.rowCount]),
+    );
+    const groupedMap = new Map(grouped.map((g) => [g.reportType, g]));
+
+    const latestDataDates: Record<string, Date | null> = {
+      shipped_to_fba: shippedAgg._max.shipDate,
+      sales_data: salesAgg._max.saleDate,
+      fba_receipts: receiptsAgg._max.receiptDate,
+      customer_returns: returnsAgg._max.returnDate,
+      reimbursements: reimbAgg._max.approvalDate,
+      fc_transfers: fcAgg._max.transferDate,
+      replacements: replAgg._max.shipmentDate,
+      gnr_report: gnrAgg._max.reportDate,
+      fba_removals: removalsAgg._max.requestDate,
+      removal_shipments: remShipAgg._max.shipmentDate,
+      shipment_status: shipStatusAgg._max.lastUpdated,
+      fba_summary: fbaSummAgg._max.summaryDate,
+      payment_repository: paymentMax,
+      adjustments: null,
+      inventory_adjustments: invAdjAgg._max.adjDate,
+      settlement_report: settlementAgg._max.postedDate,
     };
-  });
+
+    const oldestDataDates: Record<string, Date | null> = {
+      shipped_to_fba: shippedAgg._min.shipDate,
+      sales_data: salesAgg._min.saleDate,
+      fba_receipts: receiptsAgg._min.receiptDate,
+      customer_returns: returnsAgg._min.returnDate,
+      reimbursements: reimbAgg._min.approvalDate,
+      fc_transfers: fcAgg._min.transferDate,
+      replacements: replAgg._min.shipmentDate,
+      gnr_report: gnrAgg._min.reportDate,
+      fba_removals: removalsAgg._min.requestDate,
+      removal_shipments: remShipAgg._min.shipmentDate,
+      shipment_status: shipStatusAgg._min.lastUpdated,
+      fba_summary: fbaSummAgg._min.summaryDate,
+      payment_repository: paymentMin,
+      adjustments: null,
+      inventory_adjustments: invAdjAgg._min.adjDate,
+      settlement_report: settlementAgg._min.postedDate,
+    };
+
+    return REPORT_TYPE_VALUES.map((rt) => {
+      const g = groupedMap.get(rt);
+      return {
+        reportType: rt,
+        uploadCount: g?._count._all ?? 0,
+        totalRows: g?._sum.rowCount ?? 0,
+        lastUpload: g?._max.uploadedAt ?? null,
+        lastRowCount: latestMap.get(rt) ?? 0,
+        latestInFile: latestDataDates[rt] ?? null,
+        oldestInFile: oldestDataDates[rt] ?? null,
+      };
+    });
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    console.error(
+      `[summary] top-level failure: ${err.name}: ${err.message}`,
+      err,
+      err.stack,
+    );
+    throw err;
+  }
 }
 
 
