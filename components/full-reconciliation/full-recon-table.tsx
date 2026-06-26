@@ -24,6 +24,8 @@ import { Pagination } from "@/components/shared/Pagination";
 import { cn } from "@/lib/utils";
 import { FullStatusBadge } from "@/components/full-reconciliation/shared/status-badge";
 import type { FullReconRow } from "@/lib/full-reconciliation/types";
+import { AsinLink } from "@/components/shared/asin-link";
+import type { Marketplace } from "@/lib/branding/marketplaces";
 
 type RemarkSaveResult = { ok: true } | { ok: false; error: string };
 
@@ -86,6 +88,7 @@ export function FullReconTable({
   remarks,
   onSaveRemark,
   visibility,
+  marketplace = null,
 }: {
   rows: FullReconRow[];
   colFilters: Set<ColKey>;
@@ -97,6 +100,7 @@ export function FullReconTable({
   remarks?: Record<string, string>;
   onSaveRemark?: (fnsku: string, next: string) => Promise<RemarkSaveResult>;
   visibility?: Record<string, boolean>;
+  marketplace?: Marketplace | null;
 }) {
   const show = (id: string) => visibility?.[id] !== false;
   const [page, setPage] = React.useState(1);
@@ -248,6 +252,7 @@ export function FullReconTable({
               remark={remarks?.[r.fnsku] ?? ""}
               onSaveRemark={onSaveRemark}
               visibility={visibility}
+              marketplace={marketplace}
             />
           ))}
         </TableBody>
@@ -265,6 +270,7 @@ function RowItem({
   remark,
   onSaveRemark,
   visibility,
+  marketplace,
 }: {
   row: FullReconRow;
   onOpenDetail: (row: FullReconRow) => void;
@@ -272,6 +278,7 @@ function RowItem({
   remark: string;
   onSaveRemark?: (fnsku: string, next: string) => Promise<RemarkSaveResult>;
   visibility?: Record<string, boolean>;
+  marketplace: Marketplace | null;
 }) {
   const show = (id: string) => visibility?.[id] !== false;
   const shortageCls = row.shortageQty > 0 ? "text-red-600 font-bold" : row.shortageQty < 0 ? "text-amber-600 font-bold" : "text-emerald-600";
@@ -298,7 +305,11 @@ function RowItem({
           </button>
         </TableCell>
       )}
-      {show("asin") && <TableCell className="font-mono text-[10px]">{row.asin || "—"}</TableCell>}
+      {show("asin") && (
+        <TableCell className="font-mono text-[10px]">
+          <AsinLink asin={row.asin} marketplace={marketplace} />
+        </TableCell>
+      )}
       {show("fnsku") && <TableCell className="font-mono text-[10px]">{row.fnsku || "—"}</TableCell>}
       {show("days") && (
         <TableCell className="text-right">

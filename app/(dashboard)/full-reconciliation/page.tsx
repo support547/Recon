@@ -3,13 +3,21 @@ import { Suspense } from "react";
 import { getFullReconData, getFullReconRemarks } from "@/actions/full-reconciliation";
 import { FullReconciliationClient } from "@/components/full-reconciliation/full-reconciliation-client";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getCurrentMarketplace } from "@/lib/branding/server";
 
 async function FullReconciliationLoader() {
-  const [payload, remarks] = await Promise.all([
+  const [payload, remarks, marketplace] = await Promise.all([
     getFullReconData({}),
     getFullReconRemarks().catch(() => ({}) as Record<string, string>),
+    getCurrentMarketplace(),
   ]);
-  return <FullReconciliationClient initialPayload={payload} initialRemarks={remarks} />;
+  return (
+    <FullReconciliationClient
+      initialPayload={payload}
+      initialRemarks={remarks}
+      marketplace={marketplace}
+    />
+  );
 }
 
 export default function FullReconciliationPage() {

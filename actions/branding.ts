@@ -11,6 +11,10 @@ import {
   requireAdmin,
   type MutationResult,
 } from "@/lib/auth/rbac";
+import {
+  ALLOWED_MARKETPLACES,
+  type Marketplace,
+} from "@/lib/branding/marketplaces";
 
 const MAX_LOGO_BYTES = 30 * 1024;
 const ALLOWED_LOGO_MIMES = new Set([
@@ -19,9 +23,13 @@ const ALLOWED_LOGO_MIMES = new Set([
   "image/svg+xml",
 ]);
 
+const MARKETPLACE_SET = new Set<string>(ALLOWED_MARKETPLACES);
+const MAX_MARKETPLACES = 1;
+
 export type CompanyBranding = {
   logo?: string;
   displayName?: string;
+  marketplaces?: Marketplace[];
 };
 
 export type BrandingSnapshot = {
@@ -67,9 +75,20 @@ const UpdateBrandingSchema = z
       .max(60, "Display name must be 60 characters or fewer.")
       .optional(),
     logo: DataUrlLogoSchema.optional(),
+    marketplaces: z
+      .array(
+        z.enum(ALLOWED_MARKETPLACES, {
+          message: `Marketplace must be one of ${ALLOWED_MARKETPLACES.join(", ")}.`,
+        }),
+      )
+      .max(MAX_MARKETPLACES, "Only one marketplace is supported.")
+      .optional(),
   })
   .refine(
-    (v) => v.displayName !== undefined || v.logo !== undefined,
+    (v) =>
+      v.displayName !== undefined ||
+      v.logo !== undefined ||
+      v.marketplaces !== undefined,
     "Nothing to update.",
   );
 
@@ -81,6 +100,13 @@ function parseBranding(
   const out: CompanyBranding = {};
   if (typeof obj.displayName === "string") out.displayName = obj.displayName;
   if (typeof obj.logo === "string") out.logo = obj.logo;
+  if (Array.isArray(obj.marketplaces)) {
+    const cleaned = obj.marketplaces
+      .filter((m): m is string => typeof m === "string")
+      .filter((m): m is Marketplace => MARKETPLACE_SET.has(m))
+      .slice(0, MAX_MARKETPLACES);
+    out.marketplaces = cleaned;
+  }
   return out;
 }
 
@@ -128,6 +154,7 @@ export async function updateCompanyBranding(
   const next: CompanyBranding = { ...current };
   if (v.displayName !== undefined) next.displayName = v.displayName;
   if (v.logo !== undefined) next.logo = v.logo;
+  if (v.marketplaces !== undefined) next.marketplaces = v.marketplaces;
 
   try {
     await controlPrisma.company.update({

@@ -9,14 +9,31 @@ import {
   updateCompanyBranding,
   type BrandingSnapshot,
 } from "@/actions/branding";
+import {
+  ALLOWED_MARKETPLACES,
+  type Marketplace,
+} from "@/lib/branding/marketplaces";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const MAX_LOGO_BYTES = 30 * 1024;
 const ACCEPT = "image/png,image/jpeg,image/svg+xml";
 const ALLOWED_MIMES = new Set(["image/png", "image/jpeg", "image/svg+xml"]);
 const FALLBACK_LOGO = "/edubooks-logo.svg";
+const MARKETPLACE_UNSET = "__unset";
+
+function initialMarketplace(snapshot: BrandingSnapshot): string {
+  const first = snapshot.branding.marketplaces?.[0];
+  return first ?? MARKETPLACE_UNSET;
+}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -45,6 +62,9 @@ export function CompanyBrandingClient({
   );
   const [logo, setLogo] = React.useState<string | null>(
     snapshot.branding.logo ?? null,
+  );
+  const [marketplace, setMarketplace] = React.useState<string>(
+    initialMarketplace(snapshot),
   );
   const [fileError, setFileError] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
@@ -80,8 +100,14 @@ export function CompanyBrandingClient({
       toast.error("Display name must be 1–60 characters.");
       return;
     }
-    const input: { displayName: string; logo?: string } = {
+    const input: {
+      displayName: string;
+      logo?: string;
+      marketplaces: Marketplace[];
+    } = {
       displayName: trimmed,
+      marketplaces:
+        marketplace === MARKETPLACE_UNSET ? [] : [marketplace as Marketplace],
     };
     if (logo && logo !== snapshot.branding.logo) {
       input.logo = logo;
@@ -175,6 +201,30 @@ export function CompanyBrandingClient({
           />
           <p className="text-xs text-muted-foreground">
             1–60 characters. Shown in the sidebar header.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="marketplace">Marketplace</Label>
+          <Select
+            value={marketplace}
+            onValueChange={setMarketplace}
+            disabled={pending}
+          >
+            <SelectTrigger id="marketplace" className="w-full sm:w-64">
+              <SelectValue placeholder="Not set" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={MARKETPLACE_UNSET}>Not set</SelectItem>
+              {ALLOWED_MARKETPLACES.map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            One marketplace per company for now. Stored as an array so multi-marketplace can be added later without a migration.
           </p>
         </div>
 

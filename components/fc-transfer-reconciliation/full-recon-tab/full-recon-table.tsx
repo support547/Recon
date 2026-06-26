@@ -14,6 +14,8 @@ import { Pagination } from "@/components/shared/Pagination";
 import { cn } from "@/lib/utils";
 import { FullStatusBadge } from "@/components/fc-transfer-reconciliation/full-recon-tab/full-status-badge";
 import type { FcFullReconRow } from "@/lib/fc-transfer-reconciliation/full-recon-types";
+import { AsinLink } from "@/components/shared/asin-link";
+import type { Marketplace } from "@/lib/branding/marketplaces";
 
 export function FullReconTable({
   rows,
@@ -21,12 +23,14 @@ export function FullReconTable({
   onAdjust,
   onDrill,
   visibility,
+  marketplace = null,
 }: {
   rows: FcFullReconRow[];
   onRaiseCase: (row: FcFullReconRow) => void;
   onAdjust: (row: FcFullReconRow) => void;
   onDrill: (row: FcFullReconRow) => void;
   visibility?: Record<string, boolean>;
+  marketplace?: Marketplace | null;
 }) {
   const show = (id: string) => visibility?.[id] !== false;
   const [page, setPage] = React.useState(1);
@@ -92,7 +96,11 @@ export function FullReconTable({
                 >
                   {show("msku") && <TableCell className="font-mono text-[11px] font-semibold">{r.msku || "—"}</TableCell>}
                   {show("fnsku") && <TableCell className="font-mono text-[10px]">{r.fnsku || "—"}</TableCell>}
-                  {show("asin") && <TableCell className="font-mono text-[10px] text-muted-foreground">{r.asin || "—"}</TableCell>}
+                  {show("asin") && (
+                    <TableCell className="font-mono text-[10px] text-muted-foreground">
+                      <AsinLink asin={r.asin} marketplace={marketplace} />
+                    </TableCell>
+                  )}
                   {show("title") && (
                     <TableCell className="max-w-[140px] truncate text-[10px]" title={r.title}>
                       {r.title || "—"}

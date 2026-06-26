@@ -30,6 +30,7 @@ import {
   FullReconTable,
   FC_FULL_COLUMNS,
 } from "@/components/fc-transfer-reconciliation/full-recon-tab/full-recon-table";
+import type { Marketplace } from "@/lib/branding/marketplaces";
 import type {
   FcFullReconRow,
   FcFullStats,
@@ -83,12 +84,14 @@ function useDebounced<T>(value: T, ms: number): T {
 export function FcTransferReconciliationClient({
   initialFullPayload,
   viewSwitcher,
+  marketplace = null,
 }: {
   initialFullPayload?: FcFullReconPayload;
   // Optional By-MSKU / By-FC pill rendered into the header bar (left of the
   // Columns/Export/Refresh actions). Supplied by FcReconShell; omit for the
   // standalone client (no behavior change).
   viewSwitcher?: React.ReactNode;
+  marketplace?: Marketplace | null;
 }) {
   // Only two tabs remain: Full Reconciliation (new engine) + Transfer Log.
   const [tab, setTab] = React.useState<"full" | "log">("full");
@@ -307,6 +310,7 @@ export function FcTransferReconciliationClient({
               <FullReconTable
                 visibility={fullVis}
                 rows={filteredFull}
+                marketplace={marketplace}
                 onRaiseCase={(r) => { setCaseRow(fullToModalTarget(r)); setCaseOpen(true); }}
                 onAdjust={(r) => { setAdjRow(fullToModalTarget(r)); setAdjOpen(true); }}
                 onDrill={(r) => { setDrillRow(r); setDrillOpen(true); }}

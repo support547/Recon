@@ -3,10 +3,20 @@ import { Suspense } from "react";
 import { getFcTransferFullRecon } from "@/actions/fc-transfer-reconciliation";
 import { FcReconShell } from "@/components/fc-transfer-reconciliation/fc-recon-shell";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getCurrentMarketplace } from "@/lib/branding/server";
 
 async function FcTransferReconciliationLoader({ view }: { view: "msku" | "fc" }) {
-  const fullPayload = await getFcTransferFullRecon({});
-  return <FcReconShell initialFullPayload={fullPayload} initialView={view} />;
+  const [fullPayload, marketplace] = await Promise.all([
+    getFcTransferFullRecon({}),
+    getCurrentMarketplace(),
+  ]);
+  return (
+    <FcReconShell
+      initialFullPayload={fullPayload}
+      initialView={view}
+      marketplace={marketplace}
+    />
+  );
 }
 
 export default async function FcTransferReconciliationPage({

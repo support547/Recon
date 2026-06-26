@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { FcTransferReconciliationClient } from "@/components/fc-transfer-reconciliation/fc-transfer-reconciliation-client";
 import { FcByFcView } from "@/components/fc-transfer-reconciliation/by-fc/by-fc-view";
 import type { FcFullReconPayload } from "@/actions/fc-transfer-reconciliation";
+import type { Marketplace } from "@/lib/branding/marketplaces";
 
 type View = "msku" | "fc";
 
@@ -22,9 +23,11 @@ type View = "msku" | "fc";
 export function FcReconShell({
   initialFullPayload,
   initialView = "msku",
+  marketplace = null,
 }: {
   initialFullPayload?: FcFullReconPayload;
   initialView?: View;
+  marketplace?: Marketplace | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -53,6 +56,7 @@ export function FcReconShell({
       <FcTransferReconciliationClient
         initialFullPayload={initialFullPayload}
         viewSwitcher={switcher}
+        marketplace={marketplace}
       />
     );
   }

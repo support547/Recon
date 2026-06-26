@@ -36,6 +36,7 @@ import type {
   FullReconRow,
   FullReconStatus,
 } from "@/lib/full-reconciliation/types";
+import type { Marketplace } from "@/lib/branding/marketplaces";
 
 const ALL = "__all__";
 
@@ -51,9 +52,11 @@ function useDebounced<T>(value: T, ms: number): T {
 export function FullReconciliationClient({
   initialPayload,
   initialRemarks = {},
+  marketplace = null,
 }: {
   initialPayload: FullReconciliationPayload;
   initialRemarks?: Record<string, string>;
+  marketplace?: Marketplace | null;
 }) {
   const [remarks, setRemarks] = React.useState<Record<string, string>>(
     initialRemarks,
@@ -283,6 +286,7 @@ export function FullReconciliationClient({
           <FullReconTable
             visibility={colVis}
             rows={filteredRows}
+            marketplace={marketplace}
             colFilters={colFilters}
             closedDateSort={closedDateSort}
             onCycleClosedDateSort={() =>
