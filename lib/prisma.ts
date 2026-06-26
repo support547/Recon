@@ -25,7 +25,12 @@ export function getTenantPrismaByUrl(databaseUrl: string): PrismaClient {
   const existing = tenantCache.get(databaseUrl);
   if (existing) return existing;
 
-  const adapter = new PrismaPg(databaseUrl);
+  const adapter = new PrismaPg({
+    connectionString: databaseUrl,
+    max: 3,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+  });
   const client = new PrismaClient({
     adapter,
     log:
