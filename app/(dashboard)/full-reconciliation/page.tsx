@@ -6,8 +6,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getCurrentMarketplace } from "@/lib/branding/server";
 
 async function FullReconciliationLoader() {
-  const [payload, remarks, marketplace] = await Promise.all([
-    getFullReconData({}),
+  // Heavy first — getFullReconRemarks would otherwise hold a tenant pool slot
+  // for the full page load and starve getFullReconData's chunks under heavy data.
+  const payload = await getFullReconData({});
+  const [remarks, marketplace] = await Promise.all([
     getFullReconRemarks().catch(() => ({}) as Record<string, string>),
     getCurrentMarketplace(),
   ]);

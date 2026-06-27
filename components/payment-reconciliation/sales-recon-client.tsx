@@ -22,6 +22,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import {
   Table,
   TableBody,
@@ -380,7 +381,7 @@ export function SalesReconClient({
         />
 
         {loading ? (
-          <Skeleton className="h-64 w-full" />
+          <TableSkeleton rows={8} cols={8} />
         ) : (
           <ReconTable
             key={`rt-${rows.length}-${rows[0]?.orderId ?? ""}`}

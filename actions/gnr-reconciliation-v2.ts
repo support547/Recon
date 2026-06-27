@@ -3,6 +3,7 @@
 import { Prisma, ReconType } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { runChunkedQueries } from "@/lib/db/run-chunked";
 import {
   aggregateGnrV2,
   assignFlowToUsedSkus,
@@ -73,6 +74,8 @@ export async function getGnrReconV2Data(
     ];
   }
 
+  // Chunked so peak concurrent prisma calls = 3 (tenant pool max=4). Identical
+  // queries + destructure order to the prior single Promise.all.
   const [
     reportRows,
     manualRows,
@@ -85,8 +88,9 @@ export async function getGnrReconV2Data(
     caseRows,
     adjRows,
     invAdjRows,
-  ] = await Promise.all([
-    prisma.gnrReport.findMany({
+  ] = await runChunkedQueries(
+    3,
+    () => prisma.gnrReport.findMany({
       where: gnrWhere,
       select: {
         usedMsku: true,
@@ -101,7 +105,7 @@ export async function getGnrReconV2Data(
         reportDate: true,
       },
     }),
-    prisma.gradeResellItem.findMany({
+    () => prisma.gradeResellItem.findMany({
       where: manualWhere,
       select: {
         msku: true,
@@ -118,15 +122,15 @@ export async function getGnrReconV2Data(
         gradedDate: true,
       },
     }),
-    prisma.salesData.findMany({
+    () => prisma.salesData.findMany({
       where: { deletedAt: null },
       select: { msku: true, fnsku: true, quantity: true, saleDate: true, productAmount: true, orderId: true },
     }),
-    prisma.customerReturn.findMany({
+    () => prisma.customerReturn.findMany({
       where: { deletedAt: null },
       select: { msku: true, fnsku: true, quantity: true, returnDate: true, orderId: true, disposition: true },
     }),
-    prisma.removalShipment.findMany({
+    () => prisma.removalShipment.findMany({
       where: { deletedAt: null },
       select: {
         msku: true,
@@ -138,11 +142,11 @@ export async function getGnrReconV2Data(
         disposition: true,
       },
     }),
-    prisma.fbaRemoval.findMany({
+    () => prisma.fbaRemoval.findMany({
       where: { deletedAt: null },
       select: { msku: true, fnsku: true, quantity: true, requestDate: true, orderId: true, disposition: true },
     }),
-    prisma.reimbursement.findMany({
+    () => prisma.reimbursement.findMany({
       where: { deletedAt: null },
       select: {
         msku: true,
@@ -156,7 +160,7 @@ export async function getGnrReconV2Data(
         approvalDate: true,
       },
     }),
-    prisma.fbaSummary.findMany({
+    () => prisma.fbaSummary.findMany({
       where: { deletedAt: null },
       select: {
         msku: true,
@@ -175,7 +179,7 @@ export async function getGnrReconV2Data(
         summaryDate: true,
       },
     }),
-    prisma.caseTracker.findMany({
+    () => prisma.caseTracker.findMany({
       where: { deletedAt: null, reconType: ReconType.GNR },
       select: {
         fnsku: true,
@@ -188,7 +192,7 @@ export async function getGnrReconV2Data(
         raisedDate: true,
       },
     }),
-    prisma.manualAdjustment.findMany({
+    () => prisma.manualAdjustment.findMany({
       where: { deletedAt: null, reconType: ReconType.GNR },
       select: { msku: true, qtyAdjusted: true, reason: true },
     }),
@@ -197,7 +201,7 @@ export async function getGnrReconV2Data(
     // Adjustments column: buildOtherAdjMap nets every other reason (Q/P flips
     // cancel; lost/damaged/etc net per reason). The old quantity>0 filter is gone
     // so negative movement is captured.
-    prisma.inventoryAdjustment.findMany({
+    () => prisma.inventoryAdjustment.findMany({
       where: { deletedAt: null },
       select: {
         fnsku: true,
@@ -210,7 +214,7 @@ export async function getGnrReconV2Data(
         disposition: true,
       },
     }),
-  ]);
+  );
 
   // ── Source combine + grading aggregation ──
   const combined = combineGnrV2Sources(reportRows, manualRows);

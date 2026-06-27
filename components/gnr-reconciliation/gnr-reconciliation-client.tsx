@@ -12,6 +12,7 @@ import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -154,7 +155,7 @@ export function GnrReconciliationClient({
             </div>
 
             {loading ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={8} />
             ) : (
               <LogTable visibility={logVis} rows={logRows} />
             )}

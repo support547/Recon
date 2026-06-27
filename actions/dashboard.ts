@@ -50,42 +50,47 @@ export type DashboardCoverageRow = {
 };
 
 export async function getDashboardKpis(): Promise<DashboardKpis> {
-  const [agg, statusGroups, topMismatch, topPending, lastRefreshed] =
-    await Promise.all([
-      prisma.reconciliationSummary.aggregate({
-        _count: { _all: true },
-        _sum: { variance: true },
-      }),
-      prisma.reconciliationSummary.groupBy({
-        by: ["status"],
-        _count: { _all: true },
-      }),
-      prisma.reconciliationSummary.findMany({
-        where: { status: "mismatch" },
-        orderBy: { variance: "desc" },
-        take: 10,
-        select: {
-          msku: true,
-          variance: true,
-          expectedQty: true,
-          actualQty: true,
-        },
-      }),
-      prisma.reconciliationSummary.findMany({
-        where: { status: "pending" },
-        orderBy: { updatedAt: "desc" },
-        take: 10,
-        select: {
-          msku: true,
-          expectedQty: true,
-          actualQty: true,
-        },
-      }),
-      prisma.reconciliationSummary.findFirst({
-        orderBy: { lastRefreshedAt: "desc" },
-        select: { lastRefreshedAt: true },
-      }),
-    ]);
+  // Chunked manually (not via runChunkedQueries) because Prisma's groupBy
+  // return type depends on literal `_count._all: true` and loses that
+  // discriminator when routed through the helper's tuple mapping. Two sequential
+  // Promise.all groups → peak 3 concurrent vs tenant pool max=4.
+  const [agg, statusGroups, topMismatch] = await Promise.all([
+    prisma.reconciliationSummary.aggregate({
+      _count: { _all: true },
+      _sum: { variance: true },
+    }),
+    prisma.reconciliationSummary.groupBy({
+      by: ["status"],
+      _count: { _all: true },
+    }),
+    prisma.reconciliationSummary.findMany({
+      where: { status: "mismatch" },
+      orderBy: { variance: "desc" },
+      take: 10,
+      select: {
+        msku: true,
+        variance: true,
+        expectedQty: true,
+        actualQty: true,
+      },
+    }),
+  ]);
+  const [topPending, lastRefreshed] = await Promise.all([
+    prisma.reconciliationSummary.findMany({
+      where: { status: "pending" },
+      orderBy: { updatedAt: "desc" },
+      take: 10,
+      select: {
+        msku: true,
+        expectedQty: true,
+        actualQty: true,
+      },
+    }),
+    prisma.reconciliationSummary.findFirst({
+      orderBy: { lastRefreshedAt: "desc" },
+      select: { lastRefreshedAt: true },
+    }),
+  ]);
 
   const matched =
     statusGroups.find((g) => g.status === "matched")?._count._all ?? 0;

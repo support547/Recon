@@ -5,6 +5,7 @@ import { AdjType, CaseStatus, Prisma, ReconType } from "@prisma/client";
 
 import { requireAuth } from "@/actions/auth";
 import { prisma } from "@/lib/prisma";
+import { runChunkedQueries } from "@/lib/db/run-chunked";
 import { summaryStats } from "@/lib/returns-reconciliation/aggregate";
 import { aggregateReturns, computeReturnRow } from "@/lib/returns-reconciliation/formula";
 import {
@@ -117,9 +118,11 @@ export async function getReturnsReconData(
     ];
   }
 
+  // Chunked: peak 3 concurrent prisma calls vs tenant pool max=4.
   const [returns, sales, reimbs, cases, adjs, gnrRows, fbaSummaryRows] =
-    await Promise.all([
-      prisma.customerReturn.findMany({
+    await runChunkedQueries(
+      3,
+      () => prisma.customerReturn.findMany({
         where,
         select: {
           id: true,
@@ -138,11 +141,11 @@ export async function getReturnsReconData(
           licensePlateNumber: true,
         },
       }),
-      prisma.salesData.findMany({
+      () => prisma.salesData.findMany({
         where: { deletedAt: null },
         select: { orderId: true, fnsku: true, msku: true, asin: true },
       }),
-      prisma.reimbursement.findMany({
+      () => prisma.reimbursement.findMany({
         where: { deletedAt: null },
         select: {
           msku: true,
@@ -158,7 +161,7 @@ export async function getReturnsReconData(
           caseId: true,
         },
       }),
-      prisma.caseTracker.findMany({
+      () => prisma.caseTracker.findMany({
         where: { deletedAt: null, reconType: ReconType.RETURN },
         select: {
           orderId: true,
@@ -172,11 +175,11 @@ export async function getReturnsReconData(
           notes: true,
         },
       }),
-      prisma.manualAdjustment.findMany({
+      () => prisma.manualAdjustment.findMany({
         where: { deletedAt: null, reconType: ReconType.RETURN },
         select: { orderId: true, fnsku: true, qtyAdjusted: true, reason: true },
       }),
-      prisma.gnrReport.findMany({
+      () => prisma.gnrReport.findMany({
         where: { deletedAt: null },
         select: {
           orderId: true,
@@ -189,7 +192,7 @@ export async function getReturnsReconData(
           quantity: true,
         },
       }),
-      prisma.fbaSummary.findMany({
+      () => prisma.fbaSummary.findMany({
         where: { deletedAt: null },
         select: {
           msku: true,
@@ -199,7 +202,7 @@ export async function getReturnsReconData(
           summaryDate: true,
         },
       }),
-    ]);
+    );
 
   const salesMap = buildSalesMap(sales);
   const gnrBridge = buildGnrBridgeMap(gnrRows);
@@ -393,8 +396,10 @@ export async function getAsinVerificationData(
     ];
   }
 
-  const [returns, sales, catalog, cases, reimbs] = await Promise.all([
-    prisma.customerReturn.findMany({
+  // Chunked: peak 3 concurrent prisma calls vs tenant pool max=4.
+  const [returns, sales, catalog, cases, reimbs] = await runChunkedQueries(
+    3,
+    () => prisma.customerReturn.findMany({
       where,
       select: {
         orderId: true,
@@ -411,11 +416,11 @@ export async function getAsinVerificationData(
         fulfillmentCenter: true,
       },
     }),
-    prisma.salesData.findMany({
+    () => prisma.salesData.findMany({
       where: { deletedAt: null },
       select: { orderId: true, fnsku: true, asin: true, msku: true },
     }),
-    prisma.shippedToFba.findMany({
+    () => prisma.shippedToFba.findMany({
       where: { deletedAt: null },
       select: {
         fnsku: true,
@@ -425,7 +430,7 @@ export async function getAsinVerificationData(
         shipDate: true,
       },
     }),
-    prisma.caseTracker.findMany({
+    () => prisma.caseTracker.findMany({
       where: { deletedAt: null, reconType: ReconType.RETURN },
       select: {
         orderId: true,
@@ -439,7 +444,7 @@ export async function getAsinVerificationData(
         notes: true,
       },
     }),
-    prisma.reimbursement.findMany({
+    () => prisma.reimbursement.findMany({
       where: { deletedAt: null },
       select: {
         msku: true,
@@ -451,7 +456,7 @@ export async function getAsinVerificationData(
         amazonOrderId: true,
       },
     }),
-  ]);
+  );
 
   const salesOrderMap = buildSalesOrderDetailMap(sales);
   const catalogMap = buildCatalogMap(catalog);

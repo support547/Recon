@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import {
   TableBody,
   TableCell,
@@ -853,7 +854,7 @@ export function FbaReconTable({
 
       {/* Table */}
       {loading ? (
-        <Skeleton className="h-64 w-full" />
+        <TableSkeleton rows={8} cols={8} />
       ) : sortedRows.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
           <span className="text-3xl">♻</span>

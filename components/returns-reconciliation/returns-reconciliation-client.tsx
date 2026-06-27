@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { MskuReturnTable } from "@/components/returns-reconciliation/analysis-tab/msku-return-table";
@@ -271,7 +272,7 @@ export function ReturnsReconciliationClient({
 
             {view === "asin" ? (
               loading ? (
-                <Skeleton className="h-64 w-full" />
+                <TableSkeleton rows={8} cols={9} />
               ) : (
                 <AsinSummaryTable
                   asinRows={byAsinRows}
@@ -356,7 +357,7 @@ export function ReturnsReconciliationClient({
             </div>
 
             {loading ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={9} />
             ) : (
               <MskuReturnTable
                 rows={rows}

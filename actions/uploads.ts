@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { runChunkedSettled } from "@/lib/db/run-chunked";
 import {
   REPORT_TYPE_VALUES,
   SETTLEMENT_ACCOUNT_TYPE_LABELS,
@@ -88,34 +89,37 @@ export async function getUploadSummaryByType(): Promise<UploadSummaryRow[]> {
     "paymentRepository",
   ] as const;
 
-  const settled = await Promise.allSettled([
-    prisma.uploadedFile.groupBy({
+  // Chunked allSettled: peak 3 concurrent calls vs tenant pool max=4.
+  // Positional indices into `settled` preserved (see pick(idx,…) below).
+  const settled = await runChunkedSettled(
+    3,
+    () => prisma.uploadedFile.groupBy({
       by: ["reportType"],
       _count: { _all: true },
       _sum: { rowCount: true },
       _max: { uploadedAt: true },
     }),
-    prisma.uploadedFile.findMany({
+    () => prisma.uploadedFile.findMany({
       distinct: ["reportType"],
       orderBy: { uploadedAt: "desc" },
       select: { reportType: true, rowCount: true },
     }),
-    prisma.shippedToFba.aggregate({ _max: { shipDate: true }, _min: { shipDate: true } }),
-    prisma.salesData.aggregate({ _max: { saleDate: true }, _min: { saleDate: true } }),
-    prisma.fbaReceipt.aggregate({ _max: { receiptDate: true }, _min: { receiptDate: true } }),
-    prisma.customerReturn.aggregate({ _max: { returnDate: true }, _min: { returnDate: true } }),
-    prisma.reimbursement.aggregate({ _max: { approvalDate: true }, _min: { approvalDate: true } }),
-    prisma.fcTransfer.aggregate({ _max: { transferDate: true }, _min: { transferDate: true } }),
-    prisma.replacement.aggregate({ _max: { shipmentDate: true }, _min: { shipmentDate: true } }),
-    prisma.gnrReport.aggregate({ _max: { reportDate: true }, _min: { reportDate: true } }),
-    prisma.fbaRemoval.aggregate({ _max: { requestDate: true }, _min: { requestDate: true } }),
-    prisma.removalShipment.aggregate({ _max: { shipmentDate: true }, _min: { shipmentDate: true } }),
-    prisma.shipmentStatus.aggregate({ _max: { lastUpdated: true }, _min: { lastUpdated: true } }),
-    prisma.fbaSummary.aggregate({ _max: { summaryDate: true }, _min: { summaryDate: true } }),
-    prisma.inventoryAdjustment.aggregate({ _max: { adjDate: true }, _min: { adjDate: true } }),
-    prisma.settlementReport.aggregate({ _max: { postedDate: true }, _min: { postedDate: true } }),
-    prisma.paymentRepository.findMany({ select: { postedDatetime: true } }),
-  ]);
+    () => prisma.shippedToFba.aggregate({ _max: { shipDate: true }, _min: { shipDate: true } }),
+    () => prisma.salesData.aggregate({ _max: { saleDate: true }, _min: { saleDate: true } }),
+    () => prisma.fbaReceipt.aggregate({ _max: { receiptDate: true }, _min: { receiptDate: true } }),
+    () => prisma.customerReturn.aggregate({ _max: { returnDate: true }, _min: { returnDate: true } }),
+    () => prisma.reimbursement.aggregate({ _max: { approvalDate: true }, _min: { approvalDate: true } }),
+    () => prisma.fcTransfer.aggregate({ _max: { transferDate: true }, _min: { transferDate: true } }),
+    () => prisma.replacement.aggregate({ _max: { shipmentDate: true }, _min: { shipmentDate: true } }),
+    () => prisma.gnrReport.aggregate({ _max: { reportDate: true }, _min: { reportDate: true } }),
+    () => prisma.fbaRemoval.aggregate({ _max: { requestDate: true }, _min: { requestDate: true } }),
+    () => prisma.removalShipment.aggregate({ _max: { shipmentDate: true }, _min: { shipmentDate: true } }),
+    () => prisma.shipmentStatus.aggregate({ _max: { lastUpdated: true }, _min: { lastUpdated: true } }),
+    () => prisma.fbaSummary.aggregate({ _max: { summaryDate: true }, _min: { summaryDate: true } }),
+    () => prisma.inventoryAdjustment.aggregate({ _max: { adjDate: true }, _min: { adjDate: true } }),
+    () => prisma.settlementReport.aggregate({ _max: { postedDate: true }, _min: { postedDate: true } }),
+    () => prisma.paymentRepository.findMany({ select: { postedDatetime: true } }),
+  );
 
   const pick = <T,>(idx: number, fallback: T): T => {
     const r = settled[idx];

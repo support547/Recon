@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import {
   Table,
   TableBody,
@@ -745,7 +746,7 @@ export function RemovalReconciliationClient({
             </div>
 
             {loading ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={8} />
             ) : ordersView === "sku" ? (
               <OrdersTable
                 visibility={ordersVis}
@@ -777,7 +778,7 @@ export function RemovalReconciliationClient({
 
           <TabsContent value="receipts" className="mt-0 space-y-4">
             {loading ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={8} />
             ) : receiptsView === "order" ? (
               <>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

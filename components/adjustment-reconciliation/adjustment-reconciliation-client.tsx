@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { AnalysisTable } from "@/components/adjustment-reconciliation/analysis-tab/analysis-table";
@@ -594,7 +595,7 @@ export function AdjustmentReconciliationClient({
 
         <div className="space-y-4">
           {loading ? (
-            <Skeleton className="h-64 w-full" />
+            <TableSkeleton rows={8} cols={8} />
           ) : groupBy === "msku" ? (
             <MskuCoverageTable
               rows={filteredLedgerRows}

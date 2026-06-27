@@ -11,6 +11,7 @@ import { HeaderActions } from "@/components/layout/header-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -305,7 +306,7 @@ export function FcTransferReconciliationClient({
             ) : null}
 
             {loading || fullPayload === null ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={9} />
             ) : (
               <FullReconTable
                 visibility={fullVis}
@@ -329,7 +330,7 @@ export function FcTransferReconciliationClient({
               }}
             />
             {loading || fullPayload === null ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={8} />
             ) : (
               <LogTable visibility={logVis} rows={logRows} />
             )}

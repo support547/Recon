@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/shared/loading-skeletons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -378,7 +379,7 @@ export function ReplacementReconciliationClient({
             </div>
 
             {loading ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={8} />
             ) : (
               <AnalysisTable
                 visibility={analysisVis}
@@ -405,7 +406,7 @@ export function ReplacementReconciliationClient({
             />
 
             {loading ? (
-              <Skeleton className="h-64 w-full" />
+              <TableSkeleton rows={8} cols={8} />
             ) : (
               <LogTable visibility={logVis} rows={logRows} />
             )}

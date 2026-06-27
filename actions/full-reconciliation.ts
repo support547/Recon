@@ -78,25 +78,11 @@ export async function getFullReconData(
     ];
   }
 
-  const [
-    shippedRows,
-    receiptRows,
-    saleRows,
-    returnRows,
-    reimbRows,
-    removalRcptRows,
-    gnrRows,
-    gnrManualRows,
-    caseRows,
-    adjRows,
-    replacementRows,
-    fcRows,
-    fbaSummaryRows,
-    shipStatusRows,
-    receiptForLatestRows,
-    shipmentCaseRows,
-    shipmentAdjRows,
-  ] = await Promise.all([
+  // Chunked to peak at 2 concurrent prisma queries against the tenant pool
+  // (max:4), leaving 2 slots for the parallel callers running during the same
+  // RSC render (getFullReconRemarks, getEffectiveLevelsForCurrentUser).
+  // Identical query set + selects + destructure order to the prior implementation.
+  const [shippedRows, receiptRows] = await Promise.all([
     prisma.shippedToFba.findMany({
       where: shippedWhere,
       select: {
@@ -111,6 +97,9 @@ export async function getFullReconData(
         shipmentId: true, fulfillmentCenter: true,
       },
     }),
+  ]);
+
+  const [saleRows, returnRows] = await Promise.all([
     prisma.salesData.findMany({
       where: { deletedAt: null },
       select: { fnsku: true, quantity: true, saleDate: true, productAmount: true },
@@ -122,6 +111,9 @@ export async function getFullReconData(
         disposition: true, reason: true, orderId: true,
       },
     }),
+  ]);
+
+  const [reimbRows, removalRcptRows] = await Promise.all([
     prisma.reimbursement.findMany({
       where: { deletedAt: null },
       select: {
@@ -138,6 +130,9 @@ export async function getFullReconData(
         conditionReceived: true, status: true, receivedDate: true,
       },
     }),
+  ]);
+
+  const [gnrRows, gnrManualRows] = await Promise.all([
     prisma.gnrReport.findMany({
       where: { deletedAt: null },
       select: {
@@ -152,6 +147,9 @@ export async function getFullReconData(
         usedCondition: true, quantity: true, unitStatus: true,
       },
     }),
+  ]);
+
+  const [caseRows, adjRows] = await Promise.all([
     prisma.caseTracker.findMany({
       where: { deletedAt: null },
       select: {
@@ -162,6 +160,9 @@ export async function getFullReconData(
       where: { deletedAt: null },
       select: { fnsku: true, qtyAdjusted: true },
     }),
+  ]);
+
+  const [replacementRows, fcRows] = await Promise.all([
     prisma.replacement.findMany({
       where: { deletedAt: null },
       select: {
@@ -173,6 +174,9 @@ export async function getFullReconData(
       where: { deletedAt: null },
       select: { fnsku: true, quantity: true, transferDate: true },
     }),
+  ]);
+
+  const [fbaSummaryRows, shipStatusRows] = await Promise.all([
     prisma.fbaSummary.findMany({
       where: { deletedAt: null },
       select: {
@@ -186,6 +190,9 @@ export async function getFullReconData(
       where: { deletedAt: null },
       select: { shipmentId: true, status: true },
     }),
+  ]);
+
+  const [receiptForLatestRows, shipmentCaseRows] = await Promise.all([
     prisma.fbaReceipt.findMany({
       where: { deletedAt: null, shipmentId: { not: null } },
       select: { shipmentId: true, receiptDate: true },
@@ -194,6 +201,9 @@ export async function getFullReconData(
       where: { deletedAt: null, reconType: ReconType.SHIPMENT },
       select: { fnsku: true, status: true, unitsClaimed: true, unitsApproved: true },
     }),
+  ]);
+
+  const [shipmentAdjRows] = await Promise.all([
     prisma.manualAdjustment.findMany({
       where: { deletedAt: null, reconType: ReconType.SHIPMENT },
       select: { fnsku: true, qtyAdjusted: true },
