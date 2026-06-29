@@ -94,26 +94,14 @@ export type DashboardProps = {
   >;
 };
 
-type ModuleKey = keyof DashboardProps["modules"];
-
-type ModuleCardConfig = {
-  key: ModuleKey;
-  name: string;
-  icon: LucideIcon;
-  href: string;
-  caseModuleParam: string;
-};
-
-const MODULE_CONFIGS: ModuleCardConfig[] = [
-  { key: "shipment", name: "Shipment Recon", icon: Package, href: "/shipment-reconciliation", caseModuleParam: "shipment" },
-  { key: "removal", name: "Removal Recon", icon: Truck, href: "/removal-reconciliation", caseModuleParam: "removal" },
-  { key: "returns", name: "Returns Recon", icon: RotateCcw, href: "/returns-reconciliation", caseModuleParam: "returns" },
-  { key: "replacement", name: "Replacement Recon", icon: RefreshCw, href: "/replacement-reconciliation", caseModuleParam: "replacement" },
-  { key: "fcTransfer", name: "FC Transfer Recon", icon: ArrowLeftRight, href: "/fc-transfer-reconciliation", caseModuleParam: "fc-transfer" },
-  { key: "gnr", name: "GNR Recon", icon: ClipboardList, href: "/gnr-reconciliation", caseModuleParam: "gnr" },
-  { key: "adjustment", name: "Adjustment Recon", icon: SlidersHorizontal, href: "/adjustment-reconciliation", caseModuleParam: "adjustment" },
-  { key: "full", name: "Full Inventory Recon", icon: Boxes, href: "/full-reconciliation", caseModuleParam: "full" },
-];
+// MODULE_CONFIGS, ModuleCardConfig, ModuleKey live in ./module-config so
+// server-side islands can read them without crossing the "use client"
+// boundary (which turns array exports into opaque client references).
+import {
+  MODULE_CONFIGS,
+  type ModuleCardConfig,
+} from "./module-config";
+import { MODULE_ICONS } from "./module-icons";
 
 const SECTION_IDS = {
   takeAction: "section-modules",
@@ -121,15 +109,15 @@ const SECTION_IDS = {
   unrecovered: "section-flow",
 };
 
-function fmt(n: number): string {
+export function fmt(n: number): string {
   return n.toLocaleString();
 }
 
-function fmtCurrency(n: number): string {
+export function fmtCurrency(n: number): string {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
 
-function timeAgo(iso: string | null): string {
+export function timeAgo(iso: string | null): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "—";
@@ -142,14 +130,14 @@ function timeAgo(iso: string | null): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-function moduleStatus(m: ModuleStats): "red" | "amber" | "green" {
+export function moduleStatus(m: ModuleStats): "red" | "amber" | "green" {
   if (m.takeAction > 0) return "red";
   if (m.pending > 0 || m.caseNeeded > 0) return "amber";
   return "green";
 }
 
 // Short pill label per module key
-const SHORT_LABEL: Record<string, string> = {
+export const SHORT_LABEL: Record<string, string> = {
   shipment:    "take action",
   removal:     "awaiting",
   returns:     "take action",
@@ -160,7 +148,7 @@ const SHORT_LABEL: Record<string, string> = {
   full:        "take action",
 };
 
-function cardBorderStyle(tone: "red" | "amber" | "green"): React.CSSProperties {
+export function cardBorderStyle(tone: "red" | "amber" | "green"): React.CSSProperties {
   const palette = {
     red:   { thin: "#E24B4A", thick: "#A32D2D", bg: "#FCEBEB08" },
     amber: { thin: "#EF9F27", thick: "#854F0B", bg: "#FAEEDA08" },
@@ -177,7 +165,7 @@ function cardBorderStyle(tone: "red" | "amber" | "green"): React.CSSProperties {
   };
 }
 
-function smoothScroll(id: string) {
+export function smoothScroll(id: string) {
   const el = document.getElementById(id);
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -380,7 +368,10 @@ export function ReconDashboardClient(props: DashboardProps) {
                   className="flex items-center justify-between gap-3 py-2 text-sm transition-colors hover:bg-red-100/40"
                 >
                   <span className="flex items-center gap-2">
-                    <cfg.icon className="size-4 text-red-500" aria-hidden />
+                    {(() => {
+                      const Icon = MODULE_ICONS[cfg.key];
+                      return <Icon className="size-4 text-red-500" aria-hidden />;
+                    })()}
                     <span className="font-medium text-foreground">{cfg.name}</span>
                     <span className="text-muted-foreground">
                       — {fmt(stats.takeAction)} {stats.primaryLabel}
@@ -497,7 +488,7 @@ export function ReconDashboardClient(props: DashboardProps) {
   );
 }
 
-function FinancialPlaceholder() {
+export function FinancialPlaceholder() {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
       <div className="flex size-14 items-center justify-center rounded-full bg-blue-50">
@@ -518,7 +509,7 @@ function FinancialPlaceholder() {
   );
 }
 
-function RefreshControls({
+export function RefreshControls({
   pending,
   refreshedLabel,
   onRefresh,
@@ -547,17 +538,21 @@ function RefreshControls({
   );
 }
 
-function UrgencyPill({
+export function UrgencyPill({
   tone,
   icon,
   label,
   onClick,
+  scrollTargetId,
 }: {
   tone: "red" | "amber" | "blue" | "emerald" | "slate";
   icon: React.ReactNode;
   label: string;
-  onClick: () => void;
+  onClick?: () => void;
+  scrollTargetId?: string;
 }) {
+  const handleClick =
+    onClick ?? (scrollTargetId ? () => smoothScroll(scrollTargetId) : undefined);
   const PILL_COLORS: Record<typeof tone, string> = {
     red: "border-red-500/40 bg-white text-red-700 hover:bg-red-100",
     amber: "border-amber-500/40 bg-white text-amber-700 hover:bg-amber-100",
@@ -577,7 +572,7 @@ function UrgencyPill({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={handleClick}
       className={cn(
         "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
         colors,
@@ -600,11 +595,25 @@ const KPI_ACCENT: Record<string, string> = {
   slate: "text-slate-500",
 };
 
-function KpiCard({
+// Lookup so server islands can address an icon by string (a serializable prop)
+// instead of passing a LucideIcon function ref across the RSC boundary.
+const KPI_ICON_MAP = {
+  upload: Upload,
+  package: Package,
+  trendingDown: TrendingDown,
+  shoppingCart: ShoppingCart,
+  rotateCcw: RotateCcw,
+  dollarSign: DollarSign,
+  flame: Flame,
+} as const;
+export type KpiIconKey = keyof typeof KPI_ICON_MAP;
+
+export function KpiCard({
   label,
   value,
   accent,
-  icon: Icon,
+  icon: IconFn,
+  iconKey,
   href,
   delta,
   emphasize,
@@ -612,11 +621,13 @@ function KpiCard({
   label: string;
   value: number;
   accent: keyof typeof KPI_ACCENT;
-  icon: LucideIcon;
+  icon?: LucideIcon;
+  iconKey?: KpiIconKey;
   href?: string;
   delta?: string;
   emphasize?: boolean;
 }) {
+  const Icon = IconFn ?? (iconKey ? KPI_ICON_MAP[iconKey] : null);
   const valueColor =
     accent === "red"
       ? "text-red-600"
@@ -638,7 +649,7 @@ function KpiCard({
         <span className="truncate text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
           {label}
         </span>
-        <Icon className={cn("size-3 shrink-0", KPI_ACCENT[accent])} aria-hidden />
+        {Icon ? <Icon className={cn("size-3 shrink-0", KPI_ACCENT[accent])} aria-hidden /> : null}
       </div>
       <div className="flex items-baseline gap-1">
         <span
@@ -666,7 +677,7 @@ function KpiCard({
 }
 
 // ── Stat box: vivid colored tile used in Shipment & Removal 2×2 grids ──
-function StatBox({
+export function StatBox({
   label,
   value,
   tone,
@@ -712,16 +723,16 @@ function StatBox({
 }
 
 // ── Shared card header: icon + name + action pill (replaces status dot) ──
-function CardHeader({
+export function CardHeader({
   cfg,
   stats,
   tone,
 }: {
-  cfg: { key: string; name: string; icon: LucideIcon };
+  cfg: { key: ModuleCardConfig["key"]; name: string };
   stats: ModuleStats;
   tone: "red" | "amber" | "green";
 }) {
-  const Icon = cfg.icon;
+  const Icon = MODULE_ICONS[cfg.key];
   // Removal: awaiting is informational but the pill should read red like the
   // take-action modules whenever there are awaiting units.
   const pillTone =
@@ -755,7 +766,7 @@ function CardHeader({
 // ── Shared card footer: cases row + action buttons ──
 // hideCaseActions drops the Raise Case button + take-action badge, leaving a
 // lone View link (used by Returns, which is driven from its own page).
-function CardBottom({
+export function CardBottom({
   cfg,
   stats,
   hideCaseActions,
@@ -799,7 +810,7 @@ function CardBottom({
 // ── Shipment card: 2×2 grid — Total | Received / Reimbursed | Resolved ──
 // secondary[0]=Total  [1]=Received  [2]=Reimbursed  [3]=Resolved (all units).
 // primaryValue/takeAction = take-action UNITS -> header pill + take-action badge.
-function ShipmentModuleCard({
+export function ShipmentModuleCard({
   cfg,
   stats,
 }: {
@@ -825,7 +836,7 @@ function ShipmentModuleCard({
 // Awaiting units shown in the header pill (primaryValue). Box mirrors the
 // Removal Recon page KPI cards.
 // secondary[0]=Total  [1]=Received  [2]=Partial/Missing  [3]=Reimbursed
-function RemovalModuleCard({
+export function RemovalModuleCard({
   cfg,
   stats,
 }: {
@@ -859,7 +870,7 @@ function RemovalModuleCard({
 // ── Returns card: 2×2 grid — Total | Settled / Not Found | Adjustment ──
 // secondary[0]=Total  [1]=Settled  [2]=Not Found  [3]=Adjustment (all units).
 // primaryValue = units in take-action (drives the header pill).
-function ReturnsModuleCard({
+export function ReturnsModuleCard({
   cfg,
   stats,
 }: {
@@ -895,7 +906,7 @@ function ReturnsModuleCard({
 // ── Replacement card: 2×2 grid — Total | Return / Waiting | Resolved ──
 // secondary[0]=Total [1]=Return [2]=Waiting [3]=Resolved (all units).
 // primaryValue = pending units (drives the header pill).
-function ReplacementModuleCard({
+export function ReplacementModuleCard({
   cfg,
   stats,
 }: {
@@ -932,7 +943,7 @@ function ReplacementModuleCard({
 // secondary[0]=Total MSKU [1]=Reconcile [2]=No Action(in-transit+excess) [3]=Cases & Adj.
 // primaryValue/takeAction = shortage+damaged+both -> header pill (top-right) +
 // the take-action badge in CardBottom (bottom-right), same as Replacement.
-function FcTransferModuleCard({
+export function FcTransferModuleCard({
   cfg,
   stats,
 }: {
@@ -960,7 +971,7 @@ function FcTransferModuleCard({
 // ── GNR card: 2×2 grid — Total | Match / Resolve | Excess ──
 // secondary[0]=Total [1]=Match [2]=Resolve [3]=Excess. Mirrors the FC Transfer
 // box layout; primaryValue/takeAction drive the header pill + take-action badge.
-function GnrModuleCard({
+export function GnrModuleCard({
   cfg,
   stats,
 }: {
@@ -989,7 +1000,7 @@ function GnrModuleCard({
 // ── Adjustment card: 2×2 grid — Total MSKUs | Reconciled / Grade & Resell | Cases Raised ──
 // secondary[0]=Total MSKUs [1]=Reconciled [2]=Grade & Resell [3]=Cases Raised.
 // primaryValue/takeAction = take-action MSKU count -> header pill + take-action badge.
-function AdjustmentModuleCard({
+export function AdjustmentModuleCard({
   cfg,
   stats,
 }: {
@@ -1014,7 +1025,7 @@ function AdjustmentModuleCard({
 // ── Full Inventory card: 2×2 grid — Matched | Over / Reimbursed | No Snapshot ──
 // secondary[0]=Matched [1]=Over [2]=Reimbursed [3]=No Snapshot (SKU counts).
 // primaryValue/takeAction = SKUs needing action -> header pill + take-action badge.
-function FullModuleCard({
+export function FullModuleCard({
   cfg,
   stats,
 }: {
@@ -1041,7 +1052,7 @@ function FullModuleCard({
 }
 
 // ── Standard module card (fallback) ──
-function ModuleCard({
+export function ModuleCard({
   cfg,
   stats,
 }: {
@@ -1096,7 +1107,7 @@ const CHIP_LABEL_COLOR: Record<ChipTone, string> = {
   slate:   "#5F5E5A",
 };
 
-function CaseStatChip({
+export function CaseStatChip({
   label,
   value,
   tone,
@@ -1123,7 +1134,7 @@ function CaseStatChip({
   );
 }
 
-function CaseStatChipLink({
+export function CaseStatChipLink({
   label,
   value,
   tone,
@@ -1156,7 +1167,7 @@ function CaseStatChipLink({
   );
 }
 
-function QuickLink({
+export function QuickLink({
   href,
   icon: Icon,
   label,

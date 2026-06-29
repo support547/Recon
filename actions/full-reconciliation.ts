@@ -372,6 +372,220 @@ export async function saveInventoryAdjustmentAction(raw: unknown): Promise<Mutat
   }
 }
 
+export type FullReconDashboardSummary = {
+  takeAction: number;
+  matched: number;
+  over: number;
+  reimbursed: number;
+  noSnapshot: number;
+  caseNeeded: number;
+  takeActionVariance: number;
+};
+
+/**
+ * Lightweight per-FNSKU aggregate for the dashboard's Full Inventory card.
+ * Mirrors getFullReconData's stats without loading the full row set:
+ *  - All numeric components fetched server-side via groupBy / CTEs.
+ *  - reconStatus computed per FNSKU in JS using the same formula as
+ *    composeFullReconRow + computeReconStatus.
+ */
+export async function getFullReconDashboardSummary(): Promise<FullReconDashboardSummary> {
+  type FnskuMsku = { fnsku: string; msku: string | null };
+  type FnskuQty = { fnsku: string; qty: bigint | null };
+  type MskuQty = { msku: string; qty: bigint | null };
+  type FnskuEnd = { fnsku: string; ending_balance: number };
+  type FnskuCount = { fnsku: string; count: bigint };
+
+  const [
+    anchor,
+    receipts,
+    sales,
+    returns,
+    removals,
+    gnr,
+    fc,
+    fba,
+    cases,
+    reimb,
+    repl,
+  ] = await Promise.all([
+    prisma.$queryRaw<FnskuMsku[]>`
+      SELECT DISTINCT ON (TRIM(fnsku))
+        TRIM(fnsku) AS fnsku,
+        NULLIF(TRIM(msku), '') AS msku
+      FROM shipped_to_fba
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+      ORDER BY TRIM(fnsku), id
+    `,
+    prisma.$queryRaw<FnskuQty[]>`
+      SELECT TRIM(fnsku) AS fnsku, SUM(quantity)::bigint AS qty
+      FROM fba_receipts
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+      GROUP BY TRIM(fnsku)
+    `,
+    prisma.$queryRaw<FnskuQty[]>`
+      SELECT TRIM(fnsku) AS fnsku, SUM(quantity)::bigint AS qty
+      FROM sales_data
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+        AND "productAmount" IS NOT NULL AND "productAmount" <> 0
+      GROUP BY TRIM(fnsku)
+    `,
+    prisma.$queryRaw<FnskuQty[]>`
+      SELECT TRIM(fnsku) AS fnsku, SUM(quantity)::bigint AS qty
+      FROM customer_returns
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+      GROUP BY TRIM(fnsku)
+    `,
+    prisma.$queryRaw<FnskuQty[]>`
+      SELECT TRIM(fnsku) AS fnsku, SUM("receivedQty")::bigint AS qty
+      FROM removal_receipts
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> '' AND "receivedQty" > 0
+      GROUP BY TRIM(fnsku)
+    `,
+    prisma.$queryRaw<FnskuQty[]>`
+      SELECT fnsku, SUM(qty)::bigint AS qty FROM (
+        SELECT TRIM(fnsku) AS fnsku, quantity AS qty FROM gnr_report
+          WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+        UNION ALL
+        SELECT TRIM(fnsku) AS fnsku, quantity AS qty FROM grade_resell_items
+          WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+      ) t
+      GROUP BY fnsku
+    `,
+    prisma.$queryRaw<FnskuQty[]>`
+      SELECT TRIM(fnsku) AS fnsku, SUM(quantity)::bigint AS qty
+      FROM fc_transfers
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+      GROUP BY TRIM(fnsku)
+    `,
+    prisma.$queryRaw<FnskuEnd[]>`
+      SELECT DISTINCT ON (TRIM(fnsku))
+        TRIM(fnsku) AS fnsku,
+        "endingBalance" AS ending_balance
+      FROM fba_summary
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+        AND LOWER(disposition) = 'sellable'
+      ORDER BY TRIM(fnsku), "summaryDate" DESC NULLS LAST
+    `,
+    prisma.$queryRaw<FnskuCount[]>`
+      SELECT TRIM(fnsku) AS fnsku, COUNT(*)::bigint AS count
+      FROM case_tracker
+      WHERE "deletedAt" IS NULL AND fnsku IS NOT NULL AND TRIM(fnsku) <> ''
+      GROUP BY TRIM(fnsku)
+    `,
+    prisma.$queryRaw<FnskuQty[]>`
+      WITH id_to_reason AS (
+        SELECT "reimbursementId" AS rid, MAX(reason) AS reason
+        FROM reimbursements
+        WHERE "deletedAt" IS NULL AND "reimbursementId" IS NOT NULL AND reason IS NOT NULL
+        GROUP BY "reimbursementId"
+      ),
+      effective AS (
+        SELECT
+          TRIM(r.fnsku) AS fnsku,
+          r.quantity,
+          CASE WHEN LOWER(TRIM(r.reason)) = 'reimbursement_reversal' THEN
+            COALESCE(NULLIF(TRIM(r."originalReimbType"), ''),
+                     (SELECT i.reason FROM id_to_reason i WHERE i.rid = r."originalReimbId"))
+          ELSE TRIM(r.reason) END AS eff_reason,
+          CASE WHEN LOWER(TRIM(r.reason)) = 'reimbursement_reversal' THEN -1 ELSE 1 END AS sign
+        FROM reimbursements r
+        WHERE r."deletedAt" IS NULL AND r.fnsku IS NOT NULL AND TRIM(r.fnsku) <> ''
+      )
+      SELECT fnsku, SUM(sign * quantity)::bigint AS qty
+      FROM effective
+      WHERE LOWER(eff_reason) IN ('damaged_warehouse','lost_warehouse','customerserviceissue','returnadjustment','generaladjustment')
+      GROUP BY fnsku
+    `,
+    prisma.$queryRaw<MskuQty[]>`
+      WITH return_orders AS (
+        SELECT DISTINCT TRIM(msku) AS msku, TRIM("orderId") AS oid
+        FROM customer_returns
+        WHERE "deletedAt" IS NULL AND msku IS NOT NULL AND "orderId" IS NOT NULL
+          AND TRIM(msku) <> '' AND TRIM("orderId") <> ''
+      )
+      SELECT TRIM(r.msku) AS msku, SUM(r.quantity)::bigint AS qty
+      FROM replacements r
+      WHERE r."deletedAt" IS NULL AND r.msku IS NOT NULL AND TRIM(r.msku) <> ''
+        AND (
+          EXISTS (
+            SELECT 1 FROM return_orders ro
+            WHERE ro.msku = TRIM(r.msku) AND ro.oid = TRIM(r."replacementOrderId")
+          )
+          OR EXISTS (
+            SELECT 1 FROM return_orders ro
+            WHERE ro.msku = TRIM(r.msku) AND ro.oid = TRIM(r."originalOrderId")
+          )
+        )
+      GROUP BY TRIM(r.msku)
+    `,
+  ]);
+
+  const toNum = (b: bigint | null | undefined): number => (b == null ? 0 : Number(b));
+  const receiptsMap = new Map(receipts.map((r) => [r.fnsku, toNum(r.qty)]));
+  const salesMap = new Map(sales.map((r) => [r.fnsku, toNum(r.qty)]));
+  const returnsMap = new Map(returns.map((r) => [r.fnsku, toNum(r.qty)]));
+  const removalsMap = new Map(removals.map((r) => [r.fnsku, toNum(r.qty)]));
+  const gnrMap = new Map(gnr.map((r) => [r.fnsku, toNum(r.qty)]));
+  const fcMap = new Map(fc.map((r) => [r.fnsku, toNum(r.qty)]));
+  const fbaMap = new Map(fba.map((r) => [r.fnsku, r.ending_balance]));
+  const reimbMap = new Map(reimb.map((r) => [r.fnsku, toNum(r.qty)]));
+  const replMap = new Map(repl.map((r) => [r.msku, toNum(r.qty)]));
+  const casesMap = new Map(cases.map((r) => [r.fnsku, Number(r.count)]));
+
+  let matched = 0;
+  let over = 0;
+  let takeAction = 0;
+  let reimbursed = 0;
+  let noSnapshot = 0;
+  let caseNeeded = 0;
+  let takeActionVariance = 0;
+
+  for (const { fnsku, msku } of anchor) {
+    const receipt = receiptsMap.get(fnsku) ?? 0;
+    const sold = salesMap.get(fnsku) ?? 0;
+    const ret = returnsMap.get(fnsku) ?? 0;
+    const reimbQ = reimbMap.get(fnsku) ?? 0;
+    const removal = removalsMap.get(fnsku) ?? 0;
+    const gnrQ = gnrMap.get(fnsku) ?? 0;
+    const fcNet = fcMap.get(fnsku) ?? 0;
+    const replQ = msku ? replMap.get(msku) ?? 0 : 0;
+    const ending = receipt - sold + ret - reimbQ - removal - replQ - gnrQ + fcNet;
+    const fbaEnd = fbaMap.has(fnsku) ? fbaMap.get(fnsku)! : null;
+
+    if (fbaEnd === null) {
+      noSnapshot++;
+      continue;
+    }
+    const variance = fbaEnd - ending;
+    if (variance === 0) {
+      matched++;
+      continue;
+    }
+    if (variance > 0) {
+      over++;
+      continue;
+    }
+    if (reimbQ > 0 && reimbQ >= -variance) {
+      reimbursed++;
+      continue;
+    }
+    takeAction++;
+    takeActionVariance += Math.abs(variance);
+    if ((casesMap.get(fnsku) ?? 0) === 0) caseNeeded++;
+  }
+
+  return {
+    takeAction,
+    matched,
+    over,
+    reimbursed,
+    noSnapshot,
+    caseNeeded,
+    takeActionVariance,
+  };
+}
+
 export async function getFullReconRemarks(): Promise<Record<string, string>> {
   const rows = await prisma.fullReconRemark.findMany({
     select: { fnsku: true, remarks: true },
