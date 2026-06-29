@@ -1008,6 +1008,18 @@ const PAYMENT_REPOSITORY: ExplorerColumnSpec[] = [
     cell: "moneyRight",
   },
   {
+    accessorKey: "regulatoryFee",
+    header: "Reg Fee",
+    kind: "money",
+    cell: "moneyRight",
+  },
+  {
+    accessorKey: "taxOnRegulatoryFee",
+    header: "Reg Fee Tax",
+    kind: "money",
+    cell: "moneyRight",
+  },
+  {
     accessorKey: "total",
     header: "Total",
     kind: "money",

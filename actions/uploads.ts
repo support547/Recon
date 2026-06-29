@@ -2783,8 +2783,13 @@ async function processPaymentRepository(
   const iProdTax = findCol("product sales tax");
   const iShipCred = findCol("shipping credits");
   const iShipCredTax = findCol("shipping credits tax");
-  const iGift = findCol("gift wrap credits");
-  const iGiftTax = findCol("gift wrap credits tax");
+  const iGift = findCol("gift wrap credits", "giftwrap credits");
+  const iGiftTax = findCol("gift wrap credits tax", "giftwrap credits tax");
+  const iRegFee = hdr.findIndex((h) => {
+    const x = String(h).toLowerCase().trim();
+    return x === "regulatory fee";
+  });
+  const iRegFeeTax = findCol("tax on regulatory fee");
   const iPromo = findCol("promotional rebates");
   const iPromoTax = findCol("promotional rebates tax");
   const iWithheld = findCol("marketplace withheld tax");
@@ -2862,6 +2867,8 @@ async function processPaymentRepository(
     let shippingCreditsTax: Prisma.Decimal | null;
     let giftWrapCredits: Prisma.Decimal | null;
     let giftWrapCreditsTax: Prisma.Decimal | null;
+    let regulatoryFee: Prisma.Decimal | null;
+    let taxOnRegulatoryFee: Prisma.Decimal | null;
     let promotionalRebates: Prisma.Decimal | null;
     let promotionalRebatesTax: Prisma.Decimal | null;
     let marketplaceWithheldTax: Prisma.Decimal | null;
@@ -2891,6 +2898,8 @@ async function processPaymentRepository(
       shippingCreditsTax = decMoney(row[16]);
       giftWrapCredits = decMoney(row[17]);
       giftWrapCreditsTax = decMoney(row[18]);
+      regulatoryFee = null;
+      taxOnRegulatoryFee = null;
       promotionalRebates = decMoney(row[19]);
       promotionalRebatesTax = decMoney(row[20]);
       marketplaceWithheldTax = decMoney(row[21]);
@@ -2919,6 +2928,8 @@ async function processPaymentRepository(
       shippingCreditsTax = decMoney(get(row, iShipCredTax));
       giftWrapCredits = decMoney(get(row, iGift));
       giftWrapCreditsTax = decMoney(get(row, iGiftTax));
+      regulatoryFee = decMoney(get(row, iRegFee));
+      taxOnRegulatoryFee = decMoney(get(row, iRegFeeTax));
       promotionalRebates = decMoney(get(row, iPromo));
       promotionalRebatesTax = decMoney(get(row, iPromoTax));
       marketplaceWithheldTax = decMoney(get(row, iWithheld));
@@ -2952,6 +2963,8 @@ async function processPaymentRepository(
       shippingCreditsTax,
       giftWrapCredits,
       giftWrapCreditsTax,
+      regulatoryFee,
+      taxOnRegulatoryFee,
       promotionalRebates,
       promotionalRebatesTax,
       marketplaceWithheldTax,
@@ -2982,6 +2995,7 @@ async function processPaymentRepository(
       decToStr(r.productSales), decToStr(r.productSalesTax),
       decToStr(r.shippingCredits), decToStr(r.shippingCreditsTax),
       decToStr(r.giftWrapCredits), decToStr(r.giftWrapCreditsTax),
+      decToStr(r.regulatoryFee), decToStr(r.taxOnRegulatoryFee),
       decToStr(r.promotionalRebates), decToStr(r.promotionalRebatesTax),
       decToStr(r.marketplaceWithheldTax), decToStr(r.sellingFees),
       decToStr(r.fbaFees), decToStr(r.otherTransactionFees),
@@ -3114,7 +3128,8 @@ async function processPaymentRepository(
           "id", "postedDatetime", "settlementId", "lineType", "orderId", "sku", "description", "quantity",
           "marketplace", "accountType", "fulfillmentId", "taxCollectionModel",
           "productSales", "productSalesTax", "shippingCredits", "shippingCreditsTax",
-          "giftWrapCredits", "giftWrapCreditsTax", "promotionalRebates", "promotionalRebatesTax",
+          "giftWrapCredits", "giftWrapCreditsTax", "regulatoryFee", "taxOnRegulatoryFee",
+          "promotionalRebates", "promotionalRebatesTax",
           "marketplaceWithheldTax", "sellingFees", "fbaFees", "otherTransactionFees", "other", "total",
           "transactionStatus", "transactionReleaseDatetime", "store", "rowHash",
           "uploadedAt", "createdAt", "updatedAt"
@@ -3137,6 +3152,8 @@ async function processPaymentRepository(
           ${rawDec(r.shippingCreditsTax)},
           ${rawDec(r.giftWrapCredits)},
           ${rawDec(r.giftWrapCreditsTax)},
+          ${rawDec(r.regulatoryFee)},
+          ${rawDec(r.taxOnRegulatoryFee)},
           ${rawDec(r.promotionalRebates)},
           ${rawDec(r.promotionalRebatesTax)},
           ${rawDec(r.marketplaceWithheldTax)},

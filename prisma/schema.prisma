@@ -876,6 +876,8 @@ model PaymentRepository {
   shippingCreditsTax         Decimal?  @db.Decimal(12, 2)
   giftWrapCredits            Decimal?  @db.Decimal(12, 2)
   giftWrapCreditsTax         Decimal?  @db.Decimal(12, 2)
+  regulatoryFee              Decimal?  @db.Decimal(12, 2)
+  taxOnRegulatoryFee         Decimal?  @db.Decimal(12, 2)
   promotionalRebates         Decimal?  @db.Decimal(12, 2)
   promotionalRebatesTax      Decimal?  @db.Decimal(12, 2)
   marketplaceWithheldTax     Decimal?  @db.Decimal(12, 2)
