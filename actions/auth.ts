@@ -119,10 +119,12 @@ export async function signInWithCredentials(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid." };
   }
 
-  const callbackUrl =
+  const rawCallback =
     typeof formData.get("callbackUrl") === "string"
       ? String(formData.get("callbackUrl"))
-      : "/";
+      : "";
+  const callbackUrl =
+    !rawCallback || rawCallback === "/" ? "/upload" : rawCallback;
 
   try {
     await signIn("credentials", {

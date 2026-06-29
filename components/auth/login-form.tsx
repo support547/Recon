@@ -13,7 +13,9 @@ import { Label } from "@/components/ui/label";
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const rawCallback = searchParams.get("callbackUrl") || "";
+  const callbackUrl =
+    !rawCallback || rawCallback === "/" ? "/upload" : rawCallback;
   const [pending, startTransition] = React.useTransition();
   const [showPassword, setShowPassword] = React.useState(false);
 
@@ -27,7 +29,7 @@ export function LoginForm() {
       return;
     }
     startTransition(() => {
-      router.push(res.data?.callbackUrl ?? "/");
+      router.push(res.data?.callbackUrl ?? "/upload");
       router.refresh();
     });
   }

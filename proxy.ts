@@ -40,7 +40,7 @@ export const proxy = auth((req) => {
   }
 
   if (isLoggedIn && isLoginPage) {
-    return NextResponse.redirect(new URL("/", req.url));
+    return NextResponse.redirect(new URL("/upload", req.url));
   }
 
   // ADMIN route gate. Role lives in the JWT (req.auth.user.role) so we don't
