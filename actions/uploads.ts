@@ -2727,22 +2727,36 @@ async function processPaymentRepository(
   allRows: string[][],
   batchAt: Date,
 ): Promise<ProcessOutcome> {
-  // Amazon Unified Transaction CSV has 9 preamble lines before the real
-  // header. Template files put the header on row 0. Auto-detect by scanning
-  // up to the first 20 rows for a row containing both "date/time" and
-  // "settlement id" (canonical Payment Repository markers).
+  // Amazon Unified Transaction CSV has a variable-length preamble (date range,
+  // account-type, filters, blank lines). Template files put the header on row 0.
+  // Auto-detect by scanning up to the first 50 rows for a row containing both
+  // "date/time" and "settlement id" (canonical Payment Repository markers).
+  //
+  // normCell collapses internal whitespace and removes spaces around `/` so
+  // variant headers like "Date / Time" match "date/time". Smart quotes and
+  // BOM are stripped.
   const normCell = (c: unknown) =>
     String(c ?? "")
+      .replace(/\ufeff/g, "")
       .toLowerCase()
-      .trim()
-      .replace(/['"]/g, "")
-      .replace(/\ufeff/g, "");
+      .replace(/[\u2018\u2019\u201c\u201d'"`]/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*\/\s*/g, "/")
+      .trim();
   let headerIdx = 0;
-  const scanLimit = Math.min(allRows.length, 20);
+  const scanLimit = Math.min(allRows.length, 50);
   for (let i = 0; i < scanLimit; i++) {
     const cells = (allRows[i] ?? []).map(normCell);
-    const hasDate = cells.some((h) => h.includes("date/time") || h === "posted date" || h.includes("posted date"));
-    const hasSettle = cells.some((h) => h.includes("settlement id") || h.includes("settlement-id"));
+    const hasDate = cells.some(
+      (h) =>
+        h.includes("date/time") ||
+        h === "posted date" ||
+        h.includes("posted date") ||
+        h.includes("posted date/time"),
+    );
+    const hasSettle = cells.some(
+      (h) => h.includes("settlement id") || h.includes("settlement-id"),
+    );
     if (hasDate && hasSettle) {
       headerIdx = i;
       break;
@@ -2824,19 +2838,21 @@ async function processPaymentRepository(
     );
   }
 
-  // Hard require — Payment Repository canonical headers (space form,
-  // lowercase). Reject if any are missing.
-  const REQUIRED_PAYMENT = [
-    "date/time",
-    "settlement id",
-    "type",
-    "product sales",
-    "fba fees",
-  ] as const;
-  const missingPayment = REQUIRED_PAYMENT.filter((h) => !hdr.includes(h));
+  // Hard require — Payment Repository canonical headers. Use the indices
+  // already resolved by findCol so the validation is as lenient as the
+  // mapping itself (handles "Date / Time" vs "date/time", "Posted Date/Time",
+  // etc.). Reject if any required column is missing.
+  const missingPayment: string[] = [];
+  if (iDate === -1) missingPayment.push("date/time");
+  if (iSettle === -1) missingPayment.push("settlement id");
+  if (iType === -1) missingPayment.push("type");
+  if (iProdSales === -1) missingPayment.push("product sales");
+  if (iFba === -1) missingPayment.push("fba fees");
   if (missingPayment.length > 0) {
+    const sampleHeaders = hdr.filter((h) => h).slice(0, 12).join(" | ");
     throw new Error(
       `Not a valid Payment Repository — missing required column(s): ${missingPayment.join(", ")}. ` +
+        `Detected header: ${sampleHeaders || "(empty)"}. ` +
         "Expected the Amazon Unified Transaction CSV (Payment Repository) headers.",
     );
   }
@@ -3069,18 +3085,22 @@ async function processPaymentRepository(
   const valid = rows.map((r) => ({ r, hash: hashOf(r), key: canonicalKeyOf(r) }));
 
   if (valid.length > 0) {
-    const existingSet = await fetchExistingHashes(
-      valid.map((v) => v.hash),
-      (chunk) =>
-        tx.paymentRepository.findMany({
-          where: { rowHash: { in: chunk } },
-          select: { rowHash: true },
-        }),
-    );
+    // Group incoming rows by canonical key, preserving file order so the
+    // first N copies of any duplicate group are the ones we keep.
+    const incomingByKey = new Map<string, Array<{ r: PayRow; hash: string }>>();
+    for (const { r, hash, key } of valid) {
+      const arr = incomingByKey.get(key);
+      if (arr) arr.push({ r, hash });
+      else incomingByKey.set(key, [{ r, hash }]);
+    }
 
-    // Second-pass: fetch any existing rows that share a settlement-id with
-    // the incoming batch and build a canonical-key set. Catches re-uploads
-    // whose rowHash drifted because of cosmetic field differences.
+    // Count existing DB rows per canonical key for settlements that appear in
+    // this batch. Amazon legitimately emits byte-identical lines (multi-
+    // shipment / multi-charge per order), so we cannot dedupe by uniqueness;
+    // we dedupe by *count*: insert max(0, incoming_count - existing_count)
+    // per canonical key. Re-uploading the same file yields zero inserts
+    // because counts match; partial overlaps insert only the delta.
+    const existingCountByKey = new Map<string, number>();
     const incomingSettleIds = Array.from(
       new Set(
         valid
@@ -3088,7 +3108,6 @@ async function processPaymentRepository(
           .filter((s): s is string => typeof s === "string" && s.length > 0),
       ),
     );
-    const existingKeySet = new Set<string>();
     if (incomingSettleIds.length > 0) {
       const dbRows = await tx.paymentRepository.findMany({
         where: { settlementId: { in: incomingSettleIds } },
@@ -3104,74 +3123,65 @@ async function processPaymentRepository(
           postedDatetime: true,
         },
       });
-      for (const e of dbRows) existingKeySet.add(canonicalKeyOf(e));
-    }
-    // Also dedupe within the incoming batch so an identical row repeated
-    // inside a single file is not inserted twice.
-    const batchKeySet = new Set<string>();
-    const batchHashSet = new Set<string>();
-
-    for (const { r, hash, key } of valid) {
-      if (
-        existingSet.has(hash) ||
-        existingKeySet.has(key) ||
-        batchHashSet.has(hash) ||
-        batchKeySet.has(key)
-      ) {
-        sk += 1;
-        continue;
+      for (const e of dbRows) {
+        const k = canonicalKeyOf(e);
+        existingCountByKey.set(k, (existingCountByKey.get(k) ?? 0) + 1);
       }
-      batchHashSet.add(hash);
-      batchKeySet.add(key);
-      await tx.$executeRaw`
-        INSERT INTO "payment_repository" (
-          "id", "postedDatetime", "settlementId", "lineType", "orderId", "sku", "description", "quantity",
-          "marketplace", "accountType", "fulfillmentId", "taxCollectionModel",
-          "productSales", "productSalesTax", "shippingCredits", "shippingCreditsTax",
-          "giftWrapCredits", "giftWrapCreditsTax", "regulatoryFee", "taxOnRegulatoryFee",
-          "promotionalRebates", "promotionalRebatesTax",
-          "marketplaceWithheldTax", "sellingFees", "fbaFees", "otherTransactionFees", "other", "total",
-          "transactionStatus", "transactionReleaseDatetime", "store", "rowHash",
-          "uploadedAt", "createdAt", "updatedAt"
-        ) VALUES (
-          gen_random_uuid()::text,
-          ${r.postedDatetime},
-          ${r.settlementId},
-          ${r.lineType},
-          ${r.orderId},
-          ${r.sku},
-          ${r.description},
-          ${r.quantity},
-          ${r.marketplace},
-          ${r.accountType},
-          ${r.fulfillmentId},
-          ${r.taxCollectionModel},
-          ${rawDec(r.productSales)},
-          ${rawDec(r.productSalesTax)},
-          ${rawDec(r.shippingCredits)},
-          ${rawDec(r.shippingCreditsTax)},
-          ${rawDec(r.giftWrapCredits)},
-          ${rawDec(r.giftWrapCreditsTax)},
-          ${rawDec(r.regulatoryFee)},
-          ${rawDec(r.taxOnRegulatoryFee)},
-          ${rawDec(r.promotionalRebates)},
-          ${rawDec(r.promotionalRebatesTax)},
-          ${rawDec(r.marketplaceWithheldTax)},
-          ${rawDec(r.sellingFees)},
-          ${rawDec(r.fbaFees)},
-          ${rawDec(r.otherTransactionFees)},
-          ${rawDec(r.other)},
-          ${rawDec(r.total)},
-          ${r.transactionStatus},
-          ${r.transactionReleaseDatetime},
-          NULL,
-          ${hash},
-          ${batchAt},
-          ${batchAt},
-          ${batchAt}
-        )
-      `;
-      ins += 1;
+    }
+
+    const toInsert: PayRow[] = [];
+    const skipSamples: Array<{ row: PayRow; existingCount: number; incomingCount: number }> = [];
+    const SKIP_LOG_LIMIT = 50;
+
+    for (const [key, group] of incomingByKey) {
+      const existingCount = existingCountByKey.get(key) ?? 0;
+      const insertCount = Math.max(0, group.length - existingCount);
+      for (let i = 0; i < group.length; i++) {
+        const { r, hash } = group[i];
+        if (i < insertCount) {
+          toInsert.push({
+            ...r,
+            store: null,
+            rowHash: hash,
+            uploadedAt: batchAt,
+            createdAt: batchAt,
+            updatedAt: batchAt,
+          });
+        } else {
+          sk += 1;
+          if (skipSamples.length < SKIP_LOG_LIMIT) {
+            skipSamples.push({ row: r, existingCount, incomingCount: group.length });
+          }
+        }
+      }
+    }
+
+    if (sk > 0) {
+      console.log(
+        `[payment_repository] skipped ${sk} row(s) — canonical-key counts matched existing DB rows for the same settlement(s).`,
+      );
+      for (const s of skipSamples) {
+        const r = s.row;
+        console.log(
+          `[payment_repository] skip(db=${s.existingCount},incoming=${s.incomingCount}) ` +
+            `settlement=${r.settlementId ?? ""} ` +
+            `posted=${r.postedDatetime ?? ""} ` +
+            `type=${r.lineType ?? ""} ` +
+            `order=${r.orderId ?? ""} ` +
+            `sku=${r.sku ?? ""} ` +
+            `qty=${r.quantity ?? 0} ` +
+            `total=${r.total?.toString?.() ?? ""}`,
+        );
+      }
+    }
+
+    // Chunked createMany — one round-trip per chunk, far faster than per-row
+    // $executeRaw. Remote DB at ~150ms RTT makes the difference 50-100x.
+    const CHUNK = 500;
+    for (let i = 0; i < toInsert.length; i += CHUNK) {
+      const chunk = toInsert.slice(i, i + CHUNK);
+      const res = await tx.paymentRepository.createMany({ data: chunk });
+      ins += res.count;
     }
   }
   return { totalRows: rows.length, rowsInserted: ins, rowsSkipped: sk };

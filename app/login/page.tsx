@@ -13,7 +13,7 @@ const AUTH_ENABLED = process.env.AUTH_ENABLED === "true";
 export default async function LoginPage() {
   if (AUTH_ENABLED) {
     const session = await auth();
-    if (session?.user) redirect("/");
+    if (session?.user) redirect("/upload");
   }
 
   let userCount = 0;

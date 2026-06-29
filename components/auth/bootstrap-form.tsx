@@ -38,7 +38,7 @@ export function BootstrapForm() {
       return;
     }
     startTransition(() => {
-      router.push("/");
+      router.push("/upload");
       router.refresh();
     });
   }
