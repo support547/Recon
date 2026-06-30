@@ -5,6 +5,7 @@ import {
   getFeesReimbursementsSettlementList,
 } from "@/actions/fees-reimbursements";
 import { FeesReimbursementsClient } from "@/components/payment-reconciliation/fees-reimbursements-client";
+import FeesReimbursementsLoading from "./loading";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export default async function FeesReimbursementsPage() {
     );
   }
   return (
-    <React.Suspense fallback={null}>
+    <React.Suspense fallback={<FeesReimbursementsLoading />}>
       <FeesReimbursementsClient
         initialPayload={payload}
         initialSettlements={settlements}

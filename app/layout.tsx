@@ -3,6 +3,7 @@ import { DM_Mono, DM_Sans } from "next/font/google";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+import { TopProgressBar } from "@/components/nav/TopProgressBar";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -45,6 +46,7 @@ export default function RootLayout({
       <body
         className={`${dmSans.className} min-h-full flex flex-col antialiased`}
       >
+        <TopProgressBar />
         {children}
         <Toaster position="top-right" richColors closeButton />
       </body>

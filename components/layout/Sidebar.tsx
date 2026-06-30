@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import ProgressLink from "@/components/nav/ProgressLink";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 import { useEffect, useState } from "react";
@@ -226,7 +226,7 @@ export function Sidebar({
               const { href, label, icon: Icon } = item;
               const active = isActiveRoute(pathname, href);
               return (
-                <Link
+                <ProgressLink
                   key={href}
                   href={href}
                   onClick={handleNavigate}
@@ -245,7 +245,7 @@ export function Sidebar({
                     aria-hidden
                   />
                   <span className="truncate">{label}</span>
-                </Link>
+                </ProgressLink>
               );
             }
 
@@ -292,7 +292,7 @@ export function Sidebar({
                     {children.map(({ href, label: childLabel, icon: ChildIcon }) => {
                       const active = isActiveRoute(pathname, href);
                       return (
-                        <Link
+                        <ProgressLink
                           key={href}
                           href={href}
                           onClick={handleNavigate}
@@ -311,7 +311,7 @@ export function Sidebar({
                             aria-hidden
                           />
                           <span className="truncate">{childLabel}</span>
-                        </Link>
+                        </ProgressLink>
                       );
                     })}
                   </div>
