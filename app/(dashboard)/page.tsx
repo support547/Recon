@@ -181,7 +181,7 @@ export default function DashboardHomePage() {
         ),
       }}
       prioritySlot={
-        <Suspense fallback={null}>
+        <Suspense fallback={<CasesCardSkeleton />}>
           <PriorityList {...modBag} />
         </Suspense>
       }

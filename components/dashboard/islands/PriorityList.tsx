@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/nav/ProgressLink";
 import { ArrowRight, Flame } from "lucide-react";
 
 import { MODULE_CONFIGS } from "@/components/dashboard/module-config";

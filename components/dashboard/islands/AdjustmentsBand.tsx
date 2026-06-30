@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/nav/ProgressLink";
 import { SlidersHorizontal } from "lucide-react";
 import { AdjType } from "@prisma/client";
 

@@ -4,13 +4,43 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-import { useActiveCount } from "./nav-progress-store";
+import { decrement, increment, useActiveCount } from "./nav-progress-store";
+
+let fetchPatched = false;
+
+// Patch global fetch once. Counts every fetch that takes >150ms — covers
+// server-action RSC POSTs, client API calls, and anything else that fires
+// after a route has already committed (e.g. useEffect data loads inside a
+// client page). Short fetches (<150ms) skip the counter so the bar does not
+// flicker on instant responses.
+function installFetchInterceptor() {
+  if (fetchPatched || typeof window === "undefined") return;
+  fetchPatched = true;
+  const orig = window.fetch.bind(window);
+  window.fetch = async (...args: Parameters<typeof window.fetch>) => {
+    let counted = false;
+    const t = window.setTimeout(() => {
+      counted = true;
+      increment();
+    }, 150);
+    try {
+      return await orig(...args);
+    } finally {
+      window.clearTimeout(t);
+      if (counted) decrement();
+    }
+  };
+}
 
 // Indeterminate bar — pure CSS, no deps. CSS transition handles the 200ms
-// fade-out when the last pending Link resolves; no setState needed.
+// fade-out when the last pending request resolves; no setState needed.
 export function TopProgressBar() {
   const active = useActiveCount();
   const isActive = active > 0;
+
+  React.useEffect(() => {
+    installFetchInterceptor();
+  }, []);
 
   return (
     <>

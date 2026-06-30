@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/nav/ProgressLink";
 import { FolderOpen, Plus } from "lucide-react";
 import { CaseStatus } from "@prisma/client";
 

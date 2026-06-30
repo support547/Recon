@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { getSettlementList } from "@/actions/settlement-report";
 import { SettlementReportClient } from "@/components/settlement-report/settlement-report-client";
+import SettlementReportLoading from "./loading";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function SettlementReportPage() {
     );
   }
   return (
-    <React.Suspense fallback={null}>
+    <React.Suspense fallback={<SettlementReportLoading />}>
       <SettlementReportClient settlements={settlements} />
     </React.Suspense>
   );
