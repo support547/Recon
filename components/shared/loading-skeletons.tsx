@@ -1,9 +1,11 @@
+import { PendingSentinel } from "@/components/nav/PendingSentinel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function PageHeaderSkeleton({ className }: { className?: string }) {
   return (
     <div className={cn("mb-6 space-y-2 border-b border-border pb-6", className)}>
+      <PendingSentinel />
       <Skeleton className="h-8 w-56" />
       <Skeleton className="h-4 w-full max-w-xl" />
     </div>
@@ -24,6 +26,7 @@ export function KpiCardsSkeleton({
         className,
       )}
     >
+      <PendingSentinel />
       {Array.from({ length: count }).map((_, i) => (
         <Skeleton key={i} className="h-20 rounded-lg" />
       ))}
@@ -39,6 +42,7 @@ export function FilterBarSkeleton({ className }: { className?: string }) {
         className,
       )}
     >
+      <PendingSentinel />
       <Skeleton className="h-8 w-64" />
       <Skeleton className="h-8 w-32" />
       <Skeleton className="h-8 w-32" />
@@ -64,6 +68,7 @@ export function TableSkeleton({
         className,
       )}
     >
+      <PendingSentinel />
       <div
         className="grid gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3"
         style={gridStyle}
