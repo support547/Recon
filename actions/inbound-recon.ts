@@ -290,6 +290,24 @@ export async function upsertInboundShipment(
       return { ok: true, data: { id: v.id, created: false } };
     }
 
+    // No v.id → create-or-upsert-by-shipmentId. A partial unique index on
+    // (shipmentId) WHERE "deletedAt" IS NULL backs this at the DB level;
+    // the app-level lookup keeps the user-facing behavior "update the existing
+    // row" instead of surfacing a raw unique-violation.
+    const dupe = await prisma.inboundShipment.findFirst({
+      where: { shipmentId: v.shipmentId, deletedAt: null },
+      select: { id: true },
+    });
+    if (dupe) {
+      await prisma.inboundShipment.update({
+        where: { id: dupe.id },
+        data: toWriteInput(v),
+      });
+      await applySnapshotToInboundRow(dupe.id, v.shipmentId);
+      revalidateAll();
+      return { ok: true, data: { id: dupe.id, created: false } };
+    }
+
     const row = await prisma.inboundShipment.create({
       data: toWriteInput(v),
       select: { id: true },

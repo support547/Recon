@@ -229,6 +229,7 @@ export function UploadZone({
                 res.rowsSkipped,
                 res.totalInFile,
                 res.filename,
+                res.rowsUpdated,
               );
               setMultiResults((prev) =>
                 prev.map((r, idx) =>
@@ -304,6 +305,7 @@ export function UploadZone({
             res.rowsSkipped,
             res.totalInFile,
             res.filename,
+            res.rowsUpdated,
           );
           setResult({
             kind: variant === "warning" ? "warn" : "ok",

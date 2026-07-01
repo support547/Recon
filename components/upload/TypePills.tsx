@@ -28,6 +28,7 @@ export const REPORT_TYPE_META: readonly ReportTypeMeta[] = [
   { value: "inventory_adjustments", label: "Adjustments",   sub: "FBA inventory adjustments report",     templateFile: "adjustments.csv" },
   { value: "payment_repository",label: "Payment Repository",sub: "Amazon Payment / Transaction report",  templateFile: "payment_repository.csv" },
   { value: "settlement_report", label: "Settlement Report", sub: "Amazon settlement (orders/refunds/other)", templateFile: "" },
+  { value: "inbound_charges",   label: "Inbound Charges",   sub: "Bulk inbound shipment charges · shared with Inbound Recon", templateFile: "inbound-charges.csv" },
 ] as const;
 
 export function getReportTypeMeta(rt: ReportTypeValue): ReportTypeMeta {

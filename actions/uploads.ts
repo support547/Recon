@@ -23,6 +23,7 @@ import {
 } from "@/lib/upload-report-types";
 import { requireAuth } from "@/actions/auth";
 import { syncInboundSnapshotsForShipmentIds } from "@/actions/inbound-recon";
+import { InboundShipmentUpsertSchema } from "@/lib/validations/inbound-recon";
 import {
   authzErrorToMutationResult,
   PermissionLevel,
@@ -335,6 +336,11 @@ export async function deleteUploadBatch(id: string): Promise<UploadMutationResul
         case "settlement_report":
           await tx.settlementReport.deleteMany({ where });
           break;
+        case "inbound_charges":
+          // Shared table with the Add Shipment modal on the Inbound Recon page
+          // (and InboundShipment has no `uploadedAt` column). We delete the
+          // upload log entry but intentionally leave the shipment rows.
+          break;
         default:
           throw new Error(`Unknown report type: ${rt}`);
       }
@@ -415,6 +421,11 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
   try {
     const batchAt = new Date();
 
+    // Lifted out of the transaction so we can call the snapshot-sync helper
+    // (which opens its own Prisma queries) after the transaction commits.
+    let inboundTouchedShipmentIds: string[] = [];
+    let inboundRowsUpdated = 0;
+
     const { totalRows, rowsInserted, rowsSkipped } = await prisma.$transaction(
       async (tx) => {
         const { totalRows: tr, rowsInserted: ins, rowsSkipped: sk } =
@@ -455,6 +466,16 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
                   accountType: settlementAccountType!,
                   store: settlementStore!,
                 });
+              case "inbound_charges": {
+                const res = await processInboundCharges(tx, rows, batchAt);
+                inboundTouchedShipmentIds = res.touchedShipmentIds;
+                inboundRowsUpdated = res.rowsUpdated;
+                return {
+                  totalRows: res.totalRows,
+                  rowsInserted: res.rowsInserted,
+                  rowsSkipped: res.rowsSkipped,
+                };
+              }
               default:
                 throw new Error("Unsupported report type.");
             }
@@ -477,6 +498,24 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
 
     revalidateAll();
 
+    // Inbound Charges: after the fee rows are committed, backfill snapshot
+    // columns (ShipmentStatus + SettlementReport actuals) for every
+    // shipment touched. syncInboundSnapshotsForShipmentIds opens its own
+    // Prisma queries and MUST run outside the transaction.
+    if (
+      reportType === "inbound_charges" &&
+      inboundTouchedShipmentIds.length > 0
+    ) {
+      try {
+        await syncInboundSnapshotsForShipmentIds(inboundTouchedShipmentIds);
+      } catch (err) {
+        console.warn(
+          "[upload] inbound-charges snapshot sync failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     // Fire-and-forget: recompute ReconciliationSummary so dashboard / KPIs reflect new data.
     void import("@/actions/reconciliation-refresh")
       .then((m) => m.refreshReconciliationSummary())
@@ -494,6 +533,9 @@ export async function uploadFile(formData: FormData): Promise<UploadFileResult> 
       totalInFile: totalRows,
       filename: file.name,
       reportType,
+      ...(reportType === "inbound_charges"
+        ? { rowsUpdated: inboundRowsUpdated }
+        : {}),
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -3547,5 +3589,170 @@ async function processSettlementReport(
     totalRows: dataRows.length,
     rowsInserted: fresh.length,
     rowsSkipped: dataRows.length - fresh.length,
+  };
+}
+
+// Bulk uploader for the InboundShipment table (also written by the Add Shipment
+// modal on /payment-reconciliation/inbound-recon). Upserts keyed on shipmentId:
+// missing rows are created, existing rows have their three fee columns
+// overwritten from the CSV (blank cell → null, per the "CSV is source of truth
+// for updates" rule). Snapshot columns are refreshed after commit by
+// syncInboundSnapshotsForShipmentIds, which cannot run inside this transaction.
+async function processInboundCharges(
+  tx: Tx,
+  allRows: string[][],
+  _batchAt: Date,
+): Promise<
+  ProcessOutcome & { touchedShipmentIds: string[]; rowsUpdated: number }
+> {
+  const hdr = (allRows[0] ?? []).map((c) =>
+    String(c ?? "")
+      .toLowerCase()
+      .trim()
+      .replace(/['"]/g, "")
+      .replace(/﻿/g, ""),
+  );
+
+  const findCol = (aliases: string[]): number => {
+    for (let i = 0; i < hdr.length; i++) {
+      const cell = hdr[i];
+      if (aliases.some((a) => cell === a || cell.includes(a))) return i;
+    }
+    return -1;
+  };
+
+  const shipmentIdCol = findCol([
+    "shipment id",
+    "shipmentid",
+    "shipment_id",
+    "shipment-id",
+  ]);
+  if (shipmentIdCol === -1) {
+    throw new Error(
+      'Not a valid Inbound Charges file — need a "Shipment ID" column.',
+    );
+  }
+  const manualCol = findCol([
+    "manual processing fee",
+    "manualprocfee",
+    "manual_proc_fee",
+  ]);
+  const placementCol = findCol([
+    "placement fee",
+    "placementfee",
+    "placement_fee",
+  ]);
+  const carrierCol = findCol([
+    "partnered carrier",
+    "partneredcarrier",
+    "partnered_carrier",
+    "partnered carrier cost",
+  ]);
+
+  type Parsed = {
+    shipmentId: string;
+    manualProcFee: number | null;
+    placementFee: number | null;
+    partneredCarrier: number | null;
+  };
+
+  const parsedRows: Parsed[] = [];
+  const seen = new Set<string>();
+  let rowsSkipped = 0;
+
+  for (const row of allRows.slice(1)) {
+    const rawId = String(row[shipmentIdCol] ?? "").trim();
+    if (!rawId) {
+      rowsSkipped += 1;
+      continue;
+    }
+    const dedupKey = rawId.toLowerCase();
+    if (seen.has(dedupKey)) {
+      rowsSkipped += 1;
+      continue;
+    }
+    seen.add(dedupKey);
+
+    const parsed = InboundShipmentUpsertSchema.safeParse({
+      shipmentId: rawId,
+      manualProcFee: manualCol >= 0 ? row[manualCol] : null,
+      placementFee: placementCol >= 0 ? row[placementCol] : null,
+      partneredCarrier: carrierCol >= 0 ? row[carrierCol] : null,
+    });
+    if (!parsed.success) {
+      rowsSkipped += 1;
+      continue;
+    }
+    parsedRows.push({
+      shipmentId: parsed.data.shipmentId,
+      manualProcFee: parsed.data.manualProcFee ?? null,
+      placementFee: parsed.data.placementFee ?? null,
+      partneredCarrier: parsed.data.partneredCarrier ?? null,
+    });
+  }
+
+  const totalRows = parsedRows.length + rowsSkipped;
+
+  if (parsedRows.length === 0) {
+    return {
+      totalRows,
+      rowsInserted: 0,
+      rowsSkipped,
+      rowsUpdated: 0,
+      touchedShipmentIds: [],
+    };
+  }
+
+  // Batch-lookup existing rows by shipmentId (exact match, chunked to stay
+  // under the Postgres bind-param limit — same idiom as fetchExistingHashes).
+  const existingByShipmentId = new Map<string, string>();
+  const CHUNK = 1000;
+  const uniqueIds = Array.from(new Set(parsedRows.map((r) => r.shipmentId)));
+  for (let i = 0; i < uniqueIds.length; i += CHUNK) {
+    const chunk = uniqueIds.slice(i, i + CHUNK);
+    const found = await tx.inboundShipment.findMany({
+      where: { shipmentId: { in: chunk }, deletedAt: null },
+      select: { id: true, shipmentId: true },
+    });
+    for (const f of found) existingByShipmentId.set(f.shipmentId, f.id);
+  }
+
+  let rowsInserted = 0;
+  let rowsUpdated = 0;
+  const touchedShipmentIds: string[] = [];
+
+  for (const r of parsedRows) {
+    const feeData = {
+      manualProcFee:
+        r.manualProcFee != null ? new Prisma.Decimal(r.manualProcFee) : null,
+      placementFee:
+        r.placementFee != null ? new Prisma.Decimal(r.placementFee) : null,
+      partneredCarrier:
+        r.partneredCarrier != null
+          ? new Prisma.Decimal(r.partneredCarrier)
+          : null,
+    };
+    const existingId = existingByShipmentId.get(r.shipmentId);
+    if (existingId) {
+      await tx.inboundShipment.update({
+        where: { id: existingId },
+        data: feeData,
+      });
+      rowsUpdated += 1;
+    } else {
+      await tx.inboundShipment.create({
+        data: { shipmentId: r.shipmentId, ...feeData },
+      });
+      rowsInserted += 1;
+    }
+    touchedShipmentIds.push(r.shipmentId);
+  }
+
+  return {
+    totalRows,
+    rowsInserted,
+    rowsSkipped,
+    rowsUpdated,
+    touchedShipmentIds,
   };
 }

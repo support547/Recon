@@ -32,6 +32,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/full-reconciliation": "Full Inventory Reconciliation",
   "/cases-adjustments": "Cases & Adjustments",
   "/settlement-report": "Settlement Breakup",
+  "/payment-reconciliation/bank-recon": "Bank Transactions",
   "/profile": "My Profile",
   "/settings/users": "User Management",
   "/settings/audit": "Audit Log",

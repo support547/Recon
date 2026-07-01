@@ -6,7 +6,9 @@
       "Bash(cd \"/e/00 ASHVIN/01 web App/FBA Recon\" && find node_modules/next/dist/docs -name \"*navigat*\" -type f | head -10)",
       "Read(//e/e/00 ASHVIN/01 web App/FBA Recon/node_modules/next/dist/**)",
       "Bash(cd \"/e/00 ASHVIN/01 web App/FBA Recon\" && find components/dashboard/islands -name \"*.tsx\" | head -5)",
-      "Read(//e/e/00 ASHVIN/01 web App/FBA Recon/components/dashboard/**)"
+      "Read(//e/e/00 ASHVIN/01 web App/FBA Recon/components/dashboard/**)",
+      "PowerShell(Get-ChildItem -Path \"e:\\\\00 ASHVIN\\\\01 web App\\\\FBA Recon\" -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -in @\\('drizzle', 'prisma', 'schema', 'db'\\) } | Select-Object -First 20 FullName)",
+      "Bash(xargs ls -la)"
     ]
   }
 }

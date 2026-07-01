@@ -15,6 +15,7 @@ export const REPORT_TYPE_VALUES = [
   "payment_repository",
   "removal_shipments",
   "settlement_report",
+  "inbound_charges",
 ] as const;
 
 export type ReportTypeValue = (typeof REPORT_TYPE_VALUES)[number];
@@ -76,6 +77,9 @@ export type UploadFileResult =
       totalInFile: number;
       filename: string;
       reportType: string;
+      // Only the "inbound_charges" processor upserts, so this is optional and
+      // absent for every other report type.
+      rowsUpdated?: number;
     }
   | { ok: false; error: string };
 
@@ -88,7 +92,19 @@ export function uploadResultDescription(
   rowsSkipped: number,
   totalInFile: number,
   filename: string,
+  rowsUpdated?: number,
 ): { variant: "success" | "warning"; description: string } {
+  if (rowsUpdated && rowsUpdated > 0) {
+    const parts = [
+      `${rowsInserted.toLocaleString()} created`,
+      `${rowsUpdated.toLocaleString()} updated`,
+    ];
+    if (rowsSkipped > 0) parts.push(`${rowsSkipped.toLocaleString()} skipped`);
+    return {
+      variant: "success",
+      description: `✅ ${parts.join(" · ")}`,
+    };
+  }
   if (rowsInserted > 0 && rowsSkipped === 0) {
     return {
       variant: "success",

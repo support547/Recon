@@ -13,6 +13,7 @@ import {
   Coins,
   Container,
   Database,
+  Landmark,
   FolderOpen,
   History,
   LayoutDashboard,
@@ -96,6 +97,7 @@ const BASE_NAV_ITEMS: NavItem[] = [
     children: PAYMENT_RECON_CHILDREN,
   },
   { type: "link", href: "/cases-adjustments", label: "Cases & Adjustments", icon: FolderOpen },
+  { type: "link", href: "/payment-reconciliation/bank-recon", label: "Bank Transactions", icon: Landmark },
 ];
 
 const PROFILE_ITEM: NavLeaf = {

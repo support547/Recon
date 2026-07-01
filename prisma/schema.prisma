@@ -126,6 +126,24 @@ enum FinalStatus {
   CLOSED
 }
 
+enum BankTxnDirection {
+  CREDIT
+  DEBIT
+}
+
+enum BankSourceCategory {
+  USA_PAYOUT
+  CA_PAYOUT
+  MX_PAYOUT
+  OTHER
+}
+
+enum BankMatchStatus {
+  UNMATCHED
+  MATCHED
+  DISCREPANCY
+}
+
 // =============================================================
 // AUTH / USERS
 // =============================================================
@@ -1066,7 +1084,56 @@ model InboundShipment {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
+  // Uniqueness of shipmentId is enforced by a PARTIAL unique index defined
+  // in migration 20260701120000_inbound_shipments_unique_shipment_id:
+  //   CREATE UNIQUE INDEX ... ON ("shipmentId") WHERE "deletedAt" IS NULL
+  // Prisma cannot model partial indexes in @@unique, so the model-level
+  // @@index below is kept and the constraint lives in the migration.
   @@index([shipmentId])
   @@map("inbound_shipments")
+}
+
+// =============================================================
+// BANK RECONCILIATION
+// USD bank account. Every credit line is classified from the
+// bank description (USA_PAYOUT / CA_PAYOUT / MX_PAYOUT / OTHER).
+// Only USA_PAYOUT + CA_PAYOUT are matchable to a SettlementReport
+// (1:1). Partial unique index enforcing single live match per
+// settlement lives in the migration.
+// =============================================================
+
+model BankTransaction {
+  id                  String              @id @default(cuid())
+  txnDate             DateTime            @map("txn_date")
+  description         String?
+  amountUsd           Decimal             @map("amount_usd") @db.Decimal(14, 4)
+  direction           BankTxnDirection
+  sourceCategory      BankSourceCategory  @map("source_category")
+  detectedStore       String?             @map("detected_store")
+  detectedCurrency    String?             @map("detected_currency")
+  matchable           Boolean             @default(false)
+  matchedSettlementId String?             @map("matched_settlement_id")
+  matchStatus         BankMatchStatus     @default(UNMATCHED) @map("match_status")
+  settlementExpected  Decimal?            @map("settlement_expected") @db.Decimal(14, 4)
+  varianceUsd         Decimal?            @map("variance_usd") @db.Decimal(14, 4)
+  impliedFxRate       Decimal?            @map("implied_fx_rate") @db.Decimal(18, 8)
+  bankReference       String?             @map("bank_reference")
+  notes               String?
+  importBatchId       String?             @map("import_batch_id")
+  rowHash             String?             @map("row_hash")
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  deletedAt           DateTime?
+
+  // Partial unique index enforcing 1:1 match (one live bank line per
+  // matched settlement) is created in migration SQL; Prisma cannot model
+  // it declaratively.
+  @@index([txnDate])
+  @@index([matchStatus])
+  @@index([matchedSettlementId])
+  @@index([direction])
+  @@index([sourceCategory])
+  @@index([rowHash])
+  @@map("bank_transactions")
 }
 
