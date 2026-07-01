@@ -9,6 +9,7 @@ import {
   type FullReconciliationPayload,
 } from "@/actions/full-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -80,6 +81,7 @@ export function FullReconciliationClient({
   const [rows, setRows] = React.useState(initialPayload.rows);
   const [stats, setStats] = React.useState(initialPayload.stats);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   const [detailRow, setDetailRow] = React.useState<FullReconRow | null>(null);
   const [detailOpen, setDetailOpen] = React.useState(false);

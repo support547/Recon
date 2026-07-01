@@ -14,6 +14,7 @@ import {
 } from "@/actions/grade-resell";
 import { GradeResellFormModal } from "@/components/grade-resell/grade-resell-form-modal";
 import { GradeResellTable } from "@/components/grade-resell/grade-resell-table";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { SummaryCard } from "@/components/shared/SummaryCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,7 @@ export function GradeResellClient({ initialItems }: GradeResellClientProps) {
 
   const [items, setItems] = React.useState(initialItems);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   React.useEffect(() => {
     setItems(initialItems);

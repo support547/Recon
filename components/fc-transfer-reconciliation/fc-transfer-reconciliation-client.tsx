@@ -8,6 +8,7 @@ import {
   type FcFullReconPayload,
 } from "@/actions/fc-transfer-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -111,6 +112,7 @@ export function FcTransferReconciliationClient({
   const debouncedSearch = useDebounced(search, 280);
 
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   const [caseRow, setCaseRow] = React.useState<FcModalTarget | null>(null);
   const [caseOpen, setCaseOpen] = React.useState(false);

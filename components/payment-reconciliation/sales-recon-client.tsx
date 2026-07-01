@@ -8,6 +8,7 @@ import {
   type SalesReconPayload,
 } from "@/actions/sales-recon";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import {
   ColumnsMenu,
   useColumnVisibility,
@@ -182,6 +183,7 @@ export function SalesReconClient({
 
   const [payload, setPayload] = React.useState(initialPayload);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   const reload = React.useCallback(async () => {
     setLoading(true);

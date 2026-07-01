@@ -6,6 +6,7 @@ import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 
 type RefreshActionResult =
   | { ok: true; rowsUpserted?: number; error?: undefined }
@@ -33,6 +34,7 @@ export function RefreshKpiButton({
 }: RefreshKpiButtonProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
 
   async function handleClick() {
     try {

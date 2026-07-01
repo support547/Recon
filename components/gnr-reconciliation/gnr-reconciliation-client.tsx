@@ -9,6 +9,7 @@ import {
 } from "@/actions/gnr-reconciliation";
 import type { GnrReconV2Payload } from "@/actions/gnr-reconciliation-v2";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -57,6 +58,7 @@ export function GnrReconciliationClient({
   const [search, setSearch] = React.useState("");
   const debouncedSearch = useDebounced(search, 280);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   // Only the Log tab reloads from the server (search-filtered). The GNR
   // Reconciliation tab is the self-managing FBA Recon v2 table.

@@ -28,6 +28,7 @@ import { InboundReconFormModal } from "@/components/payment-reconciliation/inbou
 import { useCanDelete } from "@/components/auth/permissions-context";
 import { RefreshKpiButton } from "@/components/dashboard/refresh-kpi-button";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { ExportCsvButton } from "@/components/shared/export-csv-button";
 import { SummaryCard } from "@/components/shared/SummaryCard";
 import { Badge } from "@/components/ui/badge";
@@ -181,6 +182,7 @@ export function InboundReconClient({ initialItems }: InboundReconClientProps) {
 
   const [items, setItems] = React.useState(initialItems);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   React.useEffect(() => {
     setItems(initialItems);

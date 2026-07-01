@@ -8,6 +8,7 @@ import {
   type ReplacementReconciliationPayload,
 } from "@/actions/replacement-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -80,6 +81,7 @@ export function ReplacementReconciliationClient({
   const [logRows, setLogRows] = React.useState(initialPayload.logRows);
   const [stats, setStats] = React.useState(initialPayload.stats);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   const [caseRow, setCaseRow] = React.useState<ReplacementReconRow | null>(null);
   const [caseOpen, setCaseOpen] = React.useState(false);

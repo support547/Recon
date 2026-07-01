@@ -42,6 +42,7 @@ import {
 } from "@/components/shared/cell-hover-popover";
 import { SummaryCard } from "@/components/shared/SummaryCard";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { cn } from "@/lib/utils";
 
 type Tab = "orders" | "refunds" | "other";
@@ -102,6 +103,7 @@ export function SettlementReportClient({
   >(null);
   const [summary, setSummary] = React.useState<SettlementSummaryRow[] | null>(null);
   const [loading, setLoading] = React.useState(true);
+  useTrackPending(loading);
 
   const settlementIdOrNull =
     settlementId === ALL_SETTLEMENTS ? null : settlementId;

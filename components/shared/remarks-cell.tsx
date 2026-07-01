@@ -4,6 +4,7 @@ import * as React from "react";
 import { MessageSquare, MessageSquarePlus } from "lucide-react";
 import { toast } from "sonner";
 
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import {
   HoverCard,
@@ -45,6 +46,7 @@ export function RemarksCell({
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(value);
   const [pending, setPending] = React.useState(false);
+  useTrackPending(pending);
 
   React.useEffect(() => {
     setDraft(value);

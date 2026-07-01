@@ -37,3 +37,16 @@ function getServerSnapshot() {
 export function useActiveCount() {
   return React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
+
+// Mirror any boolean into the global counter. Any component that already has
+// a `loading` / `pending` / `submitting` state can call this hook to surface
+// its work in the top progress bar without owning its own fetch tracking.
+export function useTrackPending(active: boolean) {
+  React.useEffect(() => {
+    if (!active) return;
+    increment();
+    return () => {
+      decrement();
+    };
+  }, [active]);
+}

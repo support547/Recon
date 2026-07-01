@@ -4,6 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { createWrongLabelAdjustment } from "@/actions/adjustments";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +39,7 @@ export function WrongLabelDialog({ open, onOpenChange, context, onSaved }: Props
   const [quantity, setQuantity] = React.useState<string>("1");
   const [notes, setNotes] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
+  useTrackPending(submitting);
 
   React.useEffect(() => {
     if (open) {

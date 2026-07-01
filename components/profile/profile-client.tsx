@@ -10,6 +10,7 @@ import {
   updateMyProfile,
   type MyProfile,
 } from "@/actions/profile";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +63,7 @@ export function ProfileClient({ profile }: { profile: MyProfile }) {
 function DetailsSection({ profile }: { profile: MyProfile }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [name, setName] = React.useState(profile.name);
 
   const dirty = name.trim() !== profile.name;
@@ -199,6 +201,7 @@ function AdminManagedDetailsSection({ profile }: { profile: MyProfile }) {
 function PasswordSection() {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [current, setCurrent] = React.useState("");
   const [next, setNext] = React.useState("");
   const [confirm, setConfirm] = React.useState("");

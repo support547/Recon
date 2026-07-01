@@ -8,6 +8,7 @@ import {
   type AdjReconPayload,
 } from "@/actions/adjustment-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -75,6 +76,7 @@ export function AdjustmentReconciliationClient({
 
   const [payload, setPayload] = React.useState(initialPayload);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   const [caseRow, setCaseRow] = React.useState<AdjPivotRow | null>(null);
   const [caseOpen, setCaseOpen] = React.useState(false);

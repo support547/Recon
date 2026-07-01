@@ -9,6 +9,7 @@ import {
   type GnrReconV2Payload,
 } from "@/actions/gnr-reconciliation-v2";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -245,6 +246,7 @@ export function FbaReconTable({
   const [rows, setRows] = React.useState(initialPayload.rows);
   const [stats, setStats] = React.useState(initialPayload.stats);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   // By MSKU (current per-used-SKU table) vs By ASIN (placeholder for now).
   // Controlled by the parent when provided; otherwise self-managed.

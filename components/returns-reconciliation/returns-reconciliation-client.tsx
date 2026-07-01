@@ -8,6 +8,7 @@ import {
   type ReturnsReconciliationPayload,
 } from "@/actions/returns-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -76,6 +77,7 @@ export function ReturnsReconciliationClient({
   const [rows, setRows] = React.useState(initialPayload.rows);
   const [byAsinRows, setByAsinRows] = React.useState(initialPayload.asinRows);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
   const [view, setView] = React.useState<"msku" | "asin">("msku");
 
   const [caseRow, setCaseRow] = React.useState<ReturnsReconRow | null>(null);

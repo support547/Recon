@@ -7,6 +7,7 @@ import {
   getMissingShipments,
   type MissingShipmentRow,
 } from "@/actions/shipment-reconciliation";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +45,7 @@ export function NewShipmentsDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
   const [rows, setRows] = React.useState<MissingShipmentRow[] | null>(null);
 
   // Lazy fetch — only when the dialog opens. State updates run on the

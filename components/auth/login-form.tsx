@@ -6,6 +6,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 import { signInWithCredentials } from "@/actions/auth";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +18,7 @@ export function LoginForm() {
   const callbackUrl =
     !rawCallback || rawCallback === "/" ? "/upload" : rawCallback;
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [showPassword, setShowPassword] = React.useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {

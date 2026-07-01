@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { createUser, signInWithCredentials } from "@/actions/auth";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +13,7 @@ import { Label } from "@/components/ui/label";
 export function BootstrapForm() {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

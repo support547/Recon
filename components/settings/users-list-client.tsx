@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { UserRole } from "@prisma/client";
 
 import { createUser, type UserListRow } from "@/actions/users";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -132,6 +133,7 @@ function CreateUserDialog() {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState<UserRole>(UserRole.VIEWER);

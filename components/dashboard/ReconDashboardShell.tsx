@@ -10,6 +10,7 @@ import {
   DashboardHeaderActions,
   type DashboardView,
 } from "@/components/dashboard/DashboardHeaderActions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { cn } from "@/lib/utils";
 import {
   FinancialPlaceholder,
@@ -43,6 +44,7 @@ type ShellProps = {
 export function ReconDashboardShell(props: ShellProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [view, setView] = React.useState<DashboardView>("inventory");
 
   async function handleRefresh() {

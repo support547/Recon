@@ -22,7 +22,7 @@ function installFetchInterceptor() {
     const t = window.setTimeout(() => {
       counted = true;
       increment();
-    }, 150);
+    }, 75);
     try {
       return await orig(...args);
     } finally {

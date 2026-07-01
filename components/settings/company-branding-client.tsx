@@ -13,6 +13,7 @@ import {
   ALLOWED_MARKETPLACES,
   type Marketplace,
 } from "@/lib/branding/marketplaces";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,6 +69,7 @@ export function CompanyBrandingClient({
   );
   const [fileError, setFileError] = React.useState<string | null>(null);
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const previewSrc = logo ?? FALLBACK_LOGO;

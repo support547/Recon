@@ -37,6 +37,7 @@ import {
   DashboardHeaderActions,
   type DashboardView,
 } from "@/components/dashboard/DashboardHeaderActions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { cn } from "@/lib/utils";
 
 export type ModuleStats = {
@@ -173,6 +174,7 @@ export function smoothScroll(id: string) {
 export function ReconDashboardClient(props: DashboardProps) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [refreshedAt, setRefreshedAt] = React.useState<string | null>(
     props.lastRefreshedAt,
   );

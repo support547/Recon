@@ -9,6 +9,7 @@ import {
   type FcByFcPayload,
 } from "@/actions/fc-transfer-reconciliation";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -96,6 +97,7 @@ export function FcByFcView({ viewSwitcher }: { viewSwitcher?: React.ReactNode })
   const debouncedSearch = useDebounced(search, 280);
 
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
   const [payload, setPayload] = React.useState<FcByFcPayload | null>(null);
 
   // Sort: default volume desc (busiest first — matches the lib's default order).

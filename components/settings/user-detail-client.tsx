@@ -15,6 +15,7 @@ import {
   updateUser,
   type UserDetail,
 } from "@/actions/users";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -127,6 +128,7 @@ function toDateInputValue(d: Date | null): string {
 function DetailsSection({ user }: { user: UserDetail }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [designation, setDesignation] = React.useState(user.designation ?? "");
   const [department, setDepartment] = React.useState(user.department ?? "");
   const [employeeId, setEmployeeId] = React.useState(user.employeeId ?? "");
@@ -247,6 +249,7 @@ function DetailsSection({ user }: { user: UserDetail }) {
 function IdentitySection({ user }: { user: UserDetail }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [name, setName] = React.useState(user.name);
   const [email, setEmail] = React.useState(user.email);
   const [role, setRole] = React.useState<UserRole>(user.role);
@@ -317,6 +320,7 @@ function IdentitySection({ user }: { user: UserDetail }) {
 function StatusSection({ user }: { user: UserDetail }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
 
   async function toggle() {
     const res = await setUserActive(user.id, { active: !user.isActive });
@@ -371,6 +375,7 @@ function PasswordSection({ user }: { user: UserDetail }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
   const [pw, setPw] = React.useState("");
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -464,6 +469,7 @@ function DeleteUserButton({
 }) {
   const [open, setOpen] = React.useState(false);
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
 
   async function onConfirm() {
     const res = await deleteUser(id);
@@ -519,6 +525,7 @@ function DeleteUserButton({
 function PermissionsSection({ user }: { user: UserDetail }) {
   const router = useRouter();
   const [pending, startTransition] = React.useTransition();
+  useTrackPending(pending);
 
   const byModule = React.useMemo(() => {
     const m = new Map<PermissionModule, { level: PermissionLevel; source: "override" | "inherited" }>();

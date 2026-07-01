@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HeaderActions } from "@/components/layout/header-actions";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { cn } from "@/lib/utils";
 
 type Tab = "ALL" | FeesReimbGroup;
@@ -125,6 +126,7 @@ export function FeesReimbursementsClient({
   const [settlementList, setSettlementList] =
     React.useState<FeesReimbSettlementListItem[]>(initialSettlements);
   const [loading, setLoading] = React.useState(false);
+  useTrackPending(loading);
 
   const [summarySubView, setSummarySubView] =
     React.useState<SummarySubView>("overview");

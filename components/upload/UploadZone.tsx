@@ -14,6 +14,7 @@ import {
   type UploadFileResult,
   uploadResultDescription,
 } from "@/lib/upload-report-types";
+import { useTrackPending } from "@/components/nav/nav-progress-store";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -64,6 +65,7 @@ export function UploadZone({
   onPendingChange,
 }: UploadZoneProps) {
   const [isPending, startTransition] = React.useTransition();
+  useTrackPending(isPending);
 
   React.useEffect(() => {
     onPendingChange?.(isPending);
@@ -639,6 +641,7 @@ function CostWorksheet({ onUploaded }: CostWorksheetProps) {
     "pending",
   );
   const [loadingIds, setLoadingIds] = React.useState(false);
+  useTrackPending(loadingIds);
   const [costFile, setCostFile] = React.useState<File | null>(null);
   const [costDragging, setCostDragging] = React.useState(false);
   const [costResult, setCostResult] = React.useState<ResultMsg>(null);
