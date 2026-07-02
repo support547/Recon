@@ -168,6 +168,8 @@ export function BankReconClient({ initialItems, initialKpis }: Props) {
   const debouncedFilters = useDebouncedValue(filters, 320);
 
   const [items, setItems] = React.useState<BankTransactionRow[]>(initialItems);
+  const [page, setPage] = React.useState(0);
+  const [pageSize, setPageSize] = React.useState(15);
   const [kpis, setKpis] = React.useState(initialKpis);
   const [loading, setLoading] = React.useState(false);
   useTrackPending(loading);
@@ -185,6 +187,21 @@ export function BankReconClient({ initialItems, initialKpis }: Props) {
   React.useEffect(() => {
     setItems(initialItems);
   }, [initialItems]);
+
+  // Any filter / status / category / direction change resets to page 1 so the
+  // user doesn't land on an empty tail page after narrowing the list.
+  React.useEffect(() => {
+    setPage(0);
+  }, [debouncedFilters, statusFilter, categoryFilter, directionFilter, pageSize]);
+
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const currentPage = Math.min(page, pageCount - 1);
+  const pagedItems = React.useMemo(
+    () => items.slice(currentPage * pageSize, (currentPage + 1) * pageSize),
+    [items, currentPage, pageSize],
+  );
+  const rangeStart = items.length === 0 ? 0 : currentPage * pageSize + 1;
+  const rangeEnd = Math.min((currentPage + 1) * pageSize, items.length);
   React.useEffect(() => {
     setKpis(initialKpis);
   }, [initialKpis]);
@@ -514,9 +531,9 @@ export function BankReconClient({ initialItems, initialKpis }: Props) {
             </p>
           ) : null}
 
-          <div className="overflow-x-auto rounded-xl border border-border bg-card">
+          <div className="rounded-xl border border-border bg-card">
             <table className="w-full min-w-[1180px] caption-bottom text-sm">
-              <thead className="bg-slate-100 text-[10px] uppercase tracking-wider text-slate-700">
+              <thead className="sticky top-14 z-20 bg-slate-100 text-[10px] uppercase tracking-wider text-slate-700 shadow-[0_2px_4px_-1px_rgba(15,23,42,0.12),0_1px_0_rgba(15,23,42,0.08)] [&_tr]:border-b-2 [&_tr]:border-slate-300">
                 <tr>
                   <th className="px-3 py-2 text-left">Date</th>
                   <th className="px-3 py-2 text-left">Description</th>
@@ -526,7 +543,7 @@ export function BankReconClient({ initialItems, initialKpis }: Props) {
                   <th className="px-3 py-2 text-right">Expected</th>
                   <th className="px-3 py-2 text-right">Var USD / FX</th>
                   <th className="px-3 py-2 text-center">Status</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
+                  <th className="px-3 py-2 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -541,7 +558,7 @@ export function BankReconClient({ initialItems, initialKpis }: Props) {
                     </td>
                   </tr>
                 ) : (
-                  items.map((row) => {
+                  pagedItems.map((row) => {
                     const cat = categoryBadge(row.sourceCategory);
                     const isCredit = row.direction === "CREDIT";
                     const bankCcy = (row.detectedCurrency as "USD" | "CAD" | null) ?? null;
@@ -663,10 +680,72 @@ export function BankReconClient({ initialItems, initialKpis }: Props) {
             </table>
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            {items.length.toLocaleString()} rows loaded (max 1,000). Narrow
-            filters if you need older data.
-          </p>
+          <div className="flex flex-col gap-3 border-t border-slate-200 pt-3 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span>
+                Showing {rangeStart.toLocaleString()}–{rangeEnd.toLocaleString()} of{" "}
+                {items.length.toLocaleString()}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span>Rows:</span>
+                <select
+                  className="h-7 rounded border border-slate-200 bg-white px-1.5 text-[11px]"
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                >
+                  <option value={15}>15</option>
+                  <option value={30}>30</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              <span className="text-muted-foreground">
+                {items.length >= 1000 ? "(max 1,000 loaded — narrow filters for older data)" : null}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px]"
+                disabled={currentPage === 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              >
+                ← Prev
+              </Button>
+              {Array.from({ length: Math.min(pageCount, 7) }, (_, i) => {
+                // Sliding window of up to 7 page buttons centered on current.
+                let start = Math.max(0, currentPage - 3);
+                const end = Math.min(pageCount, start + 7);
+                start = Math.max(0, end - 7);
+                return start + i;
+              })
+                .filter((p) => p < pageCount)
+                .map((p) => (
+                  <Button
+                    key={p}
+                    type="button"
+                    variant={currentPage === p ? "default" : "outline"}
+                    size="sm"
+                    className="h-7 min-w-8 px-2 text-[11px]"
+                    onClick={() => setPage(p)}
+                  >
+                    {p + 1}
+                  </Button>
+                ))}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px]"
+                disabled={currentPage >= pageCount - 1}
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              >
+                Next →
+              </Button>
+            </div>
+          </div>
         </div>
 
         <BankReconAddModal

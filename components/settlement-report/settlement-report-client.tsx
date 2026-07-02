@@ -548,6 +548,12 @@ function SummarySection({
       acc.refund_total += Number(r.refund_total);
       acc.other_amount += Number(r.other_amount);
       acc.net_amount += Number(r.net_amount);
+      if (r.bank_matched) {
+        const amt = Number(r.bank_amount_usd);
+        const varUsd = Number(r.bank_variance_usd);
+        if (Number.isFinite(amt)) acc.bank_amount_usd += amt;
+        if (Number.isFinite(varUsd)) acc.bank_variance_usd += varUsd;
+      }
       return acc;
     },
     {
@@ -556,6 +562,7 @@ function SummarySection({
       refund_qty: 0, refund_sales: 0, refund_fba_fees: 0, refund_commission: 0,
       refund_variable_fee: 0, refund_other: 0, refund_total: 0,
       other_amount: 0, net_amount: 0,
+      bank_amount_usd: 0, bank_variance_usd: 0,
     },
   );
   return (
@@ -584,12 +591,17 @@ function SummarySection({
               <HeadCell align="right" tone="refunds" total={totals.refund_total} totalKind="money">Total</HeadCell>
               <HeadCell align="right" total={totals.other_amount} totalKind="money">Other $</HeadCell>
               <HeadCell align="right" total={totals.net_amount} totalKind="money">Net</HeadCell>
+              <HeadCell align="left"  tone="bank">Bank Date</HeadCell>
+              <HeadCell align="left"  tone="bank">Bank Description</HeadCell>
+              <HeadCell align="right" tone="bank" total={totals.bank_amount_usd} totalKind="money">Bank Amt USD</HeadCell>
+              <HeadCell align="right" tone="bank" total={totals.bank_variance_usd} totalKind="money">Variance USD</HeadCell>
+              <HeadCell align="right" tone="bank">FX Rate</HeadCell>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={20} className="py-12 text-center text-muted-foreground">
+                <td colSpan={25} className="py-12 text-center text-muted-foreground">
                   No settlements found.
                 </td>
               </tr>
@@ -597,6 +609,10 @@ function SummarySection({
               rows.map((r) => {
                 const oBg = "bg-emerald-50/60";
                 const rBg = "bg-rose-50/60";
+                const bBg = "bg-sky-50/60";
+                const linked = r.bank_matched === true;
+                const isCad =
+                  (r.store ?? "").toUpperCase() === "CA";
                 return (
                 <tr key={r.settlement_id} className="border-b border-border/50 hover:bg-slate-50">
                   <td className="px-2 py-2 font-mono text-[11px] font-semibold">{r.settlement_id}</td>
@@ -622,6 +638,27 @@ function SummarySection({
                   <td className={cn("px-2 py-2 text-right font-mono tabular-nums font-bold", rBg, moneyClass(r.refund_total))}>{money(r.refund_total)}</td>
                   <td className={cn("px-2 py-2 text-right font-mono tabular-nums", moneyClass(r.other_amount))}>{money(r.other_amount)}</td>
                   <td className={cn("px-2 py-2 text-right font-mono tabular-nums font-bold", moneyClass(r.net_amount))}>{money(r.net_amount)}</td>
+                  {/* Bank link — all cells blank when unlinked, per spec. */}
+                  <td className={cn("px-2 py-2 text-left font-mono text-[11px]", bBg)}>
+                    {linked ? r.bank_txn_date ?? "" : ""}
+                  </td>
+                  <td
+                    className={cn("max-w-[240px] px-2 py-2 text-left text-[11px]", bBg)}
+                    title={linked ? r.bank_description ?? "" : ""}
+                  >
+                    <span className="block truncate">
+                      {linked ? r.bank_description ?? "" : ""}
+                    </span>
+                  </td>
+                  <td className={cn("px-2 py-2 text-right font-mono tabular-nums", bBg, linked ? moneyClass(r.bank_amount_usd) : "")}>
+                    {linked ? money(r.bank_amount_usd) : ""}
+                  </td>
+                  <td className={cn("px-2 py-2 text-right font-mono tabular-nums", bBg, linked ? moneyClass(r.bank_variance_usd) : "")}>
+                    {linked ? money(r.bank_variance_usd) : ""}
+                  </td>
+                  <td className={cn("px-2 py-2 text-right font-mono tabular-nums", bBg)}>
+                    {linked ? (isCad && r.bank_fx_rate ? Number(r.bank_fx_rate).toFixed(4) : "—") : ""}
+                  </td>
                 </tr>
                 );
               })
@@ -644,7 +681,7 @@ function HeadCell({
   children: React.ReactNode;
   total?: unknown;
   totalKind?: "num" | "money";
-  tone?: "orders" | "refunds";
+  tone?: "orders" | "refunds" | "bank";
 }) {
   const totalText =
     total === undefined || total === null
@@ -659,13 +696,17 @@ function HeadCell({
       ? "text-emerald-900"
       : tone === "refunds"
         ? "text-rose-900"
-        : "text-muted-foreground";
+        : tone === "bank"
+          ? "text-sky-900"
+          : "text-muted-foreground";
   const bgCls =
     tone === "orders"
       ? "bg-emerald-100"
       : tone === "refunds"
         ? "bg-rose-100"
-        : "";
+        : tone === "bank"
+          ? "bg-sky-100"
+          : "";
   return (
     <th
       className={cn(

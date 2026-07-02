@@ -135,6 +135,15 @@ export type SettlementSummaryRow = {
   other_amount: string;
   // Grand net
   net_amount: string;
+  // Bank link (per matched BankTransaction, 1:1 by settlement_id). All
+  // optional — populated only when a live bank transaction is linked to
+  // this settlement.
+  bank_txn_date?: string | null;
+  bank_description?: string | null;
+  bank_amount_usd?: string | null;
+  bank_variance_usd?: string | null;
+  bank_fx_rate?: string | null;
+  bank_matched?: boolean;
 };
 
 /** GET /api/settlement-report/settlements — list of available settlements. */
@@ -300,7 +309,7 @@ export async function getSettlementSummary(
   `;
   type Raw = Record<string, unknown>;
   const rows = await prisma.$queryRawUnsafe<Raw[]>(sql, ...baseParams);
-  return rows.map((r) => ({
+  const summaryRows: SettlementSummaryRow[] = rows.map((r) => ({
     settlement_id: String(r.settlement_id),
     account_type: (r.account_type as string | null) ?? null,
     store: (r.store as string | null) ?? null,
@@ -323,6 +332,57 @@ export async function getSettlementSummary(
     other_amount: decimalToStr(r.other_amount),
     net_amount: decimalToStr(r.net_amount),
   }));
+
+  // Attach linked BankTransaction details per settlement (1:1). Uses the
+  // stored settlementExpected on the matched bank row for the variance so
+  // this exactly mirrors what the Bank Transactions page shows.
+  const settlementIds = summaryRows
+    .map((r) => r.settlement_id)
+    .filter((id): id is string => !!id);
+  if (settlementIds.length > 0) {
+    const bankRows = await prisma.bankTransaction.findMany({
+      where: {
+        deletedAt: null,
+        matchedSettlementId: { in: settlementIds },
+      },
+      select: {
+        matchedSettlementId: true,
+        txnDate: true,
+        description: true,
+        amountUsd: true,
+        settlementExpected: true,
+        impliedFxRate: true,
+        detectedStore: true,
+        detectedCurrency: true,
+        matchStatus: true,
+      },
+    });
+    const bankBySettlement = new Map<string, (typeof bankRows)[number]>();
+    for (const b of bankRows) {
+      if (b.matchedSettlementId) bankBySettlement.set(b.matchedSettlementId, b);
+    }
+    for (const row of summaryRows) {
+      const b = bankBySettlement.get(row.settlement_id);
+      if (!b) continue;
+      const bankAmt = Number(b.amountUsd);
+      const expected =
+        b.settlementExpected != null ? Number(b.settlementExpected) : null;
+      const variance = expected == null ? null : expected - bankAmt;
+      const isCad = b.detectedCurrency === "CAD";
+      row.bank_matched = true;
+      row.bank_txn_date =
+        b.txnDate instanceof Date
+          ? b.txnDate.toISOString().slice(0, 10)
+          : String(b.txnDate).slice(0, 10);
+      row.bank_description = b.description;
+      row.bank_amount_usd = b.amountUsd.toString();
+      row.bank_variance_usd = variance == null ? null : variance.toFixed(4);
+      row.bank_fx_rate =
+        isCad && b.impliedFxRate != null ? b.impliedFxRate.toString() : null;
+    }
+  }
+
+  return summaryRows;
 }
 
 /** GET /api/settlement-report/kpis */
